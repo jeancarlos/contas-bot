@@ -1,0 +1,45 @@
+import pino from 'pino'
+import { connectWa } from './wa.ts'
+import { makeBot } from './bot.ts'
+import { makeLlm } from './llm.ts'
+import { openState } from './state.ts'
+import { pdfToPng } from './pdf.ts'
+
+function env(name: string, fallback?: string): string {
+  const v = process.env[name] ?? fallback
+  if (v === undefined || v === '') throw new Error(`missing env ${name}`)
+  return v
+}
+
+const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const store = await openState(env('STATE_FILE', 'data/state.json'))
+const llm = makeLlm({
+  baseUrl: env('LLM_BASE_URL'),
+  apiKey: env('LLM_API_KEY'),
+  textModel: env('LLM_TEXT_MODEL', 'cx/gpt-5.4-mini'),
+  visionModel: env('LLM_VISION_MODEL', 'cx/gpt-5.5'),
+})
+
+let bot: ReturnType<typeof makeBot> | undefined
+const wa = await connectWa({
+  authDir: env('AUTH_DIR', 'auth'),
+  groupJid: env('GROUP_JID'),
+  phone: env('BOT_PHONE'),
+  log,
+  onMessage: m => { bot?.onMessage(m) },
+  onDescription: d => { bot?.onDescription(d) },
+})
+
+// Baileys resolves the socket before the connection is open; wait for the first successful metadata read.
+for (let i = 0; ; i++) {
+  try { await wa.getDescription(); break } catch {
+    if (i > 60) throw new Error('never connected')
+    await new Promise(r => setTimeout(r, 5000))
+  }
+}
+
+bot = makeBot({ wa, llm, store, log, pdfToPng })
+await bot.start()
+await bot.tick()
+setInterval(() => { bot!.tick().catch(e => log.error({ err: e }, 'tick failed')) }, 60_000)
+log.info('contas-bot ready')

@@ -57,6 +57,8 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
           // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
           cfg.log.error('logged out: wiping auth, restart pairs again')
           await rm(cfg.authDir, { recursive: true, force: true })
+          // Back off before the restart: rapid re-pairing gets the number rate-limited by WhatsApp.
+          if (!state.creds.registered) await new Promise(r => setTimeout(r, 60_000))
           process.exit(2)
         }
         cfg.log.warn({ code }, 'connection closed, reconnecting')

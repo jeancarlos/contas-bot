@@ -21,14 +21,21 @@ const llm = makeLlm({
 })
 
 let bot: ReturnType<typeof makeBot> | undefined
+const groupJid = process.env.GROUP_JID ?? ''
 const wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
-  groupJid: env('GROUP_JID'),
+  groupJid,
   phone: env('BOT_PHONE'),
   log,
   onMessage: m => { bot?.onMessage(m) },
   onDescription: d => { bot?.onDescription(d) },
 })
+
+if (!groupJid) {
+  // First boot: pair, log the groups this number belongs to, and wait for GROUP_JID to be set.
+  log.warn('GROUP_JID is empty: pair the number, copy the group JID from the log into .env and restart')
+  await new Promise(() => {})
+}
 
 // Baileys resolves the socket before the connection is open; wait for the first successful metadata read.
 for (let i = 0; ; i++) {

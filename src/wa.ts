@@ -16,7 +16,11 @@ type Cfg = {
   onDescription(desc: string): void
 }
 
-let pairingCodeRequested = false
+// WhatsApp expires a pairing code in a couple of minutes and rate-limits
+// repeat requests. A boolean latch was never cleared on reconnect, so the
+// bot sat on a dead code forever; a timestamp both throttles and expires.
+const PAIRING_CODE_TTL_MS = 180_000
+let pairingCodeAt = 0
 
 function toIncoming(msg: WAMessage): Incoming | null {
   const c = normalizeMessageContent(msg.message)
@@ -44,8 +48,13 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
       for (const name of await readdir(cfg.authDir)) {
         await rm(join(cfg.authDir, name), { recursive: true, force: true })
       }
+      const left = await readdir(cfg.authDir)
+      if (left.length) throw new Error('still present after wipe: ' + left.join(', '))
     } catch (err) {
-      cfg.log.error({ err }, 'could not wipe auth dir; delete its contents by hand')
+      // Exiting on a half-wiped dir reloads the same dead session and loops
+      // silently, so say so loudly instead of pretending the wipe worked.
+      cfg.log.fatal({ err, authDir: cfg.authDir },
+        'could not wipe auth dir — the same logout will repeat until it is emptied by hand')
     }
   }
 
@@ -66,14 +75,14 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
       // raced the 428 close WhatsApp sends to unregistered sockets, and the throw
       // out of that floating timer took the process down on every restart. The qr
       // event is the signal that the socket is up and still unregistered.
-      if (u.qr && !state.creds.registered && !pairingCodeRequested) {
-        pairingCodeRequested = true
+      if (u.qr && !state.creds.registered && Date.now() - pairingCodeAt > PAIRING_CODE_TTL_MS) {
+        pairingCodeAt = Date.now()
         try {
           const code = await s.requestPairingCode(cfg.phone)
           cfg.log.warn({ code }, 'PAIRING CODE: WhatsApp > Aparelhos conectados > Conectar com número de telefone')
         } catch (err) {
-          // Latching on a failed request is what left the bot unable to ever pair.
-          pairingCodeRequested = false
+          // Blocking on a failed request is what left the bot unable to ever pair.
+          pairingCodeAt = 0
           cfg.log.error({ err }, 'pairing code request failed, retrying on next connection')
         }
       }
@@ -88,8 +97,10 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
           // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
           cfg.log.error('logged out: wiping auth, restart pairs again')
           await wipeAuth()
-          // Back off before the restart: rapid re-pairing gets the number rate-limited by WhatsApp.
-          if (!state.creds.registered) await new Promise(r => setTimeout(r, 60_000))
+          // Back off before the restart: rapid re-pairing gets the number rate-limited
+          // by WhatsApp. This used to read state.creds.registered, which is the copy
+          // loaded at startup and still true for a session that was just logged out.
+          await new Promise(r => setTimeout(r, 60_000))
           process.exit(2)
         }
         cfg.log.warn({ code }, 'connection closed, reconnecting')

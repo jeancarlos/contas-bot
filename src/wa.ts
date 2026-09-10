@@ -1,9 +1,9 @@
 import makeWASocket, {
-  normalizeMessageContent,
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
-  type WAMessage, type WAMessageKey,
+  type WAMessage, type WAMessageKey, normalizeMessageContent,
 } from '@whiskeysockets/baileys'
-import { rm } from 'node:fs/promises'
+import { readdir, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Logger } from 'pino'
 import type { Incoming, MsgKey, Wa } from './bot.ts'
 
@@ -36,6 +36,19 @@ function toIncoming(msg: WAMessage): Incoming | null {
 }
 
 export async function connectWa(cfg: Cfg): Promise<Wa> {
+  // authDir is a bind-mount point: removing it needs write on /app, which this
+  // container does not have, and the EACCES took the process down instead of
+  // letting it exit cleanly. Emptying it does the same job.
+  async function wipeAuth() {
+    try {
+      for (const name of await readdir(cfg.authDir)) {
+        await rm(join(cfg.authDir, name), { recursive: true, force: true })
+      }
+    } catch (err) {
+      cfg.log.error({ err }, 'could not wipe auth dir; delete its contents by hand')
+    }
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
   let sock = start()
@@ -49,6 +62,21 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
     })
     s.ev.on('creds.update', saveCreds)
     s.ev.on('connection.update', async u => { try {
+      // requestPairingCode only works on an open socket. Asking on a 3s timer
+      // raced the 428 close WhatsApp sends to unregistered sockets, and the throw
+      // out of that floating timer took the process down on every restart. The qr
+      // event is the signal that the socket is up and still unregistered.
+      if (u.qr && !state.creds.registered && !pairingCodeRequested) {
+        pairingCodeRequested = true
+        try {
+          const code = await s.requestPairingCode(cfg.phone)
+          cfg.log.warn({ code }, 'PAIRING CODE: WhatsApp > Aparelhos conectados > Conectar com número de telefone')
+        } catch (err) {
+          // Latching on a failed request is what left the bot unable to ever pair.
+          pairingCodeRequested = false
+          cfg.log.error({ err }, 'pairing code request failed, retrying on next connection')
+        }
+      }
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
         const groups = await s.groupFetchAllParticipating()
@@ -59,7 +87,7 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
         if (code === DisconnectReason.loggedOut) {
           // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
           cfg.log.error('logged out: wiping auth, restart pairs again')
-          await rm(cfg.authDir, { recursive: true, force: true })
+          await wipeAuth()
           // Back off before the restart: rapid re-pairing gets the number rate-limited by WhatsApp.
           if (!state.creds.registered) await new Promise(r => setTimeout(r, 60_000))
           process.exit(2)
@@ -79,14 +107,6 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
     s.ev.on('groups.update', updates => {
       for (const g of updates) if (g.id === cfg.groupJid && typeof g.desc === 'string') cfg.onDescription(g.desc)
     })
-    if (!state.creds.registered && !pairingCodeRequested) {
-      pairingCodeRequested = true
-      setTimeout(() => {
-        s.requestPairingCode(cfg.phone)
-          .then(code => cfg.log.warn({ code }, 'PAIRING CODE: WhatsApp > Aparelhos conectados > Conectar com número de telefone'))
-          .catch(e => cfg.log.error({ err: e }, 'pairing code request failed'))
-      }, 3000)
-    }
     return s
   }
 

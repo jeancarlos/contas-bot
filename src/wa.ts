@@ -15,6 +15,8 @@ type Cfg = {
   onDescription(desc: string): void
 }
 
+let pairingCodeRequested = false
+
 function toIncoming(msg: WAMessage): Incoming | null {
   const c = msg.message
   if (!c || !msg.key.id || !msg.key.remoteJid) return null
@@ -76,7 +78,8 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
     s.ev.on('groups.update', updates => {
       for (const g of updates) if (g.id === cfg.groupJid && typeof g.desc === 'string') cfg.onDescription(g.desc)
     })
-    if (!state.creds.registered) {
+    if (!state.creds.registered && !pairingCodeRequested) {
+      pairingCodeRequested = true
       setTimeout(async () => {
         const code = await s.requestPairingCode(cfg.phone)
         cfg.log.warn({ code }, 'PAIRING CODE: WhatsApp > Aparelhos conectados > Conectar com número de telefone')

@@ -1,0 +1,14 @@
+services:
+  contas-bot:
+    build: .
+    container_name: contas-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - AUTH_DIR=/app/auth
+      - STATE_FILE=/app/data/state.json
+    volumes:
+      - ./auth:/app/auth
+      - ./data:/app/data
+    labels:
+      - wud.watch=false

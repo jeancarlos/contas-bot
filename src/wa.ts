@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
   type WAMessage, type WAMessageKey,
 } from '@whiskeysockets/baileys'
+import { rm } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import type { Incoming, MsgKey, Wa } from './bot.ts'
 
@@ -53,7 +54,9 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
       if (u.connection === 'close') {
         const code = (u.lastDisconnect?.error as any)?.output?.statusCode
         if (code === DisconnectReason.loggedOut) {
-          cfg.log.error('logged out: delete the auth dir and restart to pair again')
+          // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
+          cfg.log.error('logged out: wiping auth, restart pairs again')
+          await rm(cfg.authDir, { recursive: true, force: true })
           process.exit(2)
         }
         cfg.log.warn({ code }, 'connection closed, reconnecting')

@@ -3,3 +3,4 @@ auth/
 data/
 .env
 *.log
+docker-compose.override.yml

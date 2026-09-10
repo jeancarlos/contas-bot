@@ -1,0 +1,115 @@
+export type Bill = { name: string; key: string; paused: boolean }
+export type Payment = { name: string; paid_at: string; amount: number | null; by: string; message_id: string }
+export type Command =
+  | { cmd: 'pago'; name: string; amount: number | null }
+  | { cmd: 'despago'; name: string }
+  | { cmd: 'lista' }
+  | { cmd: 'ajuda' }
+  | { cmd: 'unknown'; raw: string }
+
+const MONTHS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+const TZ = 'America/Sao_Paulo'
+
+export function normalize(s: string): string {
+  return s.normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function parseDescription(desc: string): Bill[] {
+  const bills: Bill[] = []
+  for (const raw of desc.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const m = /^(.*?)\s*\(pausad[oa]\)\s*$/i.exec(line)
+    const name = (m ? m[1] : line).trim()
+    const key = normalize(name)
+    if (!key || bills.some(b => b.key === key)) continue
+    bills.push({ name, key, paused: Boolean(m) })
+  }
+  return bills
+}
+
+export function resolveBill(bills: Bill[], query: string): Bill | null {
+  const q = normalize(query)
+  if (!q) return null
+  const exact = bills.find(b => b.key === q)
+  if (exact) return exact
+  const prefix = bills.filter(b => b.key.startsWith(q))
+  return prefix.length === 1 ? prefix[0] : null
+}
+
+export function parseAmount(s: string): number | null {
+  let t = s.replace(/r\$/i, '').replace(/\s/g, '')
+  if (!/^\d[\d.,]*$/.test(t)) return null
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.')
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '')
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
+export function formatBRL(n: number): string {
+  const [int, dec] = n.toFixed(2).split('.')
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `R$ ${grouped},${dec}`
+}
+
+export function monthKey(d: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit' }).formatToParts(d)
+  const get = (t: string) => parts.find(p => p.type === t)?.value
+  return `${get('year')}-${get('month')}`
+}
+
+export function monthTitle(key: string): string {
+  const [y, m] = key.split('-')
+  return `${MONTHS[Number(m) - 1]}/${y}`
+}
+
+export function renderList(key: string, bills: Bill[], paid: Record<string, Payment>): string {
+  const active = bills.filter(b => !b.paused)
+  const done = active.filter(b => paid[b.key])
+  const pending = active.filter(b => !paid[b.key])
+  const paused = bills.filter(b => b.paused)
+  const lines = [`📋 *Contas — ${monthTitle(key)}*`, '']
+  for (const b of done) {
+    const a = paid[b.key].amount
+    lines.push(a == null ? `✅ ${b.name}` : `✅ ${b.name} — ${formatBRL(a)}`)
+  }
+  for (const b of pending) lines.push(`⬜ ${b.name}`)
+  for (const b of paused) lines.push(`⏸️ ${b.name}`)
+  const amounts = done.map(b => paid[b.key].amount).filter((a): a is number => a != null)
+  const total = amounts.reduce((s, a) => s + a, 0)
+  const missing = done.length - amounts.length
+  let footer = `*Pago:* ${done.length}/${active.length} · *Total:* ${formatBRL(total)}`
+  if (missing > 0) footer += ` (${missing} sem valor)`
+  lines.push('', footer)
+  return lines.join('\n')
+}
+
+export function parseCommand(text: string): Command | null {
+  const t = text.trim()
+  if (!t.startsWith('/')) return null
+  const [cmd, ...rest] = t.slice(1).split(/\s+/)
+  const arg = rest.join(' ')
+  switch (cmd.toLowerCase()) {
+    case 'pago': {
+      // trailing amount: last token that parses as money, e.g. "cartão nu R$ 6.237,60"
+      const m = /^(.*?)\s+(r\$\s*)?([\d.,]+)$/i.exec(arg)
+      const amount = m ? parseAmount(m[3]) : null
+      return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
+    }
+    case 'despago': return { cmd: 'despago', name: arg }
+    case 'lista': return { cmd: 'lista' }
+    case 'ajuda': return { cmd: 'ajuda' }
+    default: return { cmd: 'unknown', raw: t }
+  }
+}
+
+export function matchPlainText(bills: Bill[], text: string): Bill | null {
+  const t = normalize(text).replace(/^(pago|paguei|paga)\s+(a|o|as|os)?\s*/, '')
+  return bills.find(b => b.key === t) ?? null
+}

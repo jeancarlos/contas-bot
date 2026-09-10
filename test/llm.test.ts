@@ -56,3 +56,10 @@ test('readReceipt sends the image as a data URI to the vision model', async () =
   assert.equal(parts[1].type, 'image_url')
   assert.match(parts[1].image_url.url, /^data:image\/png;base64,/)
 })
+
+test('non-positive amounts become null', async () => {
+  const { fn } = fakeFetch(reply('{"bill":"Luz","amount":-5,"confidence":0.9}'))
+  const llm = makeLlm({ baseUrl: 'http://x/v1', apiKey: 'k', textModel: 't', visionModel: 'v', fetchFn: fn })
+  const v = await llm.interpretCaption('luz', bills)
+  assert.equal(v?.amount, null)
+})

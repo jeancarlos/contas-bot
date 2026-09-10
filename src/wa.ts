@@ -1,4 +1,5 @@
 import makeWASocket, {
+  normalizeMessageContent,
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
   type WAMessage, type WAMessageKey,
 } from '@whiskeysockets/baileys'
@@ -18,7 +19,7 @@ type Cfg = {
 let pairingCodeRequested = false
 
 function toIncoming(msg: WAMessage): Incoming | null {
-  const c = msg.message
+  const c = normalizeMessageContent(msg.message)
   if (!c || !msg.key.id || !msg.key.remoteJid) return null
   const key: MsgKey = {
     id: msg.key.id, fromMe: Boolean(msg.key.fromMe), remoteJid: msg.key.remoteJid,
@@ -47,7 +48,7 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
       syncFullHistory: false,
     })
     s.ev.on('creds.update', saveCreds)
-    s.ev.on('connection.update', async u => {
+    s.ev.on('connection.update', async u => { try {
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
         const groups = await s.groupFetchAllParticipating()
@@ -66,7 +67,7 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
         cfg.log.warn({ code }, 'connection closed, reconnecting')
         setTimeout(() => { sock = start() }, 3000)
       }
-    })
+    } catch (e) { cfg.log.error({ err: e }, 'connection.update handler failed') } })
     s.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return
       for (const raw of messages) {
@@ -80,9 +81,10 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
     })
     if (!state.creds.registered && !pairingCodeRequested) {
       pairingCodeRequested = true
-      setTimeout(async () => {
-        const code = await s.requestPairingCode(cfg.phone)
-        cfg.log.warn({ code }, 'PAIRING CODE: WhatsApp > Aparelhos conectados > Conectar com número de telefone')
+      setTimeout(() => {
+        s.requestPairingCode(cfg.phone)
+          .then(code => cfg.log.warn({ code }, 'PAIRING CODE: WhatsApp > Aparelhos conectados > Conectar com número de telefone'))
+          .catch(e => cfg.log.error({ err: e }, 'pairing code request failed'))
       }, 3000)
     }
     return s

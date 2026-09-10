@@ -183,3 +183,36 @@ test('tick posts and pins a fresh list once per month', async () => {
   assert.match(sent[0].text, /Outubro\/2026/)
   assert.deepEqual(pins, ['pin:s1'])
 })
+
+test('concurrent messages are handled one at a time, pins never interleave', async () => {
+  const { bot, sent, pins } = await setup()
+  await Promise.all([
+    bot.onMessage(msg('/pago luz 10')),
+    bot.onMessage(msg('/pago agua 20', { key: { id: 'm2', fromMe: false, remoteJid: G } })),
+  ])
+  const lists = sent.filter(s => s.text.startsWith('📋')).length
+  assert.equal(lists, 2)
+  assert.deepEqual(pins, ['pin:s1', 'unpin:s1', 'pin:s2'])
+})
+
+test('onDescription republishes the list', async () => {
+  const { bot, sent } = await setup()
+  await bot.onDescription('Luz\nNetflix')
+  assert.match(sent.at(-1)!.text, /Netflix/)
+})
+
+test('a failed pin keeps the previous pinned key', async () => {
+  const { bot, wa, store } = await setup()
+  await bot.onMessage(msg('/lista'))
+  const first = store.get()._meta.pinned?.id
+  wa.pin = async () => { throw new Error('not admin') }
+  await bot.onMessage(msg('/lista'))
+  assert.equal(store.get()._meta.pinned?.id, first)
+})
+
+test('tick retries next minute when the post fails', async () => {
+  const { bot, wa, store } = await setup()
+  wa.sendText = async () => { throw new Error('offline') }
+  await assert.rejects(bot.tick())
+  assert.equal(store.get()._meta.last_reset, undefined)
+})

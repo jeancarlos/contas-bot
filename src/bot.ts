@@ -33,6 +33,7 @@ const CONFIDENCE = 0.7
 const HELP = '/pago <conta> [valor] · /despago <conta> · /lista · edite a descrição do grupo para mudar as contas'
 const ASK = 'esse comprovante é de qual conta? responde /pago <nome>'
 const NO_AMOUNT = 'sem valor (LLM indisponível)'
+const DOWNLOAD_FAILED = 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]'
 const EMPTY_DESC = 'descrição do grupo vazia, usando lista anterior'
 
 export function makeBot(deps: BotDeps) {
@@ -42,6 +43,9 @@ export function makeBot(deps: BotDeps) {
   let bills: Bill[] = []
 
   const state = () => store.get()
+  // One handler at a time: state.json saves and pin/unpin must not interleave.
+  let queue: Promise<unknown> = Promise.resolve()
+  const serial = <T>(fn: () => Promise<T>) => { const p = queue.then(fn); queue = p.catch(() => {}); return p }
   const month = () => {
     const key = monthKey(now())
     state().months[key] ??= {}
@@ -57,10 +61,10 @@ export function makeBot(deps: BotDeps) {
     try {
       if (prev) await wa.unpin(prev)
       await wa.pin(sentKey)
+      state()._meta.pinned = { id: sentKey.id, fromMe: sentKey.fromMe, remoteJid: sentKey.remoteJid }
     } catch (e) {
       log.warn({ err: e }, 'pin failed (group may restrict pinning to admins)')
     }
-    state()._meta.pinned = { id: sentKey.id, fromMe: sentKey.fromMe, remoteJid: sentKey.remoteJid }
     await store.save()
   }
 
@@ -121,6 +125,7 @@ export function makeBot(deps: BotDeps) {
       }
     } catch (e) {
       log.warn({ err: e }, 'media download failed')
+      await wa.sendText(DOWNLOAD_FAILED, m.key)
       return
     }
     const known = resolveBill(bills, m.text)
@@ -150,29 +155,35 @@ export function makeBot(deps: BotDeps) {
       log.info({ bills: billNames() }, 'bills loaded')
     },
 
-    async onDescription(desc: string) {
-      if (await setBills(desc)) log.info({ bills: billNames() }, 'bills updated from description')
+    onDescription(desc: string) {
+      return serial(async () => {
+        if (!(await setBills(desc))) return
+        log.info({ bills: billNames() }, 'bills updated from description')
+        await postList()
+      })
     },
 
-    async onMessage(m: Incoming) {
-      if (m.key.fromMe) return
-      try {
+    onMessage(m: Incoming) {
+      if (m.key.fromMe) return Promise.resolve()
+      return serial(async () => { try {
         if (m.media) return await handleMedia(m)
         if (await handleCommand(m)) return
         const bill = matchPlainText(bills, m.text)
         if (bill) await markPaid(bill, null, m)
       } catch (e) {
         log.error({ err: e, id: m.key.id }, 'message handling failed')
-      }
+      } })
     },
 
-    async tick() {
-      const key = monthKey(now())
-      if (state()._meta.last_reset === key) return
-      state().months[key] ??= {}
-      state()._meta.last_reset = key
-      await store.save()
-      await postList()
+    tick() {
+      return serial(async () => {
+        const key = monthKey(now())
+        if (state()._meta.last_reset === key) return
+        state().months[key] ??= {}
+        await postList()
+        state()._meta.last_reset = key
+        await store.save()
+      })
     },
   }
 }

@@ -28,7 +28,7 @@ const wa = await connectWa({
   phone: env('BOT_PHONE'),
   log,
   onMessage: m => { bot?.onMessage(m) },
-  onDescription: d => { bot?.onDescription(d) },
+  onDescription: d => { bot?.onDescription(d).catch(e => log.error({ err: e }, 'description handling failed')) },
 })
 
 if (!groupJid) {

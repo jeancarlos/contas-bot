@@ -31,7 +31,7 @@ export function makeLlm(cfg: Cfg): Llm {
           model, stream: false, temperature: 0,
           messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content }],
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(45_000),
       })
       if (!res.ok) return null
       const data: any = await res.json()

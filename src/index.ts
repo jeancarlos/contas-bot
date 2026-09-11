@@ -46,7 +46,7 @@ for (let i = 0; ; i++) {
 }
 
 bot = makeBot({ wa, llm, store, log, pdfToPng })
-await bot.start()
+await bot.join()
 await bot.tick()
 setInterval(() => { bot!.tick().catch(e => log.error({ err: e }, 'tick failed')) }, 60_000)
 log.info('contas-bot ready')

@@ -142,5 +142,8 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
       const meta = await sock.groupMetadata(cfg.groupJid)
       return meta.desc ?? ''
     },
+    async setDescription() { throw new Error('not implemented') },
+    async leave() {},
+    async memberPhones() { return null },
   }
 }

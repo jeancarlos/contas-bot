@@ -8,6 +8,7 @@ export type Catalog = {
   pauseWord: string
   sectionTitle: string
   sectionHelp: string
+  descPlaceholder: string
   demoBills: string
   intro: string
   help: string
@@ -32,6 +33,7 @@ const ptBR: Catalog = {
   pauseWord: 'pausado',
   sectionTitle: 'Contas (edite esta lista):',
   sectionHelp: '/pago <conta> [valor] · /lista · /help',
+  descPlaceholder: '✏️ Escreva aqui a descrição do grupo (apague estas linhas).\n⚠️ Abaixo é do bot: mude só a lista de contas.',
   demoBills: 'Luz\nÁgua\nInternet\nAluguel\nAcademia (pausado)',
   intro: [
     '👋 Oi! Eu sou o *contas-bot*, cuido da lista de contas do mês deste grupo.',
@@ -75,6 +77,7 @@ const en: Catalog = {
   pauseWord: 'paused',
   sectionTitle: 'Bills (edit this list):',
   sectionHelp: '/paid <bill> [amount] · /list · /help',
+  descPlaceholder: '✏️ Write the group description here (delete these lines).\n⚠️ Below is the bot\'s part: change only the bill list.',
   demoBills: 'Electricity\nWater\nInternet\nRent\nGym (paused)',
   intro: [
     "👋 Hi! I'm *contas-bot*, I keep this group's monthly bill list.",
@@ -118,6 +121,7 @@ const es: Catalog = {
   pauseWord: 'pausado',
   sectionTitle: 'Cuentas (edita esta lista):',
   sectionHelp: '/pagado <cuenta> [monto] · /lista · /ayuda',
+  descPlaceholder: '✏️ Escribe aquí la descripción del grupo (borra estas líneas).\n⚠️ Abajo es la parte del bot: cambia solo la lista de cuentas.',
   demoBills: 'Luz\nAgua\nInternet\nAlquiler\nGimnasio (pausado)',
   intro: [
     '👋 ¡Hola! Soy *contas-bot*, llevo la lista de cuentas del mes de este grupo.',

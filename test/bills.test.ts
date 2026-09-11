@@ -163,7 +163,49 @@ test('composeDescription keeps the original text above and is idempotent', () =>
   assert.ok(once.startsWith('Grupo da casa 🏠\n\n──── 🤖 contas-bot ────\n'))
   const { original, section } = splitDescription(once)
   assert.equal(composeDescription(original, parseDescription(section!)), once)
-  assert.ok(composeDescription('', bills)!.startsWith('──── 🤖 contas-bot ────'))
+})
+
+test('composeDescription marks an empty group text with the placeholder, in any language', () => {
+  const bills = parseDescription('Luz\nÁgua')
+  const ph = DEFAULT_LOCALE.t.descPlaceholder
+  const d = composeDescription('', bills)!
+  assert.equal(d, `${ph}\n\n${renderSection(bills)}`)
+  // idempotent: the placeholder read back is still "no group text"
+  assert.equal(composeDescription(splitDescription(d).original, bills), d)
+  // a placeholder in another language (BOT_LANG switched) is replaced, not kept as group text
+  const en = makeLocale('en', 'USD')
+  assert.equal(composeDescription(splitDescription(d).original, bills, en), `${en.t.descPlaceholder}\n\n${renderSection(bills, en)}`)
+  // WhatsApp dropping emoji variation selectors or retyped spacing still reads as the placeholder
+  assert.equal(composeDescription(ph.replace(/\uFE0F/g, '').replace(/ /g, '  ') + '\n', bills), d)
+})
+
+test('composeDescription drops the placeholder lines once the group writes its own text', () => {
+  const bills = parseDescription('Luz')
+  const ph = DEFAULT_LOCALE.t.descPlaceholder
+  assert.equal(composeDescription(`${ph}\n\nGrupo da casa`, bills), `Grupo da casa\n\n${renderSection(bills)}`)
+  assert.equal(composeDescription(`Grupo da casa\n${ph}`, bills), `Grupo da casa\n\n${renderSection(bills)}`)
+})
+
+test('composeDescription drops the placeholder before the help line when over 2048 characters', () => {
+  const bills = parseDescription(Array.from({ length: 200 }, (_, i) => `Conta ${i}`).join('\n'))
+  const d = composeDescription('', bills)!
+  assert.ok(d.length <= 2048, String(d.length))
+  assert.ok(d.startsWith('──── 🤖 contas-bot ────'))
+  assert.ok(d.includes('/help'), 'the help line outlives the placeholder')
+})
+
+test('splitDescription moves text typed below the section up into the group text', () => {
+  const bills = parseDescription('Luz\nÁgua')
+  const d = `Grupo\n\n${renderSection(bills)}\nPix: chave 123\n\n/pago luz`
+  const { original, section } = splitDescription(d)
+  assert.equal(original, 'Grupo\n\nPix: chave 123')
+  assert.deepEqual(parseDescription(section!), bills)
+  assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
+  // below an untouched placeholder, the rescued text replaces it
+  const withPh = `${composeDescription('', bills)}\nPix: chave 123`
+  assert.equal(composeDescription(splitDescription(withPh).original, bills), `Pix: chave 123\n\n${renderSection(bills)}`)
+  // nothing typed below: the group text is exactly what sits above the header
+  assert.equal(splitDescription(composeDescription('Grupo', bills)!).original, 'Grupo\n')
 })
 
 test('composeDescription drops the help line first when over 2048 characters', () => {

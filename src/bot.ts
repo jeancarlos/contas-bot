@@ -1,8 +1,9 @@
 import {
   parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, renderList, monthKey,
-  splitDescription, renderSection, composeDescription, billLine, isGreeting, DEMO_BILLS,
+  splitDescription, renderSection, composeDescription, billLine, isGreeting,
   type Bill,
 } from './bills.ts'
+import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
 import type { StateStore } from './state.ts'
 import type { Llm } from './llm.ts'
 
@@ -34,46 +35,19 @@ export type BotDeps = {
   now?: () => Date
   log?: Log
   pdfToPng?: (pdf: Buffer) => Promise<Buffer>
+  locale?: Locale
 }
 
 const CONFIDENCE = 0.7
-const ASK = 'esse comprovante é de qual conta? responde /pago <nome>'
-const NO_AMOUNT = 'sem valor (LLM indisponível)'
-const DOWNLOAD_FAILED = 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]'
-const INTRO = [
-  '👋 Oi! Eu sou o *contas-bot*, cuido da lista de contas do mês deste grupo.',
-  '',
-  '📎 Pagou? Manda o comprovante (foto ou PDF) aqui. Se a legenda tiver o nome da conta, eu marco na hora; se não, eu leio o comprovante e descubro.',
-  '✍️ Sem comprovante: /pago luz 231,45',
-  '📌 A lista fica sempre fixada, com o total do mês.',
-  '📝 As contas ficam na descrição do grupo: edite a lista lá que eu atualizo.',
-  '🗓️ Todo dia 1º começo uma lista nova.',
-  '',
-  '/help mostra todos os comandos.',
-].join('\n')
-const HELP = [
-  '🤖 *Comandos do contas-bot*',
-  '',
-  '/pago <conta> [valor] — marca como paga',
-  '   ex: /pago luz · /pago cartão nu 6.237,60',
-  '/despago <conta> — desmarca',
-  '/lista — reposta e fixa a lista',
-  '/help — esta mensagem',
-  '',
-  '📎 Comprovante com o nome da conta na legenda = paga na hora.',
-  '📝 Mudar as contas: edite a lista na descrição do grupo. "(pausado)" no fim tira a conta do mês sem apagar.',
-].join('\n')
-const UNKNOWN_CMD = 'não conheço esse comando. /help mostra todos.'
-const PRIVATE = 'sou um bot privado 🤖'
 // WhatsApp keeps some Brazilian mobiles without the 9th digit (55 + DDD + 8) while owners type it (55 + DDD + 9 + 8).
 const br = (p: string) => /^55\d\d9\d{8}$/.test(p) ? p.slice(0, 4) + p.slice(5) : p
-const DESC_DENIED = 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos'
-const DESC_TOO_LONG = 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot'
 
 export function makeBot(deps: BotDeps) {
   const { wa, llm, store } = deps
   const now = deps.now ?? (() => new Date())
   const log: Log = deps.log ?? { info() {}, warn() {}, error() {} }
+  const loc = deps.locale ?? DEFAULT_LOCALE
+  const t = loc.t
   let bills: Bill[] = parseDescription((store.get()._meta.bills ?? []).join('\n'))
 
   const state = () => store.get()
@@ -86,11 +60,10 @@ export function makeBot(deps: BotDeps) {
     return { key, paid: state().months[key] }
   }
   const billNames = () => bills.map(b => b.name)
-  const notFound = (q: string) => `não achei "${q}". Contas: ${billNames().join(', ')}`
 
   async function postList() {
     const { key, paid } = month()
-    const sentKey = await wa.sendText(renderList(key, bills, paid))
+    const sentKey = await wa.sendText(renderList(key, bills, paid, loc))
     const prev = state()._meta.pinned
     try {
       // Pin first: a refused pin must not leave the group with no list pinned at all.
@@ -109,7 +82,7 @@ export function makeBot(deps: BotDeps) {
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount, by: m.sender, message_id: m.key.id }
     await store.save()
     await wa.react(m.key, '✅')
-    if (existed) await wa.sendText('atualizado', m.key)
+    if (existed) await wa.sendText(t.updated, m.key)
     await postList()
   }
 
@@ -124,7 +97,7 @@ export function makeBot(deps: BotDeps) {
       log.warn({}, 'description over the WhatsApp limit, not written')
       if (!meta.long_warned) {
         meta.long_warned = true
-        await wa.sendText(DESC_TOO_LONG)
+        await wa.sendText(t.descTooLong)
       }
       return
     }
@@ -137,7 +110,7 @@ export function makeBot(deps: BotDeps) {
       log.warn({ err: e }, 'description write refused (bot may need admin)')
       if (!meta.desc_warned) {
         meta.desc_warned = true
-        await wa.sendText(DESC_DENIED)
+        await wa.sendText(t.descDenied)
       }
     }
   }
@@ -152,10 +125,10 @@ export function makeBot(deps: BotDeps) {
     else if (meta.section) next = [] // someone deleted our section: keep their text, restore the list below it
     else { next = parseDescription(desc); top = '' } // legacy group: the whole description was the list
     if (next.length === 0) next = parseDescription((meta.bills ?? []).join('\n'))
-    const changed = renderSection(next) !== renderSection(bills)
+    const changed = renderSection(next, loc) !== renderSection(bills, loc)
     bills = next
-    meta.bills = bills.map(b => billLine(b))
-    const want = composeDescription(top, bills)
+    meta.bills = bills.map(b => billLine(b, loc))
+    const want = composeDescription(top, bills, loc)
     if (want === desc) meta.section = true
     else if (want !== lastWritten) await writeDescription(want)
     await store.save()
@@ -163,18 +136,18 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function handleCommand(m: Incoming): Promise<boolean> {
-    const c = parseCommand(m.text)
+    const c = parseCommand(m.text, loc)
     if (!c) return false
     switch (c.cmd) {
       case 'pago': {
         const bill = resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(notFound(c.name), m.key); return true }
+        if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
         await markPaid(bill, c.amount, m)
         return true
       }
       case 'despago': {
         const bill = resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(notFound(c.name), m.key); return true }
+        if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
         delete month().paid[bill.key]
         await store.save()
         await wa.react(m.key, '✅')
@@ -182,19 +155,19 @@ export function makeBot(deps: BotDeps) {
         return true
       }
       case 'lista': await postList(); return true
-      case 'ajuda': await wa.sendText(HELP, m.key); return true
-      case 'unknown': await wa.sendText(UNKNOWN_CMD, m.key); return true
+      case 'ajuda': await wa.sendText(t.help, m.key); return true
+      case 'unknown': await wa.sendText(t.unknownCmd, m.key); return true
     }
   }
 
   async function handleMedia(m: Incoming) {
-    const c = parseCommand(m.text)
+    const c = parseCommand(m.text, loc)
     const pago = c?.cmd === 'pago' ? c : null
     // "/pago" alone or "/pago 150,00" names no bill: the receipt is read to find it.
-    const named = pago && pago.name && parseAmount(pago.name) === null ? pago.name : null
+    const named = pago && pago.name && parseAmount(pago.name, loc) === null ? pago.name : null
     const known = named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text)
     // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
-    if (named && !known) { await wa.sendText(notFound(named), m.key); return }
+    if (named && !known) { await wa.sendText(t.notFound(named, billNames().join(', ')), m.key); return }
     const media = m.media!
     let image: Buffer
     let mime = media.mime
@@ -207,18 +180,18 @@ export function makeBot(deps: BotDeps) {
       }
     } catch (e) {
       log.warn({ err: e }, 'media download failed')
-      await wa.sendText(DOWNLOAD_FAILED, m.key)
+      await wa.sendText(t.downloadFailed, m.key)
       return
     }
-    const typed = pago ? pago.amount ?? parseAmount(pago.name) : null
+    const typed = pago ? pago.amount ?? parseAmount(pago.name, loc) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     if (known) {
-      if (!verdict && typed == null) await wa.sendText(NO_AMOUNT, m.key)
+      if (!verdict && typed == null) await wa.sendText(t.noLlmAmount, m.key)
       await markPaid(known, typed ?? verdict?.amount ?? null, m)
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { await wa.sendText(ASK, m.key); return }
+    if (!bill) { await wa.sendText(t.ask, m.key); return }
     await markPaid(bill, typed ?? verdict!.amount, m)
   }
 
@@ -245,18 +218,18 @@ export function makeBot(deps: BotDeps) {
         if (!phones.some(p => p !== null && owners.some(o => br(o) === br(p)))) {
           // One owner is enough to stay; leaving needs every member resolved, never a guess.
           if (phones.includes(null)) throw new Error('could not resolve member phones; not deciding on this group now')
-          await wa.sendText(PRIVATE)
+          await wa.sendText(t.private)
           await wa.leave()
           return 'left'
         }
         const desc = await wa.getDescription()
-        bills = parseDescription(DEMO_BILLS)
-        meta.bills = bills.map(b => billLine(b))
+        bills = parseDescription(t.demoBills)
+        meta.bills = bills.map(b => billLine(b, loc))
         // A new group is section-style from birth: even if the write below is refused, a later description
         // without our section means "keep their text, restore the list", never "their text is the bill list".
         meta.section = true
-        await writeDescription(composeDescription(splitDescription(desc).original, bills))
-        await wa.sendText(INTRO)
+        await writeDescription(composeDescription(splitDescription(desc).original, bills, loc))
+        await wa.sendText(t.intro)
         await postList()
         // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
         meta.last_reset = monthKey(now())
@@ -291,7 +264,7 @@ export function makeBot(deps: BotDeps) {
         if (await handleCommand(m)) return
         const bill = matchPlainText(bills, m.text)
         if (bill) return await markPaid(bill, null, m)
-        if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(INTRO, m.key)
+        if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
       } catch (e) {
         log.error({ err: e, id: m.key.id }, 'message handling failed')
       } })

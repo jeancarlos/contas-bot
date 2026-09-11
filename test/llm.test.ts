@@ -66,6 +66,14 @@ test('non-positive amounts become null', async () => {
   assert.equal(v?.amount, null)
 })
 
+test('the system prompt asks for the configured currency', async () => {
+  const { fn, calls } = fakeFetch(reply('{"bill":"Luz","amount":10,"confidence":0.9}'))
+  const llm = makeLlm({ baseUrl: 'http://x/v1', apiKey: 'k', textModel: 't', visionModel: 'v', currency: 'EUR', fetchFn: fn })
+  await llm.interpretCaption('luz', bills)
+  assert.match(calls[0].messages[0].content, /EUR/)
+  assert.doesNotMatch(calls[0].messages[0].content, /Brazilian/)
+})
+
 test('a network error, a missing choice or a junk field degrades instead of throwing', async () => {
   const offline = (async () => { throw new TypeError('fetch failed') }) as typeof fetch
   assert.equal(await llmWith(offline).interpretCaption('luz', bills), null)

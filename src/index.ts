@@ -4,6 +4,7 @@ import { makeBot } from './bot.ts'
 import { makeLlm } from './llm.ts'
 import { openState } from './state.ts'
 import { pdfToPng } from './pdf.ts'
+import { makeLocale } from './i18n.ts'
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
@@ -12,12 +13,15 @@ function env(name: string, fallback?: string): string {
 }
 
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const locale = makeLocale(env('BOT_LANG', 'pt-BR'), env('BOT_CURRENCY', 'BRL'))
+log.info({ lang: locale.lang, currency: locale.currency }, 'locale')
 const groups = await openState(env('STATE_FILE', 'data/state.json'), process.env.GROUP_JID || undefined)
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),
   textModel: env('LLM_TEXT_MODEL', 'cx/gpt-5.4-mini'),
   visionModel: env('LLM_VISION_MODEL', 'cx/gpt-5.5'),
+  currency: locale.currency,
 })
 
 const owners = env('OWNER_PHONES').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean)
@@ -27,7 +31,7 @@ let wa: Awaited<ReturnType<typeof connectWa>> | undefined
 function botFor(jid: string) {
   let bot = bots.get(jid)
   if (!bot) {
-    bot = makeBot({ wa: wa!.forGroup(jid), llm, store: groups.forGroup(jid), owners, log: log.child({ group: jid }), pdfToPng })
+    bot = makeBot({ wa: wa!.forGroup(jid), llm, store: groups.forGroup(jid), owners, log: log.child({ group: jid }), pdfToPng, locale })
     bots.set(jid, bot)
   }
   return bot

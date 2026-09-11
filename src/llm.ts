@@ -3,11 +3,7 @@ export type Llm = {
   interpretCaption(text: string, bills: string[]): Promise<Verdict | null>
   readReceipt(image: Buffer, mime: string, caption: string, bills: string[]): Promise<Verdict | null>
 }
-type Cfg = { baseUrl: string; apiKey: string; textModel: string; visionModel: string; fetchFn?: typeof fetch }
-
-const SYSTEM = `You classify Brazilian household bill payments. Answer ONLY a JSON object:
-{"bill": <one exact name from the list or null>, "amount": <number in BRL or null>, "confidence": <0..1>}
-"amount" is the total paid on the receipt ("Valor", "Total", "Valor pago"). Never invent a bill outside the list.`
+type Cfg = { baseUrl: string; apiKey: string; textModel: string; visionModel: string; currency?: string; fetchFn?: typeof fetch }
 
 function parseVerdict(raw: string, bills: string[]): Verdict | null {
   const m = /\{[\s\S]*\}/.exec(raw)
@@ -22,6 +18,9 @@ function parseVerdict(raw: string, bills: string[]): Verdict | null {
 
 export function makeLlm(cfg: Cfg): Llm {
   const fetchFn = cfg.fetchFn ?? fetch
+  const system = `You classify household bill payments. Answer ONLY a JSON object:
+{"bill": <one exact name from the list or null>, "amount": <number in ${cfg.currency ?? 'BRL'} or null>, "confidence": <0..1>}
+"amount" is the total paid on the receipt ("Total", "Valor", "Valor pago", "Amount", "Importe"). Never invent a bill outside the list.`
   async function chat(model: string, content: unknown): Promise<string | null> {
     try {
       const res = await fetchFn(`${cfg.baseUrl}/chat/completions`, {
@@ -29,7 +28,7 @@ export function makeLlm(cfg: Cfg): Llm {
         headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({
           model, stream: false, temperature: 0,
-          messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content }],
+          messages: [{ role: 'system', content: system }, { role: 'user', content }],
         }),
         signal: AbortSignal.timeout(45_000),
       })

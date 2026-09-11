@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { makeBot, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
 import { openState } from '../src/state.ts'
 import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
+import { makeLocale, type Locale } from '../src/i18n.ts'
 import type { Llm, Verdict } from '../src/llm.ts'
 
 const G = '123@g.us'
@@ -42,13 +43,13 @@ function fakeLlm(verdict: Verdict | null) {
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; phones?: (string | null)[]; owners?: string[]; fresh?: boolean } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; phones?: (string | null)[]; owners?: string[]; fresh?: boolean; locale?: Locale } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
   const w = fakeWa(opts.desc, opts.phones)
   const l = fakeLlm(opts.verdict ?? null)
-  const bot = makeBot({ wa: w.wa, llm: l.llm, store, owners: opts.owners ?? ['5549111111111'], now: () => opts.now ?? new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ wa: w.wa, llm: l.llm, store, owners: opts.owners ?? ['5549111111111'], now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
   await bot.join()
   return { bot, store, ...w, llmCalls: l.calls }
 }
@@ -260,6 +261,35 @@ test('join onboards a new group that has an owner: description, intro, list, pin
   assert.deepEqual(pins, ['pin:s2'])
   assert.equal(store.get()._meta.last_reset, '2026-09')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água', 'Internet', 'Aluguel', 'Academia'])
+})
+
+test('an en bot onboards in English and understands /paid and /revert', async () => {
+  const EN = makeLocale('en', 'USD')
+  const { bot, store, sent, descs } = await setup({ fresh: true, desc: 'Family', locale: EN })
+  assert.ok(descs[0].includes('Bills (edit this list):\nElectricity\nWater\nInternet\nRent\nGym (paused)'))
+  assert.match(sent[0].text, /^👋 Hi! I'm \*contas-bot\*/)
+  assert.match(sent[1].text, /^📋 \*Bills — September\/2026\*/)
+  await bot.onMessage(msg('/paid water $80.10'))
+  assert.equal(store.get().months['2026-09'].water.amount, 80.1)
+  await bot.onMessage(msg('/revert water'))
+  assert.equal(store.get().months['2026-09'].water, undefined)
+  await bot.onMessage(msg('/nope'))
+  assert.equal(sent.at(-1)!.text, "I don't know that command. /help lists them all.")
+})
+
+test('switching BOT_LANG rewrites the section once and keeps payments', async () => {
+  const { store, descs, wa } = await setup() // pt-BR legacy group, migrated to a pt section
+  store.get().months['2026-09'] = { luz: { name: 'Luz', paid_at: '', amount: 10, by: 'x', message_id: 'm' } }
+  const EN = makeLocale('en', 'USD')
+  const bot = makeBot({ wa, llm: fakeLlm(null).llm, store, owners: [], locale: EN, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  const last = descs.at(-1)!
+  assert.ok(last.includes('Bills (edit this list):'), last)
+  assert.ok(last.includes('Mãe Carme (paused)'), last)
+  assert.equal(store.get().months['2026-09'].luz.amount, 10)
+  const writes = descs.length
+  await bot.onDescription(last)
+  assert.equal(descs.length, writes)
 })
 
 test('join leaves a group without an owner and stores nothing', async () => {

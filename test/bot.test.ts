@@ -11,7 +11,7 @@ import type { Llm, Verdict } from '../src/llm.ts'
 const G = '123@g.us'
 const DESC = 'Luz\nÁgua\nAluguel\nCartão Nu\nMãe Carme (pausado)'
 
-function fakeWa(desc = DESC, phones: string[] | null = ['5549111111111']) {
+function fakeWa(desc = DESC, phones: (string | null)[] = ['5549111111111']) {
   let n = 0
   const sent: { text: string; quoted?: MsgKey }[] = []
   const reactions: { key: MsgKey; emoji: string }[] = []
@@ -40,13 +40,13 @@ function fakeLlm(verdict: Verdict | null) {
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; phones?: string[] | null; fresh?: boolean } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; phones?: (string | null)[]; owners?: string[]; fresh?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
   const w = fakeWa(opts.desc, opts.phones)
   const l = fakeLlm(opts.verdict ?? null)
-  const bot = makeBot({ wa: w.wa, llm: l.llm, store, owners: ['5549111111111'], now: () => opts.now ?? new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ wa: w.wa, llm: l.llm, store, owners: opts.owners ?? ['5549111111111'], now: () => opts.now ?? new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   return { bot, store, ...w, llmCalls: l.calls }
 }
@@ -259,10 +259,24 @@ test('join leaves a group without an owner and stores nothing', async () => {
 test('join does not leave when member phones cannot be resolved', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
-  const w = fakeWa(DESC, null)
+  const w = fakeWa(DESC, [null])
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'] })
   await assert.rejects(bot.join())
   assert.equal(w.isLeft(), false)
+})
+
+test('join onboards when an owner is resolvable even if another member is not', async () => {
+  const { store, isLeft } = await setup({ fresh: true, phones: ['5549111111111', null] })
+  assert.equal(store.get()._meta.last_reset, '2026-09')
+  assert.equal(isLeft(), false)
+})
+
+test('owners match member phones across the Brazilian ninth digit, both ways', async () => {
+  for (const [owner, phone] of [['5534999998888', '553499998888'], ['553499998888', '5534999998888']]) {
+    const { store, isLeft } = await setup({ fresh: true, owners: [owner], phones: [phone] })
+    assert.equal(store.get()._meta.last_reset, '2026-09', `${owner} vs ${phone}`)
+    assert.equal(isLeft(), false)
+  }
 })
 
 test('join migrates a legacy group: description becomes the section, no intro', async () => {

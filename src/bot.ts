@@ -23,7 +23,7 @@ export type Wa = {
   getDescription(): Promise<string>
   setDescription(text: string): Promise<void>
   leave(): Promise<void>
-  memberPhones(): Promise<string[] | null>
+  memberPhones(): Promise<(string | null)[]>
 }
 type Log = { info(o: any, m?: string): void; warn(o: any, m?: string): void; error(o: any, m?: string): void }
 export type BotDeps = {
@@ -65,6 +65,8 @@ const HELP = [
 ].join('\n')
 const UNKNOWN_CMD = 'não conheço esse comando. /help mostra todos.'
 const PRIVATE = 'sou um bot privado 🤖'
+// WhatsApp keeps some Brazilian mobiles without the 9th digit (55 + DDD + 8) while owners type it (55 + DDD + 9 + 8).
+const br = (p: string) => /^55\d\d9\d{8}$/.test(p) ? p.slice(0, 4) + p.slice(5) : p
 const DESC_DENIED = 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos'
 
 export function makeBot(deps: BotDeps) {
@@ -223,8 +225,10 @@ export function makeBot(deps: BotDeps) {
           return 'active'
         }
         const phones = await wa.memberPhones()
-        if (phones === null) throw new Error('could not resolve member phones; not deciding on this group now')
-        if (!phones.some(p => (deps.owners ?? []).includes(p))) {
+        const owners = deps.owners ?? []
+        if (!phones.some(p => p !== null && owners.some(o => br(o) === br(p)))) {
+          // One owner is enough to stay; leaving needs every member resolved, never a guess.
+          if (phones.includes(null)) throw new Error('could not resolve member phones; not deciding on this group now')
           await wa.sendText(PRIVATE)
           await wa.leave()
           return 'left'

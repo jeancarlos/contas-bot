@@ -159,12 +159,11 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
         async getDescription() { return (await sock.groupMetadata(jid)).desc ?? '' },
         async setDescription(text) { await sock.groupUpdateDescription(jid, text) },
         async leave() { await sock.groupLeave(jid) },
-        // null when any member's phone is unknown: the owner check must never leave a group on a guess.
+        // null for a member whose phone is unknown: the owner check must never leave a group on a guess.
         async memberPhones() {
           const me = [sock.user?.id, sock.user?.lid].filter((j): j is string => Boolean(j)).map(jidNormalizedUser)
           const others = (await sock.groupMetadata(jid)).participants.filter(p => !me.includes(jidNormalizedUser(p.id)))
-          const phones = await Promise.all(others.map(phoneOf))
-          return phones.every(Boolean) ? (phones as string[]) : null
+          return Promise.all(others.map(phoneOf))
         },
       }
     },

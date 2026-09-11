@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import type { Payment } from './bills.ts'
 
 export type PinKey = { id: string; fromMe: boolean; remoteJid: string }
-export type Meta = { last_reset?: string; pinned?: PinKey; bills?: string[]; section?: boolean; desc_warned?: boolean }
+export type Meta = { last_reset?: string; pinned?: PinKey; bills?: string[]; section?: boolean; desc_warned?: boolean; long_warned?: boolean }
 export type State = { _meta: Meta; months: Record<string, Record<string, Payment>> }
 export type StateStore = { get(): State; save(): Promise<void> }
 export type Store = { forGroup(jid: string): StateStore; jids(): string[] }

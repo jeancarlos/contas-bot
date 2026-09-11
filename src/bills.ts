@@ -150,22 +150,15 @@ export function renderSection(bills: Bill[], withHelp = true): string {
   return lines.join('\n')
 }
 
-// Priority when over WhatsApp's limit: drop the help line, then shorten the group's text, then cut bills.
-// The section always survives, so the bot never loses its list to a long description.
-export function composeDescription(original: string, bills: Bill[]): string {
+// Over WhatsApp's limit only the help line may go. The group's text and the bill list are never cut:
+// null means it does not fit and the caller must leave the description alone.
+export function composeDescription(original: string, bills: Bill[]): string | null {
   const top = original.trimEnd()
   const join = (section: string) => (top ? `${top}\n\n${section}` : section)
   const full = join(renderSection(bills))
   if (full.length <= DESC_LIMIT) return full
-  const bare = renderSection(bills, false)
-  if (!top || top.length + 2 + bare.length <= DESC_LIMIT) {
-    const d = join(bare)
-    if (d.length <= DESC_LIMIT) return d
-  }
-  const room = DESC_LIMIT - bare.length - 2
-  if (top && room > 0) return `${top.slice(0, room).trimEnd()}\n\n${bare}`
-  // ponytail: only ~150+ bills get here; the list is cut at a line boundary.
-  return bare.slice(0, bare.lastIndexOf('\n', DESC_LIMIT))
+  const bare = join(renderSection(bills, false))
+  return bare.length <= DESC_LIMIT ? bare : null
 }
 
 const GREETINGS = ['oi', 'ola', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi']

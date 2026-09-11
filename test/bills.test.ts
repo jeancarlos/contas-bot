@@ -158,31 +158,26 @@ test('renderSection is the canonical text and parses back to the same bills', ()
 
 test('composeDescription keeps the original text above and is idempotent', () => {
   const bills = parseDescription('Luz\nÁgua')
-  const once = composeDescription('Grupo da casa 🏠  \n', bills)
+  const once = composeDescription('Grupo da casa 🏠  \n', bills)!
   assert.ok(once.startsWith('Grupo da casa 🏠\n\n──── 🤖 contas-bot ────\n'))
   const { original, section } = splitDescription(once)
   assert.equal(composeDescription(original, parseDescription(section!)), once)
-  assert.ok(composeDescription('', bills).startsWith('──── 🤖 contas-bot ────'))
+  assert.ok(composeDescription('', bills)!.startsWith('──── 🤖 contas-bot ────'))
 })
 
 test('composeDescription drops the help line first when over 2048 characters', () => {
   const bills = parseDescription('Luz\nÁgua')
   const long = 'x'.repeat(2048 - renderSection(bills).length)
-  const d = composeDescription(long, bills)
+  const d = composeDescription(long, bills)!
   assert.ok(d.length <= 2048)
   assert.ok(!d.includes('/help'))
   assert.deepEqual(parseDescription(splitDescription(d).section!), bills)
 })
 
-test('composeDescription never loses the section to a long original text', () => {
+test('composeDescription returns null instead of cutting the group text or the list', () => {
   const bills = parseDescription('Luz\nÁgua')
   for (const original of ['y'.repeat(2100), 'a'.repeat(1990) + '\n' + 'b'.repeat(100)]) {
-    const d = composeDescription(original, bills)
-    assert.ok(d.length <= 2048, `length ${d.length}`)
-    const { original: top, section } = splitDescription(d)
-    assert.notEqual(section, null)
-    assert.deepEqual(parseDescription(section!), bills)
-    assert.equal(composeDescription(top, bills), d) // idempotent after truncation
+    assert.equal(composeDescription(original, bills), null)
   }
 })
 

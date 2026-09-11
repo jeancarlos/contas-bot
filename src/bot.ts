@@ -68,6 +68,7 @@ const PRIVATE = 'sou um bot privado 🤖'
 // WhatsApp keeps some Brazilian mobiles without the 9th digit (55 + DDD + 8) while owners type it (55 + DDD + 9 + 8).
 const br = (p: string) => /^55\d\d9\d{8}$/.test(p) ? p.slice(0, 4) + p.slice(5) : p
 const DESC_DENIED = 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos'
+const DESC_TOO_LONG = 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot'
 
 export function makeBot(deps: BotDeps) {
   const { wa, llm, store } = deps
@@ -115,8 +116,17 @@ export function makeBot(deps: BotDeps) {
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
 
-  async function writeDescription(text: string) {
+  // null: the description would not fit without cutting the group's text or the list, so it is left alone.
+  async function writeDescription(text: string | null) {
     const meta = state()._meta
+    if (text === null) {
+      log.warn({}, 'description over the WhatsApp limit, not written')
+      if (!meta.long_warned) {
+        meta.long_warned = true
+        await wa.sendText(DESC_TOO_LONG)
+      }
+      return
+    }
     try {
       await wa.setDescription(text)
       lastWritten = text

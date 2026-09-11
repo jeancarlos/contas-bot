@@ -322,6 +322,18 @@ test('an unreadable description on an update event changes nothing', async () =>
   assert.equal(sent.length, 0)
 })
 
+test('a description over the limit is not written and the group is asked once to shorten its text', async () => {
+  const { bot, sent, descs, edit } = await setup()
+  const long = 'x'.repeat(2100) + '\n' + descs[0].replace('Aluguel', 'Aluguel\nNetflix')
+  edit(long)
+  await bot.onDescription(long)
+  await bot.onDescription(long)
+  assert.equal(descs.length, 1)
+  const warning = 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot'
+  assert.equal(sent.filter(s => s.text === warning).length, 1)
+  assert.ok(bot.bills().some(b => b.name === 'Netflix'))
+})
+
 test('a deleted section is put back below the remaining text', async () => {
   const { bot, descs, edit } = await setup()
   edit('Só a descrição do grupo')
@@ -387,7 +399,7 @@ test('restart before join does not repost the list and still handles a queued pa
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
   // No bot.join(): this simulates onOpen's groups.update/messages.upsert reaching a freshly
   // built bot before its join() call has run.
-  await bot.onDescription(composeDescription('', bills))
+  await bot.onDescription(composeDescription('', bills)!)
   assert.equal(w.sent.length, 0)
   await bot.onMessage(msg('pago luz'))
   assert.ok(store.get().months['2026-09'].luz)

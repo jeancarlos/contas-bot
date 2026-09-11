@@ -163,7 +163,6 @@ export const SECTION_MARK = '🤖 contas-bot'
 const SECTION_HEADER = `──── ${SECTION_MARK} ────`
 const SECTION_DIVIDER = '──────────────'
 const DESC_LIMIT = 2048
-export const DEMO_BILLS = DEFAULT_LOCALE.t.demoBills
 
 // The header is a line holding only the marker and decoration; prose that mentions the bot is not it.
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/

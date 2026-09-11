@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
-  DEMO_BILLS, splitDescription, renderSection, composeDescription, isGreeting,
+  splitDescription, renderSection, composeDescription, isGreeting,
   type Bill, type Payment,
 } from '../src/bills.ts'
-import { makeLocale } from '../src/i18n.ts'
+import { makeLocale, DEFAULT_LOCALE } from '../src/i18n.ts'
 
 const desc = `# Contas do mês
 Luz
@@ -146,7 +146,7 @@ test('splitDescription finds the bot section by its marker', () => {
 })
 
 test('renderSection is the canonical text and parses back to the same bills', () => {
-  const bills = parseDescription(DEMO_BILLS)
+  const bills = parseDescription(DEFAULT_LOCALE.t.demoBills)
   assert.equal(renderSection(bills), [
     '──── 🤖 contas-bot ────',
     'Contas (edite esta lista):',

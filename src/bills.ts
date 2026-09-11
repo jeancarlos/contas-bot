@@ -58,9 +58,9 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
 }
 
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
-  // Currency symbols and codes sit at the ends ("R$ 10", "10 €", "USD 10"); spaces may group thousands.
-  // A leading digit/comma/dot/hyphen is never stripped, so a bare ".5" or "-10" fails the digit-start check below.
-  const t = s.replace(/^[^\d.,-]+|\D+$/g, '').replace(/\s/g, '')
+  // Only currency tokens are stripped from the ends ("R$ 10", "US$ 10", "10 €", "USD 10"); spaces may group
+  // thousands. Any other text stays, so "Cartão C6" or "Internet 5G" is a bill name, never an amount.
+  const t = s.trim().replace(/^(?:[A-Za-z]{0,3}\p{Sc}|[A-Z]{3})\s*/u, '').replace(/\s*(?:\p{Sc}|[A-Z]{3})$/u, '').replace(/\s/g, '')
   if (!/^\d[\d.,]*$/.test(t)) return null
   let num: string
   const last = Math.max(t.lastIndexOf(','), t.lastIndexOf('.'))
@@ -129,7 +129,7 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
       // The optional prefix/suffix is restricted to currency tokens (a symbol, optionally led by
       // up to 3 letters as in "R$"/"US$", or an upper-case 3-letter code like "USD") so a
       // multi-word bill name is never swallowed into the amount.
-      const m = /^(.*?)\s+((?:(?:[A-Za-z]{0,3}[^\p{L}\d\s]|[A-Z]{3})\s*)?[\d.,]+(?:\s*(?:[^\p{L}\d\s]{1,3}|[A-Z]{3}))?)$/u.exec(arg)
+      const m = /^(.*?)\s+((?:(?:[A-Za-z]{0,3}\p{Sc}|[A-Z]{3})\s*)?[\d.,]+(?:\s*(?:\p{Sc}|[A-Z]{3}))?)$/u.exec(arg)
       const amount = m ? parseAmount(m[2], loc) : null
       return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
     }

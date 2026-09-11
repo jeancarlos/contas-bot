@@ -282,3 +282,10 @@ test('renderSection and renderList speak the locale', () => {
   const missing = renderList('2026-09', bills, { power: { name: 'Power', paid_at: '', amount: null, by: 'x', message_id: 'm' } }, ES)
   assert.ok(missing.endsWith('*Pagado:* 1/1 · *Total:* 0,00 € (1 sin monto)'), missing)
 })
+
+test('parseAmount never reads a digit inside a bill name as money', () => {
+  for (const s of ['Cartão C6', 'Internet 5G', 'Loja2']) {
+    assert.equal(parseAmount(s), null, `pt ${s}`)
+    assert.equal(parseAmount(s, EN), null, `en ${s}`)
+  }
+})

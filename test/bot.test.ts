@@ -506,3 +506,13 @@ test('an inactive group ignores messages and ticks', async () => {
   await bot.tick()
   assert.equal(sent.length, before)
 })
+
+test('a receipt captioned with a bill name holding a digit marks that bill with the receipt amount', async () => {
+  const { bot, store } = await setup({ desc: 'Cartão C6\nInternet 5G\nLuz', verdict: { bill: 'Cartão C6', amount: 1500, confidence: 0.99 } })
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('x') }
+  await bot.onMessage(msg('/pago cartão c6', { media }))
+  assert.equal(store.get().months['2026-09']['cartao c6']?.amount, 1500)
+  await bot.onMessage(msg('/pago Internet 5G', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09']['internet 5g']?.amount, 1500)
+  assert.equal(store.get().months['2026-09']['cartao c6']?.message_id, 'm1')
+})

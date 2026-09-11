@@ -204,6 +204,11 @@ test('splitDescription moves text typed below the section up into the group text
   // below an untouched placeholder, the rescued text replaces it
   const withPh = `${composeDescription('', bills)}\nPix: chave 123`
   assert.equal(composeDescription(splitDescription(withPh).original, bills), `Pix: chave 123\n\n${renderSection(bills)}`)
+  // a duplicated section pasted below is dropped, not lifted above where the next read would parse it as bills
+  const twice = `${composeDescription('Grupo', bills)}\nPix: chave 123\n${renderSection(parseDescription('Água'))}`
+  const once = composeDescription(splitDescription(twice).original, parseDescription(splitDescription(twice).section!), DEFAULT_LOCALE)!
+  assert.equal(once, `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
+  assert.deepEqual(parseDescription(splitDescription(once).section!), bills)
   // nothing typed below: the group text is exactly what sits above the header
   assert.equal(splitDescription(composeDescription('Grupo', bills)!).original, 'Grupo\n')
 })

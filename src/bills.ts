@@ -177,7 +177,11 @@ export function splitDescription(desc: string): { original: string; section: str
   const above = lines.slice(0, i).join('\n')
   const section = lines.slice(i + 1)
   const d = section.findIndex(l => DIVIDER_RE.test(l.trim()))
-  const stray = d < 0 ? '' : section.slice(d + 1).filter(l => !l.trim().startsWith('/') && !DIVIDER_RE.test(l.trim())).join('\n').trim()
+  const below = d < 0 ? [] : section.slice(d + 1)
+  // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
+  // the first header on the next read, its title and list parsed as bills.
+  const h = below.findIndex(l => HEADER_RE.test(l.trim()))
+  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !l.trim().startsWith('/') && !DIVIDER_RE.test(l.trim())).join('\n').trim()
   const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
   return { original, section: section.join('\n') }
 }

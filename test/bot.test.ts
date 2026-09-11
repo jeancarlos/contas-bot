@@ -216,3 +216,15 @@ test('tick retries next minute when the post fails', async () => {
   await assert.rejects(bot.tick())
   assert.equal(store.get()._meta.last_reset, undefined)
 })
+
+test('a receipt that cannot be read asks to resend and stores nothing', async () => {
+  const { bot, store, sent, llmCalls } = await setup()
+  const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('media expired') } }
+  await bot.onMessage(msg('luz', { media: broken }))
+  const pdf = { mime: 'application/pdf', download: async () => Buffer.from('%PDF') } // setup() passes no pdfToPng
+  await bot.onMessage(msg('luz', { media: pdf }))
+  const reply = 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]'
+  assert.deepEqual(sent.slice(-2).map(s => s.text), [reply, reply])
+  assert.deepEqual(llmCalls, [])
+  assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
+})

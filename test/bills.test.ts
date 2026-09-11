@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   normalize, parseDescription, resolveBill, parseAmount, formatBRL,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
+  DEMO_BILLS, splitDescription, renderSection, composeDescription, isGreeting,
   type Bill, type Payment,
 } from '../src/bills.ts'
 
@@ -132,4 +133,77 @@ test('parseDescription takes the group description as people actually write it',
 test('parseDescription stops at a divider so the description can carry help text', () => {
   const bills = parseDescription('Contas:\nLuz\n/pago luz 10\nÁgua\n───────\nBot das contas\nMande o comprovante')
   assert.deepEqual(bills.map(b => b.name), ['Luz', 'Água'])
+})
+
+test('splitDescription finds the bot section by its marker', () => {
+  assert.deepEqual(splitDescription('Casa\nLuz'), { original: 'Casa\nLuz', section: null })
+  const d = 'Grupo da casa\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz'
+  assert.deepEqual(splitDescription(d), { original: 'Grupo da casa\n', section: 'Contas (edite esta lista):\nLuz' })
+  assert.equal(splitDescription('-- 🤖 contas-bot --\nLuz').section, 'Luz') // retyped dashes still match
+  // prose that merely mentions the bot is not the header
+  assert.equal(splitDescription('Este grupo usa o 🤖 contas-bot\nLuz').section, null)
+})
+
+test('renderSection is the canonical text and parses back to the same bills', () => {
+  const bills = parseDescription(DEMO_BILLS)
+  assert.equal(renderSection(bills), [
+    '──── 🤖 contas-bot ────',
+    'Contas (edite esta lista):',
+    'Luz', 'Água', 'Internet', 'Aluguel', 'Academia (pausado)',
+    '──────────────',
+    '/pago <conta> [valor] · /lista · /help',
+  ].join('\n'))
+  assert.deepEqual(parseDescription(splitDescription(renderSection(bills)).section!), bills)
+})
+
+test('composeDescription keeps the original text above and is idempotent', () => {
+  const bills = parseDescription('Luz\nÁgua')
+  const once = composeDescription('Grupo da casa 🏠  \n', bills)
+  assert.ok(once.startsWith('Grupo da casa 🏠\n\n──── 🤖 contas-bot ────\n'))
+  const { original, section } = splitDescription(once)
+  assert.equal(composeDescription(original, parseDescription(section!)), once)
+  assert.ok(composeDescription('', bills).startsWith('──── 🤖 contas-bot ────'))
+})
+
+test('composeDescription drops the help line first when over 2048 characters', () => {
+  const bills = parseDescription('Luz\nÁgua')
+  const long = 'x'.repeat(2048 - renderSection(bills).length)
+  const d = composeDescription(long, bills)
+  assert.ok(d.length <= 2048)
+  assert.ok(!d.includes('/help'))
+  assert.deepEqual(parseDescription(splitDescription(d).section!), bills)
+})
+
+test('composeDescription never loses the section to a long original text', () => {
+  const bills = parseDescription('Luz\nÁgua')
+  for (const original of ['y'.repeat(2100), 'a'.repeat(1990) + '\n' + 'b'.repeat(100)]) {
+    const d = composeDescription(original, bills)
+    assert.ok(d.length <= 2048, `length ${d.length}`)
+    const { original: top, section } = splitDescription(d)
+    assert.notEqual(section, null)
+    assert.deepEqual(parseDescription(section!), bills)
+    assert.equal(composeDescription(top, bills), d) // idempotent after truncation
+  }
+})
+
+test('parseDescription strips list markers and needs a separator before pausado', () => {
+  const bills = parseDescription('- Luz\n1. Água\n• Gás\n2) Aluguel\nDespausado\nHBO - pausado')
+  assert.deepEqual(bills.map(b => [b.name, b.paused]), [
+    ['Luz', false], ['Água', false], ['Gás', false], ['Aluguel', false], ['Despausado', false], ['HBO', true],
+  ])
+})
+
+test('parseAmount rejects zero', () => {
+  assert.equal(parseAmount('0'), null)
+  assert.equal(parseAmount('0,00'), null)
+})
+
+test('isGreeting needs a greeting that names the bot, in four words or fewer', () => {
+  for (const t of ['oi bot', 'Olá contas-bot', 'bom dia bot', 'e aí bot!']) assert.equal(isGreeting(t), true, t)
+  for (const t of ['oi', 'oi amor', 'o bot pagou a luz ontem de manhã', 'bot']) assert.equal(isGreeting(t), false, t)
+})
+
+test('/help and /ajuda are the same command', () => {
+  assert.deepEqual(parseCommand('/help'), { cmd: 'ajuda' })
+  assert.deepEqual(parseCommand('/AJUDA'), { cmd: 'ajuda' })
 })

@@ -23,13 +23,15 @@ export function normalize(s: string): string {
 export function parseDescription(desc: string): Bill[] {
   const bills: Bill[] = []
   for (const raw of desc.split('\n')) {
-    const line = raw.trim()
+    const trimmed = raw.trim()
     // A divider line ends the bill list: below it the description is free text (help, notes).
-    if (/^[-_=—–─━.·*~]{3,}$/.test(line)) break
+    if (/^[-_=—–─━.·*~]{3,}$/.test(trimmed)) break
+    // Strip list markers so '- Luz', '1. Luz', '• Luz' all become 'Luz'.
+    const line = trimmed.replace(/^(?:[-*•·]|\d+[.)])\s+/, '')
     // '#' comments and 'Contas:'-style headings are not bills.
     if (!line || line.startsWith('#') || line.startsWith('/') || line.endsWith(':')) continue
-    // Paused: '(pausado)', '- pausado', 'pausada' at the end of the line.
-    const m = /^(.*?)[\s\-–—(]*pausad[oa]\)?\s*$/i.exec(line)
+    // Paused: '(pausado)', '- pausado', 'pausada' at the end of the line, needs a separator (not just a suffix).
+    const m = /^(.*?)(?:^|[\s\-–—(]+)pausad[oa]\)?\s*$/i.exec(line)
     const name = (m ? m[1] : line).trim()
     const key = normalize(name)
     if (!key || bills.some(b => b.key === key)) continue
@@ -53,7 +55,7 @@ export function parseAmount(s: string): number | null {
   if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.')
   else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '')
   const n = Number(t)
-  return Number.isFinite(n) ? n : null
+  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 export function formatBRL(n: number): string {
@@ -108,7 +110,8 @@ export function parseCommand(text: string): Command | null {
     }
     case 'despago': return { cmd: 'despago', name: arg }
     case 'lista': return { cmd: 'lista' }
-    case 'ajuda': return { cmd: 'ajuda' }
+    case 'ajuda':
+    case 'help': return { cmd: 'ajuda' }
     default: return { cmd: 'unknown', raw: t }
   }
 }
@@ -116,4 +119,60 @@ export function parseCommand(text: string): Command | null {
 export function matchPlainText(bills: Bill[], text: string): Bill | null {
   const t = normalize(text).replace(/^(pago|paguei|paga)\s+((a|o|as|os)\s+)?/, '')
   return bills.find(b => b.key === t) ?? null
+}
+
+export const SECTION_MARK = '🤖 contas-bot'
+const SECTION_HEADER = `──── ${SECTION_MARK} ────`
+const SECTION_TITLE = 'Contas (edite esta lista):'
+const SECTION_DIVIDER = '──────────────'
+const SECTION_HELP = '/pago <conta> [valor] · /lista · /help'
+const DESC_LIMIT = 2048
+export const DEMO_BILLS = 'Luz\nÁgua\nInternet\nAluguel\nAcademia (pausado)'
+
+// The header is a line holding only the marker and decoration; prose that mentions the bot is not it.
+const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
+
+// The bot owns everything from its header line down; text above it belongs to the group.
+export function splitDescription(desc: string): { original: string; section: string | null } {
+  const lines = desc.split('\n')
+  const i = lines.findIndex(l => HEADER_RE.test(l.trim()))
+  if (i < 0) return { original: desc, section: null }
+  return { original: lines.slice(0, i).join('\n'), section: lines.slice(i + 1).join('\n') }
+}
+
+export function billLine(b: Bill): string {
+  return b.paused ? `${b.name} (pausado)` : b.name
+}
+
+export function renderSection(bills: Bill[], withHelp = true): string {
+  const lines = [SECTION_HEADER, SECTION_TITLE, ...bills.map(billLine), SECTION_DIVIDER]
+  if (withHelp) lines.push(SECTION_HELP)
+  return lines.join('\n')
+}
+
+// Priority when over WhatsApp's limit: drop the help line, then shorten the group's text, then cut bills.
+// The section always survives, so the bot never loses its list to a long description.
+export function composeDescription(original: string, bills: Bill[]): string {
+  const top = original.trimEnd()
+  const join = (section: string) => (top ? `${top}\n\n${section}` : section)
+  const full = join(renderSection(bills))
+  if (full.length <= DESC_LIMIT) return full
+  const bare = renderSection(bills, false)
+  if (!top || top.length + 2 + bare.length <= DESC_LIMIT) {
+    const d = join(bare)
+    if (d.length <= DESC_LIMIT) return d
+  }
+  const room = DESC_LIMIT - bare.length - 2
+  if (top && room > 0) return `${top.slice(0, room).trimEnd()}\n\n${bare}`
+  // ponytail: only ~150+ bills get here; the list is cut at a line boundary.
+  return bare.slice(0, bare.lastIndexOf('\n', DESC_LIMIT))
+}
+
+const GREETINGS = ['oi', 'ola', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi']
+
+// A greeting only counts when it names the bot: a bare "oi" is for the other person.
+export function isGreeting(text: string): boolean {
+  const t = normalize(text)
+  const words = t.split(' ')
+  return words.length <= 4 && words.includes('bot') && GREETINGS.some(g => t === g || t.startsWith(`${g} `))
 }

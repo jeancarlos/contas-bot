@@ -127,12 +127,12 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
     case 'pago':
     case 'paid':
     case 'pagado': {
-      // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €", "luz USD 10".
+      // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €", "luz BRL 10".
       // The optional prefix/suffix is restricted to currency tokens (a symbol, optionally led by
-      // up to 3 letters as in "R$"/"US$", or an upper-case 3-letter code like "USD") so a
-      // multi-word bill name is never swallowed into the amount.
-      const m = /^(.*?)\s+((?:(?:[A-Za-z]{0,3}\p{Sc}|[A-Z]{3})\s*)?[\d.,]+(?:\s*(?:\p{Sc}|[A-Z]{3}))?)$/u.exec(arg)
-      const amount = m ? parseAmount(m[2], loc) : null
+      // up to 3 letters as in "R$"/"US$", or the configured currency code like "BRL") so a
+      // multi-word bill name, acronyms included ("Plano TIM 100"), is never swallowed into the amount.
+      const m = new RegExp(`^(.*?)\\s+((?:(?:[A-Za-z]{0,3}\\p{Sc}|${loc.currency})\\s*)?[\\d.,]+(?:\\s*(?:\\p{Sc}|${loc.currency}))?)$`, 'iu').exec(arg)
+      const amount = m ? parseAmount(m[2].toUpperCase(), loc) : null
       return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
     }
     case 'despago':

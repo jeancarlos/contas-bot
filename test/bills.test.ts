@@ -258,7 +258,7 @@ test('parseCommand keeps the full multi-word bill name and only swallows currenc
   // "101" here is the bill's own name, not an amount: no currency token follows it, so nothing parses as money.
   assert.deepEqual(parseCommand('/pago apto 101 luz'), { cmd: 'pago', name: 'apto 101 luz', amount: null })
   assert.deepEqual(parseCommand('/pago luz r$ 10'), { cmd: 'pago', name: 'luz', amount: 10 })
-  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water', amount: 80 })
+  assert.deepEqual(parseCommand('/paid water USD 80', EN), { cmd: 'pago', name: 'water', amount: 80 })
 })
 
 test('plain-text payments, pause tags and greetings in every language', () => {
@@ -297,4 +297,14 @@ test('parseAmount rejects repeated separators that are not thousands groups', ()
   }
   assert.equal(parseAmount('1.234.567'), 1234567)
   assert.equal(parseAmount('1,234,567', EN), 1234567)
+})
+
+test('a bare currency code is only swallowed when it is the configured currency', () => {
+  assert.deepEqual(parseCommand('/pago Plano TIM 100'), { cmd: 'pago', name: 'Plano TIM', amount: 100 })
+  assert.deepEqual(parseCommand('/pago Cartão BTG 500'), { cmd: 'pago', name: 'Cartão BTG', amount: 500 })
+  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water USD', amount: 80 })
+  assert.deepEqual(parseCommand('/pago luz BRL 10'), { cmd: 'pago', name: 'luz', amount: 10 })
+  assert.deepEqual(parseCommand('/pago luz brl 10'), { cmd: 'pago', name: 'luz', amount: 10 })
+  assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10 })
+  assert.deepEqual(parseCommand('/paid water US$ 80', EN), { cmd: 'pago', name: 'water', amount: 80 })
 })

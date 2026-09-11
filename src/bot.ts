@@ -188,6 +188,10 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function handleMedia(m: Incoming) {
+    const c = parseCommand(m.text)
+    const known = c?.cmd === 'pago' ? resolveBill(bills, c.name) : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text)
+    // A typed /pago names the bill: an unknown name is answered like the text command, not guessed by the LLM.
+    if (c?.cmd === 'pago' && !known) { await wa.sendText(notFound(c.name), m.key); return }
     const media = m.media!
     let image: Buffer
     let mime = media.mime
@@ -203,8 +207,6 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(DOWNLOAD_FAILED, m.key)
       return
     }
-    const c = parseCommand(m.text)
-    const known = c?.cmd === 'pago' ? resolveBill(bills, c.name) : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text)
     const typed = c?.cmd === 'pago' ? c.amount : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     if (known) {

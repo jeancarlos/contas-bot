@@ -424,6 +424,15 @@ test('a receipt captioned with /pago or "pago" uses the typed bill and amount', 
   assert.equal(store.get().months['2026-09'].agua, undefined)
 })
 
+test('a receipt captioned /pago with an unknown bill says not found, like the text command', async () => {
+  const { bot, store, sent, llmCalls } = await setup({ verdict: { bill: 'Luz', amount: 10, confidence: 0.99 } })
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('x') }
+  await bot.onMessage(msg('/pago netflix', { media }))
+  assert.equal(sent[0].text, 'não achei "netflix". Contas: Luz, Água, Aluguel, Cartão Nu, Mãe Carme')
+  assert.deepEqual(llmCalls, [])
+  assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
+})
+
 test('greetings aimed at the bot get the intro, a bare oi does not', async () => {
   const { bot, sent } = await setup()
   await bot.onMessage(msg('oi'))

@@ -12,7 +12,7 @@ function env(name: string, fallback?: string): string {
 }
 
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
-const store = (await openState(env('STATE_FILE', 'data/state.json'), process.env.GROUP_JID || undefined)).forGroup(process.env.GROUP_JID ?? '')
+const groups = await openState(env('STATE_FILE', 'data/state.json'), process.env.GROUP_JID || undefined)
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),
@@ -20,33 +20,34 @@ const llm = makeLlm({
   visionModel: env('LLM_VISION_MODEL', 'cx/gpt-5.5'),
 })
 
-let bot: ReturnType<typeof makeBot> | undefined
-const groupJid = process.env.GROUP_JID ?? ''
-const wa = await connectWa({
+const owners = env('OWNER_PHONES').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean)
+const bots = new Map<string, ReturnType<typeof makeBot>>()
+let wa: Awaited<ReturnType<typeof connectWa>> | undefined
+
+function botFor(jid: string) {
+  let bot = bots.get(jid)
+  if (!bot) {
+    bot = makeBot({ wa: wa!.forGroup(jid), llm, store: groups.forGroup(jid), owners, log: log.child({ group: jid }), pdfToPng })
+    bots.set(jid, bot)
+  }
+  return bot
+}
+
+const join = (jid: string) => botFor(jid).join()
+  .then(r => log.info({ jid, result: r }, 'group joined'))
+  .catch(e => log.error({ err: e, jid }, 'join failed, retrying on next start'))
+
+wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
-  groupJid,
   phone: env('BOT_PHONE'),
   log,
-  onMessage: m => { bot?.onMessage(m) },
-  onDescription: d => { bot?.onDescription(d).catch(e => log.error({ err: e }, 'description handling failed')) },
+  onOpen: jids => { for (const jid of jids) join(jid) },
+  onJoined: jid => { join(jid) },
+  onMessage: (jid, m) => { botFor(jid).onMessage(m) },
+  onDescription: (jid, d) => { botFor(jid).onDescription(d).catch(e => log.error({ err: e, jid }, 'description handling failed')) },
 })
 
-if (!groupJid) {
-  // First boot: pair, log the groups this number belongs to, and wait for GROUP_JID to be set.
-  log.warn('GROUP_JID is empty: pair the number, copy the group JID from the log into .env and restart')
-  await new Promise(() => {})
-}
-
-// Baileys resolves the socket before the connection is open; wait for the first successful metadata read.
-for (let i = 0; ; i++) {
-  try { await wa.getDescription(); break } catch {
-    if (i > 60) throw new Error('never connected')
-    await new Promise(r => setTimeout(r, 5000))
-  }
-}
-
-bot = makeBot({ wa, llm, store, log, pdfToPng })
-await bot.join()
-await bot.tick()
-setInterval(() => { bot!.tick().catch(e => log.error({ err: e }, 'tick failed')) }, 60_000)
+setInterval(() => {
+  for (const [jid, bot] of bots) bot.tick().catch(e => log.error({ err: e, jid }, 'tick failed'))
+}, 60_000)
 log.info('contas-bot ready')

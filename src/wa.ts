@@ -1,5 +1,6 @@
 import makeWASocket, {
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
+  jidNormalizedUser, jidDecode, isLidUser,
   type WAMessage, type WAMessageKey, normalizeMessageContent,
 } from '@whiskeysockets/baileys'
 import { readdir, rm } from 'node:fs/promises'
@@ -9,11 +10,12 @@ import type { Incoming, MsgKey, Wa } from './bot.ts'
 
 type Cfg = {
   authDir: string
-  groupJid: string
   phone: string
   log: Logger
-  onMessage(m: Incoming): void
-  onDescription(desc: string): void
+  onOpen(jids: string[]): void
+  onJoined(jid: string): void
+  onMessage(jid: string, m: Incoming): void
+  onDescription(jid: string, desc: string): void
 }
 
 // WhatsApp expires a pairing code in a couple of minutes and rate-limits
@@ -22,7 +24,7 @@ type Cfg = {
 const PAIRING_CODE_TTL_MS = 180_000
 let pairingCodeAt = 0
 
-function toIncoming(msg: WAMessage): Incoming | null {
+function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   const c = normalizeMessageContent(msg.message)
   if (!c || !msg.key.id || !msg.key.remoteJid) return null
   const key: MsgKey = {
@@ -30,16 +32,21 @@ function toIncoming(msg: WAMessage): Incoming | null {
     participant: msg.key.participant ?? undefined,
   }
   const sender = msg.pushName || key.participant || 'alguém'
-  const text = c.conversation ?? c.extendedTextMessage?.text ?? c.imageMessage?.caption ?? c.documentMessage?.caption ?? ''
-  const mediaMime = c.imageMessage?.mimetype ?? c.documentMessage?.mimetype ?? undefined
+  const ctx = c.extendedTextMessage?.contextInfo ?? c.imageMessage?.contextInfo ?? c.documentMessage?.contextInfo
+  const isSelf = (j?: string | null) => Boolean(j) && self.includes(jidNormalizedUser(j!))
+  const mentionsBot = (ctx?.mentionedJid ?? []).some(isSelf)
+  const repliesToBot = isSelf(ctx?.participant)
+  const raw = c.conversation ?? c.extendedTextMessage?.text ?? c.imageMessage?.caption ?? c.documentMessage?.caption ?? ''
+  const text = raw.replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
+  const mediaMime = c.imageMessage ? (c.imageMessage.mimetype || 'image/jpeg') : c.documentMessage?.mimetype ?? undefined
   const isReceipt = Boolean(c.imageMessage) || (Boolean(c.documentMessage) && mediaMime === 'application/pdf')
   const media = isReceipt && mediaMime
     ? { mime: mediaMime, download: async () => (await downloadMediaMessage(msg, 'buffer', {})) as Buffer }
     : undefined
-  return { key, sender, text, media }
+  return { key, sender, text, media, mentionsBot, repliesToBot }
 }
 
-export async function connectWa(cfg: Cfg): Promise<Wa> {
+export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }> {
   // authDir is a bind-mount point: removing it needs write on /app, which this
   // container does not have, and the EACCES took the process down instead of
   // letting it exit cleanly. Emptying it does the same job.
@@ -69,7 +76,8 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
       markOnlineOnConnect: false,
       syncFullHistory: false,
     })
-    s.ev.on('creds.update', saveCreds)
+    const self = () => [s.user?.id, s.user?.lid].filter((j): j is string => Boolean(j)).map(jidNormalizedUser)
+    s.ev.on('creds.update', () => { saveCreds().catch(err => cfg.log.error({ err }, 'saving WhatsApp credentials failed')) })
     s.ev.on('connection.update', async u => { try {
       // requestPairingCode only works on an open socket. Asking on a 3s timer
       // raced the 428 close WhatsApp sends to unregistered sockets, and the throw
@@ -90,6 +98,7 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
         cfg.log.info('whatsapp connected')
         const groups = await s.groupFetchAllParticipating()
         for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject }, 'member of group')
+        cfg.onOpen(Object.keys(groups))
       }
       if (u.connection === 'close') {
         const code = (u.lastDisconnect?.error as any)?.output?.statusCode
@@ -110,40 +119,54 @@ export async function connectWa(cfg: Cfg): Promise<Wa> {
     s.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return
       for (const raw of messages) {
-        if (raw.key.remoteJid !== cfg.groupJid) continue
-        const m = toIncoming(raw)
-        if (m) cfg.onMessage(m)
+        const jid = raw.key.remoteJid
+        if (!jid?.endsWith('@g.us')) continue
+        const m = toIncoming(raw, self())
+        if (m) cfg.onMessage(jid, m)
       }
     })
     s.ev.on('groups.update', updates => {
-      for (const g of updates) if (g.id === cfg.groupJid && typeof g.desc === 'string') cfg.onDescription(g.desc)
+      for (const g of updates) if (g.id && typeof g.desc === 'string') cfg.onDescription(g.id, g.desc)
     })
+    s.ev.on('group-participants.update', ({ id, participants, action }) => {
+      const me = self()
+      const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
+      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) cfg.onJoined(id)
+    })
+    s.ev.on('groups.upsert', groups => { for (const g of groups) cfg.onJoined(g.id) })
     return s
   }
 
   const toKey = (k: MsgKey): WAMessageKey => ({ id: k.id, fromMe: k.fromMe, remoteJid: k.remoteJid, participant: k.participant })
 
+  const phoneOf = async (p: { id: string; phoneNumber?: string }): Promise<string | null> => {
+    const pn = p.phoneNumber ?? (p.id.endsWith('@s.whatsapp.net') ? p.id : null)
+      ?? (isLidUser(p.id) ? await sock.signalRepository.lidMapping.getPNForLID(p.id) : null)
+    return pn ? jidDecode(pn)?.user ?? null : null
+  }
+
   return {
-    async sendText(text, quoted) {
-      const opts = quoted ? { quoted: { key: toKey(quoted), message: {} } } : {}
-      const sent = await sock.sendMessage(cfg.groupJid, { text }, opts)
-      return { id: sent!.key.id!, fromMe: true, remoteJid: cfg.groupJid }
+    forGroup(jid: string): Wa {
+      return {
+        async sendText(text, quoted) {
+          const opts = quoted ? { quoted: { key: toKey(quoted), message: {} } } : {}
+          const sent = await sock.sendMessage(jid, { text }, opts)
+          return { id: sent!.key.id!, fromMe: true, remoteJid: jid }
+        },
+        async react(key, emoji) { await sock.sendMessage(jid, { react: { text: emoji, key: toKey(key) } }) },
+        async pin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 1, time: 2592000 }) },
+        async unpin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 2 }) },
+        async getDescription() { return (await sock.groupMetadata(jid)).desc ?? '' },
+        async setDescription(text) { await sock.groupUpdateDescription(jid, text) },
+        async leave() { await sock.groupLeave(jid) },
+        // null when any member's phone is unknown: the owner check must never leave a group on a guess.
+        async memberPhones() {
+          const me = [sock.user?.id, sock.user?.lid].filter((j): j is string => Boolean(j)).map(jidNormalizedUser)
+          const others = (await sock.groupMetadata(jid)).participants.filter(p => !me.includes(jidNormalizedUser(p.id)))
+          const phones = await Promise.all(others.map(phoneOf))
+          return phones.every(Boolean) ? (phones as string[]) : null
+        },
+      }
     },
-    async react(key, emoji) {
-      await sock.sendMessage(cfg.groupJid, { react: { text: emoji, key: toKey(key) } })
-    },
-    async pin(key) {
-      await sock.sendMessage(cfg.groupJid, { pin: toKey(key), type: 1, time: 2592000 })
-    },
-    async unpin(key) {
-      await sock.sendMessage(cfg.groupJid, { pin: toKey(key), type: 2 })
-    },
-    async getDescription() {
-      const meta = await sock.groupMetadata(cfg.groupJid)
-      return meta.desc ?? ''
-    },
-    async setDescription() { throw new Error('not implemented') },
-    async leave() {},
-    async memberPhones() { return null },
   }
 }

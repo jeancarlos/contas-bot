@@ -93,9 +93,10 @@ export function makeBot(deps: BotDeps) {
     const sentKey = await wa.sendText(renderList(key, bills, paid))
     const prev = state()._meta.pinned
     try {
-      if (prev) await wa.unpin(prev)
+      // Pin first: a refused pin must not leave the group with no list pinned at all.
       await wa.pin(sentKey)
       state()._meta.pinned = { id: sentKey.id, fromMe: sentKey.fromMe, remoteJid: sentKey.remoteJid }
+      if (prev) await wa.unpin(prev).catch(e => log.warn({ err: e }, 'unpinning the previous list failed'))
     } catch (e) {
       log.warn({ err: e }, 'pin failed (group may restrict pinning to admins)')
     }

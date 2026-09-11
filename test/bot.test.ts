@@ -77,11 +77,11 @@ test('/pago marks paid, reacts, posts and pins the list', async () => {
   assert.equal(store.get()._meta.pinned?.id, 's1')
 })
 
-test('second post unpins the previous list first', async () => {
+test('second post pins the new list, then unpins the previous one', async () => {
   const { bot, pins } = await setup()
   await bot.onMessage(msg('/pago luz'))
   await bot.onMessage(msg('/pago agua'))
-  assert.deepEqual(pins, ['pin:s1', 'unpin:s1', 'pin:s2'])
+  assert.deepEqual(pins, ['pin:s1', 'pin:s2', 'unpin:s1'])
 })
 
 test('unknown bill replies with the list and changes nothing', async () => {
@@ -203,7 +203,7 @@ test('concurrent messages are handled one at a time, pins never interleave', asy
   ])
   const lists = sent.filter(s => s.text.startsWith('📋')).length
   assert.equal(lists, 2)
-  assert.deepEqual(pins, ['pin:s1', 'unpin:s1', 'pin:s2'])
+  assert.deepEqual(pins, ['pin:s1', 'pin:s2', 'unpin:s1'])
 })
 
 test('onDescription republishes the list', async () => {
@@ -214,12 +214,21 @@ test('onDescription republishes the list', async () => {
 })
 
 test('a failed pin keeps the previous pinned key', async () => {
-  const { bot, wa, store } = await setup()
+  const { bot, wa, store, pins } = await setup()
   await bot.onMessage(msg('/lista'))
   const first = store.get()._meta.pinned?.id
   wa.pin = async () => { throw new Error('not admin') }
   await bot.onMessage(msg('/lista'))
   assert.equal(store.get()._meta.pinned?.id, first)
+  assert.deepEqual(pins, ['pin:s1']) // the old list stays pinned: nothing is unpinned before a pin succeeds
+})
+
+test('a failed unpin after a successful pin still stores the new key', async () => {
+  const { bot, wa, store } = await setup()
+  await bot.onMessage(msg('/lista'))
+  wa.unpin = async () => { throw new Error('gone') }
+  await bot.onMessage(msg('/lista'))
+  assert.equal(store.get()._meta.pinned?.id, 's2')
 })
 
 test('tick retries next minute when the post fails', async () => {

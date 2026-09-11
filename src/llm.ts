@@ -11,7 +11,7 @@ function parseVerdict(raw: string, bills: string[]): Verdict | null {
   let o: any
   try { o = JSON.parse(m[0]) } catch { return null }
   const bill = typeof o.bill === 'string' && bills.includes(o.bill) ? o.bill : null
-  const amount = typeof o.amount === 'number' && Number.isFinite(o.amount) && o.amount > 0 ? o.amount : null
+  const amount = typeof o.amount === 'number' && o.amount > 0 && o.amount < 1e12 ? o.amount : null
   const confidence = typeof o.confidence === 'number' ? Math.max(0, Math.min(1, o.confidence)) : 0
   return { bill, amount, confidence }
 }

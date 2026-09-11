@@ -314,3 +314,9 @@ test('matchPlainText prefers a bill named with a payment word over stripping it'
   assert.equal(matchPlainText(bills, 'Pago Luz')?.name, 'Pago Luz')
   assert.equal(matchPlainText(bills, 'paguei a luz')?.name, 'Luz')
 })
+
+test('parseAmount rejects absurd amounts', () => {
+  assert.equal(parseAmount('9007199254740993'), null)
+  assert.equal(parseAmount('1000000000000'), null)
+  assert.equal(parseAmount('999999999999'), 999999999999)
+})

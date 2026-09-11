@@ -81,3 +81,9 @@ test('a network error, a missing choice or a junk field degrades instead of thro
   const junk = fakeFetch(reply('{"bill":"Luz","amount":"231,45","confidence":7}'))
   assert.deepEqual(await llmWith(junk.fn).interpretCaption('luz', bills), { bill: 'Luz', amount: null, confidence: 1 })
 })
+
+test('absurd amounts become null', async () => {
+  const { fn } = fakeFetch(reply('{"bill":"Luz","amount":1e12,"confidence":0.9}'))
+  const v = await llmWith(fn).interpretCaption('luz', bills)
+  assert.equal(v?.amount, null)
+})

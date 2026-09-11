@@ -78,7 +78,8 @@ export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | n
     num = isDecimal ? t.replace(sep, '.') : t.split(sep).join('')
   }
   const n = Number(num)
-  return Number.isFinite(n) && n > 0 ? n : null
+  // Past 1e12 a total loses its cents (and can reach Infinity): no household bill is that big.
+  return n > 0 && n < 1e12 ? n : null
 }
 
 export function formatMoney(n: number, loc: Locale = DEFAULT_LOCALE): string {

@@ -36,7 +36,7 @@ function fakeLlm(verdict: Verdict | null) {
 
 async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
-  const store = await openState(join(dir, 'state.json'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa(opts.desc)
   const l = fakeLlm(opts.verdict ?? null)
   const bot = makeBot({ wa: w.wa, llm: l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z') })
@@ -164,7 +164,7 @@ test('onDescription replaces the bill list and keeps payments', async () => {
 
 test('empty description at start falls back to _meta.bills and warns once', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
-  const store = await openState(join(dir, 'state.json'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   store.get()._meta.bills = ['Luz', 'HBO']
   await store.save()
   const w = fakeWa('')

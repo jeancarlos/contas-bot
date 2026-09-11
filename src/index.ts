@@ -12,7 +12,7 @@ function env(name: string, fallback?: string): string {
 }
 
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
-const store = await openState(env('STATE_FILE', 'data/state.json'))
+const store = (await openState(env('STATE_FILE', 'data/state.json'), process.env.GROUP_JID || undefined)).forGroup(process.env.GROUP_JID ?? '')
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),

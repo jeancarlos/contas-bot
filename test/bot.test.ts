@@ -433,6 +433,16 @@ test('a receipt captioned /pago with an unknown bill says not found, like the te
   assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
 })
 
+test('a receipt captioned /pago with no bill name is read to find the bill', async () => {
+  for (const [caption, amount] of [['/pago', 99], ['/pago 150,00', 150]] as const) {
+    const { bot, store, llmCalls } = await setup({ verdict: { bill: 'Luz', amount: 99, confidence: 0.99 } })
+    const media = { mime: 'image/jpeg', download: async () => Buffer.from('x') }
+    await bot.onMessage(msg(caption, { media }))
+    assert.equal(store.get().months['2026-09'].luz?.amount, amount, caption)
+    assert.deepEqual(llmCalls, [`receipt:${caption}`])
+  }
+})
+
 test('greetings aimed at the bot get the intro, a bare oi does not', async () => {
   const { bot, sent } = await setup()
   await bot.onMessage(msg('oi'))

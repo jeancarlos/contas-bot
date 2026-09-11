@@ -1,5 +1,5 @@
 import {
-  parseDescription, resolveBill, parseCommand, matchPlainText, renderList, monthKey,
+  parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, renderList, monthKey,
   splitDescription, renderSection, composeDescription, billLine, isGreeting, DEMO_BILLS,
   type Bill,
 } from './bills.ts'
@@ -189,9 +189,12 @@ export function makeBot(deps: BotDeps) {
 
   async function handleMedia(m: Incoming) {
     const c = parseCommand(m.text)
-    const known = c?.cmd === 'pago' ? resolveBill(bills, c.name) : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text)
-    // A typed /pago names the bill: an unknown name is answered like the text command, not guessed by the LLM.
-    if (c?.cmd === 'pago' && !known) { await wa.sendText(notFound(c.name), m.key); return }
+    const pago = c?.cmd === 'pago' ? c : null
+    // "/pago" alone or "/pago 150,00" names no bill: the receipt is read to find it.
+    const named = pago && pago.name && parseAmount(pago.name) === null ? pago.name : null
+    const known = named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text)
+    // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
+    if (named && !known) { await wa.sendText(notFound(named), m.key); return }
     const media = m.media!
     let image: Buffer
     let mime = media.mime
@@ -207,7 +210,7 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(DOWNLOAD_FAILED, m.key)
       return
     }
-    const typed = c?.cmd === 'pago' ? c.amount : null
+    const typed = pago ? pago.amount ?? parseAmount(pago.name) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     if (known) {
       if (!verdict && typed == null) await wa.sendText(NO_AMOUNT, m.key)
@@ -216,7 +219,7 @@ export function makeBot(deps: BotDeps) {
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
     if (!bill) { await wa.sendText(ASK, m.key); return }
-    await markPaid(bill, verdict!.amount, m)
+    await markPaid(bill, typed ?? verdict!.amount, m)
   }
 
   return {

@@ -1,3 +1,5 @@
+import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
+
 export type Bill = { name: string; key: string; paused: boolean }
 export type Payment = { name: string; paid_at: string; amount: number | null; by: string; message_id: string }
 export type Command =
@@ -7,9 +9,7 @@ export type Command =
   | { cmd: 'ajuda' }
   | { cmd: 'unknown'; raw: string }
 
-const MONTHS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
-const TZ = 'America/Sao_Paulo'
+const TZ = process.env.TZ || 'America/Sao_Paulo'
 
 export function normalize(s: string): string {
   return s.normalize('NFKD')
@@ -30,8 +30,8 @@ export function parseDescription(desc: string): Bill[] {
     const line = trimmed.replace(/^(?:[-*•·]|\d+[.)])\s+/, '')
     // '#' comments and 'Contas:'-style headings are not bills.
     if (!line || line.startsWith('#') || line.startsWith('/') || line.endsWith(':')) continue
-    // Paused: '(pausado)', '- pausado', 'pausada' at the end of the line, needs a separator (not just a suffix).
-    const m = /^(.*?)(?:^|[\s\-–—(]+)pausad[oa]\)?\s*$/i.exec(line)
+    // Paused: '(pausado)'/'(paused)', '- pausado', 'pausada' at the end of the line, needs a separator (not just a suffix).
+    const m = /^(.*?)(?:^|[\s\-–—(]+)(?:pausad[oa]|paused)\)?\s*$/i.exec(line)
     const name = (m ? m[1] : line).trim()
     const key = normalize(name)
     if (!key || bills.some(b => b.key === key)) continue
@@ -49,19 +49,29 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
   return prefix.length === 1 ? prefix[0] : null
 }
 
-export function parseAmount(s: string): number | null {
-  let t = s.replace(/r\$/i, '').replace(/\s/g, '')
+export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
+  // Currency symbols and codes sit at the ends ("R$ 10", "10 €", "USD 10"); spaces may group thousands.
+  const t = s.replace(/^\D+|\D+$/g, '').replace(/\s/g, '')
   if (!/^\d[\d.,]*$/.test(t)) return null
-  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.')
-  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '')
-  const n = Number(t)
+  let num: string
+  const last = Math.max(t.lastIndexOf(','), t.lastIndexOf('.'))
+  if (t.includes(',') && t.includes('.')) {
+    num = t.slice(0, last).replace(/[.,]/g, '') + '.' + t.slice(last + 1)
+  } else if (last < 0) {
+    num = t
+  } else {
+    const sep = t[last]
+    const count = t.split(sep).length - 1
+    const tail = t.length - last - 1
+    const isDecimal = count === 1 && (tail !== 3 || sep === loc.decimal)
+    num = isDecimal ? t.replace(sep, '.') : t.split(sep).join('')
+  }
+  const n = Number(num)
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
-export function formatBRL(n: number): string {
-  const [int, dec] = n.toFixed(2).split('.')
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `R$ ${grouped},${dec}`
+export function formatMoney(n: number, loc: Locale = DEFAULT_LOCALE): string {
+  return new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).format(n).replace(/[\u00a0\u202f]/g, ' ')
 }
 
 export function monthKey(d: Date): string {
@@ -70,64 +80,72 @@ export function monthKey(d: Date): string {
   return `${get('year')}-${get('month')}`
 }
 
-export function monthTitle(key: string): string {
-  const [y, m] = key.split('-')
-  return `${MONTHS[Number(m) - 1]}/${y}`
+export function monthTitle(key: string, loc: Locale = DEFAULT_LOCALE): string {
+  const [y, m] = key.split('-').map(Number)
+  const name = new Intl.DateTimeFormat(loc.lang, { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, 15)))
+  return `${name[0].toLocaleUpperCase(loc.lang)}${name.slice(1)}/${y}`
 }
 
-export function renderList(key: string, bills: Bill[], paid: Record<string, Payment>): string {
+export function renderList(key: string, bills: Bill[], paid: Record<string, Payment>, loc: Locale = DEFAULT_LOCALE): string {
   const active = bills.filter(b => !b.paused)
   const done = active.filter(b => paid[b.key])
   const pending = active.filter(b => !paid[b.key])
   const paused = bills.filter(b => b.paused)
-  const lines = [`📋 *Contas — ${monthTitle(key)}*`, '']
+  const lines = [`📋 *${loc.t.listTitle} — ${monthTitle(key, loc)}*`, '']
   for (const b of done) {
     const a = paid[b.key].amount
-    lines.push(a == null ? `✅ ${b.name}` : `✅ ${b.name} — ${formatBRL(a)}`)
+    lines.push(a == null ? `✅ ${b.name}` : `✅ ${b.name} — ${formatMoney(a, loc)}`)
   }
   for (const b of pending) lines.push(`⬜ ${b.name}`)
   for (const b of paused) lines.push(`⏸️ ${b.name}`)
   const amounts = done.map(b => paid[b.key].amount).filter((a): a is number => a != null)
   const total = amounts.reduce((s, a) => s + a, 0)
   const missing = done.length - amounts.length
-  let footer = `*Pago:* ${done.length}/${active.length} · *Total:* ${formatBRL(total)}`
-  if (missing > 0) footer += ` (${missing} sem valor)`
+  let footer = `*${loc.t.paidLabel}:* ${done.length}/${active.length} · *${loc.t.totalLabel}:* ${formatMoney(total, loc)}`
+  if (missing > 0) footer += ` (${loc.t.noAmount(missing)})`
   lines.push('', footer)
   return lines.join('\n')
 }
 
-export function parseCommand(text: string): Command | null {
+export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Command | null {
   const t = text.trim()
   if (!t.startsWith('/')) return null
   const [cmd, ...rest] = t.slice(1).split(/\s+/)
   const arg = rest.join(' ')
   switch (cmd.toLowerCase()) {
-    case 'pago': {
-      // trailing amount: last token that parses as money, e.g. "cartão nu R$ 6.237,60"
-      const m = /^(.*?)\s+(?:r\$\s*)?([\d.,]+)$/i.exec(arg)
-      const amount = m ? parseAmount(m[2]) : null
+    case 'pago':
+    case 'paid':
+    case 'pagado': {
+      // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €"
+      const m = /^(.*?)\s+((?:[^\d\s]{1,4}\s*)?[\d.,]+(?:\s*[^\d\s]{1,4})?)$/i.exec(arg)
+      const amount = m ? parseAmount(m[2], loc) : null
       return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
     }
-    case 'despago': return { cmd: 'despago', name: arg }
-    case 'lista': return { cmd: 'lista' }
+    case 'despago':
+    case 'despagado':
+    case 'unpaid':
+    case 'reverter':
+    case 'revert':
+    case 'revertir': return { cmd: 'despago', name: arg }
+    case 'lista':
+    case 'list': return { cmd: 'lista' }
     case 'ajuda':
-    case 'help': return { cmd: 'ajuda' }
+    case 'help':
+    case 'ayuda': return { cmd: 'ajuda' }
     default: return { cmd: 'unknown', raw: t }
   }
 }
 
 export function matchPlainText(bills: Bill[], text: string): Bill | null {
-  const t = normalize(text).replace(/^(pago|paguei|paga)\s+((a|o|as|os)\s+)?/, '')
+  const t = normalize(text).replace(/^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/, '')
   return bills.find(b => b.key === t) ?? null
 }
 
 export const SECTION_MARK = '🤖 contas-bot'
 const SECTION_HEADER = `──── ${SECTION_MARK} ────`
-const SECTION_TITLE = 'Contas (edite esta lista):'
 const SECTION_DIVIDER = '──────────────'
-const SECTION_HELP = '/pago <conta> [valor] · /lista · /help'
 const DESC_LIMIT = 2048
-export const DEMO_BILLS = 'Luz\nÁgua\nInternet\nAluguel\nAcademia (pausado)'
+export const DEMO_BILLS = DEFAULT_LOCALE.t.demoBills
 
 // The header is a line holding only the marker and decoration; prose that mentions the bot is not it.
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
@@ -140,28 +158,31 @@ export function splitDescription(desc: string): { original: string; section: str
   return { original: lines.slice(0, i).join('\n'), section: lines.slice(i + 1).join('\n') }
 }
 
-export function billLine(b: Bill): string {
-  return b.paused ? `${b.name} (pausado)` : b.name
+export function billLine(b: Bill, loc: Locale = DEFAULT_LOCALE): string {
+  return b.paused ? `${b.name} (${loc.t.pauseWord})` : b.name
 }
 
-export function renderSection(bills: Bill[], withHelp = true): string {
-  const lines = [SECTION_HEADER, SECTION_TITLE, ...bills.map(billLine), SECTION_DIVIDER]
-  if (withHelp) lines.push(SECTION_HELP)
+export function renderSection(bills: Bill[], loc: Locale = DEFAULT_LOCALE, withHelp = true): string {
+  const lines = [SECTION_HEADER, loc.t.sectionTitle, ...bills.map(b => billLine(b, loc)), SECTION_DIVIDER]
+  if (withHelp) lines.push(loc.t.sectionHelp)
   return lines.join('\n')
 }
 
 // Over WhatsApp's limit only the help line may go. The group's text and the bill list are never cut:
 // null means it does not fit and the caller must leave the description alone.
-export function composeDescription(original: string, bills: Bill[]): string | null {
+export function composeDescription(original: string, bills: Bill[], loc: Locale = DEFAULT_LOCALE): string | null {
   const top = original.trimEnd()
   const join = (section: string) => (top ? `${top}\n\n${section}` : section)
-  const full = join(renderSection(bills))
+  const full = join(renderSection(bills, loc))
   if (full.length <= DESC_LIMIT) return full
-  const bare = join(renderSection(bills, false))
+  const bare = join(renderSection(bills, loc, false))
   return bare.length <= DESC_LIMIT ? bare : null
 }
 
-const GREETINGS = ['oi', 'ola', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi']
+const GREETINGS = [
+  'oi', 'ola', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi',
+  'hey', 'good morning', 'good afternoon', 'good evening', 'hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches',
+]
 
 // A greeting only counts when it names the bot: a bare "oi" is for the other person.
 export function isGreeting(text: string): boolean {

@@ -402,7 +402,7 @@ test('restart before join does not repost the list and still handles a queued pa
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const bills = parseDescription(DESC)
   store.get()._meta.last_reset = '2026-08'
-  store.get()._meta.bills = bills.map(billLine)
+  store.get()._meta.bills = bills.map(b => billLine(b))
   store.get()._meta.section = true
   const w = fakeWa(composeDescription('', bills)!, ['5549111111111'])
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })

@@ -154,7 +154,7 @@ export function makeBot(deps: BotDeps) {
     if (next.length === 0) next = parseDescription((meta.bills ?? []).join('\n'))
     const changed = renderSection(next) !== renderSection(bills)
     bills = next
-    meta.bills = bills.map(billLine)
+    meta.bills = bills.map(b => billLine(b))
     const want = composeDescription(top, bills)
     if (want === desc) meta.section = true
     else if (want !== lastWritten) await writeDescription(want)
@@ -251,7 +251,7 @@ export function makeBot(deps: BotDeps) {
         }
         const desc = await wa.getDescription()
         bills = parseDescription(DEMO_BILLS)
-        meta.bills = bills.map(billLine)
+        meta.bills = bills.map(b => billLine(b))
         // A new group is section-style from birth: even if the write below is refused, a later description
         // without our section means "keep their text, restore the list", never "their text is the bill list".
         meta.section = true

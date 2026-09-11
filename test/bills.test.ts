@@ -1,11 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normalize, parseDescription, resolveBill, parseAmount, formatBRL,
+  normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
   DEMO_BILLS, splitDescription, renderSection, composeDescription, isGreeting,
   type Bill, type Payment,
 } from '../src/bills.ts'
+import { makeLocale } from '../src/i18n.ts'
 
 const desc = `# Contas do mês
 Luz
@@ -51,10 +52,10 @@ test('parseAmount accepts BR and dot formats', () => {
   assert.equal(parseAmount('abc'), null)
 })
 
-test('formatBRL', () => {
-  assert.equal(formatBRL(6237.6), 'R$ 6.237,60')
-  assert.equal(formatBRL(231.45), 'R$ 231,45')
-  assert.equal(formatBRL(1234567.5), 'R$ 1.234.567,50')
+test('formatMoney', () => {
+  assert.equal(formatMoney(6237.6), 'R$ 6.237,60')
+  assert.equal(formatMoney(231.45), 'R$ 231,45')
+  assert.equal(formatMoney(1234567.5), 'R$ 1.234.567,50')
 })
 
 test('monthKey uses America/Sao_Paulo', () => {
@@ -201,4 +202,72 @@ test('isGreeting needs a greeting that names the bot, in four words or fewer', (
 test('/help and /ajuda are the same command', () => {
   assert.deepEqual(parseCommand('/help'), { cmd: 'ajuda' })
   assert.deepEqual(parseCommand('/AJUDA'), { cmd: 'ajuda' })
+})
+
+const EN = makeLocale('en', 'USD')
+const ES = makeLocale('es', 'EUR')
+
+test('formatMoney follows the locale and never emits no-break spaces', () => {
+  assert.equal(formatMoney(6237.6), 'R$ 6.237,60')
+  assert.equal(formatMoney(6237.6, EN), '$6,237.60')
+  assert.equal(formatMoney(6237.6, ES), '6237,60 €')
+  for (const s of [formatMoney(1, EN), formatMoney(1), formatMoney(1234.5, ES)]) assert.ok(!/[\u00a0\u202f]/.test(s), s)
+})
+
+test('monthTitle in every language', () => {
+  assert.equal(monthTitle('2026-09'), 'Setembro/2026')
+  assert.equal(monthTitle('2026-09', EN), 'September/2026')
+  assert.equal(monthTitle('2026-09', ES), 'Septiembre/2026')
+})
+
+test('parseAmount is currency-agnostic and uses the locale only for ambiguity', () => {
+  const cases: [string, number | null, number | null][] = [
+    // input, pt-BR, en
+    ['231,45', 231.45, 231.45],
+    ['231.45', 231.45, 231.45],
+    ['R$ 6.237,60', 6237.6, 6237.6],
+    ['$6,237.60', 6237.6, 6237.6],
+    ['6.237,60 €', 6237.6, 6237.6],
+    ['USD 10', 10, 10],
+    ['1.234', 1234, 1.234],
+    ['1,234', 1.234, 1234],
+    ['1.234.567', 1234567, 1234567],
+    ['abc', null, null],
+    ['0', null, null],
+  ]
+  for (const [s, pt, en] of cases) {
+    assert.equal(parseAmount(s), pt, `pt ${s}`)
+    assert.equal(parseAmount(s, EN), en, `en ${s}`)
+  }
+})
+
+test('commands in every language map to the same actions', () => {
+  for (const c of ['/pago luz 10', '/paid luz 10', '/pagado luz 10']) assert.deepEqual(parseCommand(c), { cmd: 'pago', name: 'luz', amount: 10 }, c)
+  for (const c of ['/despago luz', '/despagado luz', '/unpaid luz', '/reverter luz', '/revert luz', '/revertir luz']) assert.deepEqual(parseCommand(c), { cmd: 'despago', name: 'luz' }, c)
+  for (const c of ['/lista', '/list']) assert.deepEqual(parseCommand(c), { cmd: 'lista' }, c)
+  for (const c of ['/ajuda', '/help', '/ayuda']) assert.deepEqual(parseCommand(c), { cmd: 'ajuda' }, c)
+  assert.deepEqual(parseCommand('/paid water $80.10', EN), { cmd: 'pago', name: 'water', amount: 80.1 })
+  assert.deepEqual(parseCommand('/pagado luz 80 €', ES), { cmd: 'pago', name: 'luz', amount: 80 })
+})
+
+test('plain-text payments, pause tags and greetings in every language', () => {
+  const bills = parseDescription('Luz\nWater\nAgua\nHBO (paused)\nNetflix - pausada\nDespausado')
+  assert.deepEqual(bills.map(b => [b.name, b.paused]), [['Luz', false], ['Water', false], ['Agua', false], ['HBO', true], ['Netflix', true], ['Despausado', false]])
+  assert.equal(matchPlainText(bills, 'paid the water')?.name, 'Water')
+  assert.equal(matchPlainText(bills, 'pagué la luz')?.name, 'Luz')
+  assert.equal(matchPlainText(bills, 'pagado agua')?.name, 'Agua')
+  for (const t of ['hey bot', 'good morning bot', 'hola bot', 'buenos días bot']) assert.equal(isGreeting(t), true, t)
+  assert.equal(isGreeting('hola'), false)
+})
+
+test('renderSection and renderList speak the locale', () => {
+  const bills = parseDescription('Power\nGym (pausado)')
+  assert.equal(renderSection(bills, EN), [
+    '──── 🤖 contas-bot ────', 'Bills (edit this list):', 'Power', 'Gym (paused)', '──────────────', '/paid <bill> [amount] · /list · /help',
+  ].join('\n'))
+  const out = renderList('2026-09', bills, { power: { name: 'Power', paid_at: '', amount: 10, by: 'x', message_id: 'm' } }, EN)
+  assert.ok(out.startsWith('📋 *Bills — September/2026*'), out)
+  assert.ok(out.endsWith('*Paid:* 1/1 · *Total:* $10.00'), out)
+  const missing = renderList('2026-09', bills, { power: { name: 'Power', paid_at: '', amount: null, by: 'x', message_id: 'm' } }, ES)
+  assert.ok(missing.endsWith('*Pagado:* 1/1 · *Total:* 0,00 € (1 sin monto)'), missing)
 })

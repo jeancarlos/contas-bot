@@ -23,8 +23,10 @@ type Cfg = {
 // bot sat on a dead code forever; a timestamp both throttles and expires.
 const PAIRING_CODE_TTL_MS = 180_000
 let pairingCodeAt = 0
+// Receipts are buffered whole in memory; anything bigger is not a receipt.
+const MAX_RECEIPT = 16 * 1024 * 1024
 
-function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
+export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   const c = normalizeMessageContent(msg.message)
   if (!c || !msg.key.id || !msg.key.remoteJid) return null
   const key: MsgKey = {
@@ -40,8 +42,12 @@ function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   const text = raw.replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
   const mediaMime = c.imageMessage ? (c.imageMessage.mimetype || 'image/jpeg') : c.documentMessage?.mimetype ?? undefined
   const isReceipt = Boolean(c.imageMessage) || (Boolean(c.documentMessage) && mediaMime === 'application/pdf')
+  const size = Number((c.imageMessage ?? c.documentMessage)?.fileLength ?? 0) // Long or number
   const media = isReceipt && mediaMime
-    ? { mime: mediaMime, download: async () => (await downloadMediaMessage(msg, 'buffer', {})) as Buffer }
+    ? { mime: mediaMime, download: async () => {
+        if (size > MAX_RECEIPT) throw new Error('receipt too large')
+        return (await downloadMediaMessage(msg, 'buffer', {})) as Buffer
+      } }
     : undefined
   return { key, sender, text, media, mentionsBot, repliesToBot }
 }

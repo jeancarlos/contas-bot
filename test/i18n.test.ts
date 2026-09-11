@@ -28,5 +28,6 @@ test('every catalog has the same keys and no empty strings', () => {
     }
     assert.ok(cat.sectionTitle.endsWith(':'), `${lang}.sectionTitle`)
     assert.ok(cat.sectionHelp.startsWith('/'), `${lang}.sectionHelp`)
+    assert.ok(!cat.descPlaceholder.includes('contas-bot'), `${lang}.descPlaceholder must not read as the section header`)
   }
 })

@@ -1,4 +1,4 @@
-import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
+import { CATALOGS, DEFAULT_LOCALE, type Locale } from './i18n.ts'
 
 export type Bill = { name: string; key: string; paused: boolean }
 export type Payment = { name: string; paid_at: string; amount: number | null; by: string; message_id: string }
@@ -28,12 +28,13 @@ export function normalize(s: string): string {
     .trim()
 }
 
+const DIVIDER_RE = /^[-_=—–─━.·*~]{3,}$/
 export function parseDescription(desc: string): Bill[] {
   const bills: Bill[] = []
   for (const raw of desc.split('\n')) {
     const trimmed = raw.trim()
     // A divider line ends the bill list: below it the description is free text (help, notes).
-    if (/^[-_=—–─━.·*~]{3,}$/.test(trimmed)) break
+    if (DIVIDER_RE.test(trimmed)) break
     // Strip list markers so '- Luz', '1. Luz', '• Luz' all become 'Luz'.
     const line = trimmed.replace(/^(?:[-*•·]|\d+[.)])\s+/, '')
     // '#' comments and 'Contas:'-style headings are not bills.
@@ -167,12 +168,25 @@ const DESC_LIMIT = 2048
 // The header is a line holding only the marker and decoration; prose that mentions the bot is not it.
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
 
-// The bot owns everything from its header line down; text above it belongs to the group.
+// The bot owns everything from its header line down; text above it belongs to the group. Text a member typed
+// below the section's divider is theirs too: it is handed back with the group's text instead of being rewritten away.
 export function splitDescription(desc: string): { original: string; section: string | null } {
   const lines = desc.split('\n')
   const i = lines.findIndex(l => HEADER_RE.test(l.trim()))
   if (i < 0) return { original: desc, section: null }
-  return { original: lines.slice(0, i).join('\n'), section: lines.slice(i + 1).join('\n') }
+  const above = lines.slice(0, i).join('\n')
+  const section = lines.slice(i + 1)
+  // The divider ends the list. If a member deleted it, the help line is the next best end: without one, a note typed
+  // after it would be read as a bill. With the divider present, a stray '/' line inside the list never cuts it short.
+  const d = section.findIndex(l => DIVIDER_RE.test(l.trim()))
+  const end = d >= 0 ? d : section.findIndex(l => l.trim().startsWith('/'))
+  const below = end < 0 ? [] : section.slice(end + 1)
+  // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
+  // the first header on the next read, its title and list parsed as bills.
+  const h = below.findIndex(l => HEADER_RE.test(l.trim()))
+  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !l.trim().startsWith('/') && !DIVIDER_RE.test(l.trim())).join('\n').trim()
+  const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
+  return { original, section: (end < 0 ? section : section.slice(0, end)).join('\n') }
 }
 
 export function billLine(b: Bill, loc: Locale = DEFAULT_LOCALE): string {
@@ -185,15 +199,19 @@ export function renderSection(bills: Bill[], loc: Locale = DEFAULT_LOCALE, withH
   return lines.join('\n')
 }
 
-// Over WhatsApp's limit only the help line may go. The group's text and the bill list are never cut:
+// WhatsApp may drop emoji variation selectors or respace a line; the placeholder must still be recognized.
+const flat = (s: string) => s.replace(/\uFE0F/g, '').replace(/\s+/g, ' ').trim()
+const PLACEHOLDER_LINES = new Set(Object.values(CATALOGS).flatMap(c => c.descPlaceholder.split('\n').map(flat)))
+// Over WhatsApp's limit only the placeholder and the help line may go. The group's text and the bill list are never cut:
 // null means it does not fit and the caller must leave the description alone.
 export function composeDescription(original: string, bills: Bill[], loc: Locale = DEFAULT_LOCALE): string | null {
-  const top = original.trimEnd()
-  const join = (section: string) => (top ? `${top}\n\n${section}` : section)
-  const full = join(renderSection(bills, loc))
-  if (full.length <= DESC_LIMIT) return full
-  const bare = join(renderSection(bills, loc, false))
-  return bare.length <= DESC_LIMIT ? bare : null
+  // The placeholder is the bot's, in whichever language wrote it: never kept as group text, put back when none is left.
+  const own = original.split('\n').filter(l => !PLACEHOLDER_LINES.has(flat(l))).join('\n').replace(/^\s*\n/, '').trimEnd()
+  const section = (help: boolean) => renderSection(bills, loc, help)
+  const candidates = own
+    ? [`${own}\n\n${section(true)}`, `${own}\n\n${section(false)}`]
+    : [`${loc.t.descPlaceholder}\n\n${section(true)}`, section(true), section(false)] // the placeholder goes before the help line
+  return candidates.find(d => d.length <= DESC_LIMIT) ?? null
 }
 
 const GREETINGS = [

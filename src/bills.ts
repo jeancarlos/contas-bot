@@ -24,8 +24,10 @@ export function parseDescription(desc: string): Bill[] {
   const bills: Bill[] = []
   for (const raw of desc.split('\n')) {
     const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const m = /^(.*?)\s*\(pausad[oa]\)\s*$/i.exec(line)
+    // '#' comments and 'Contas:'-style headings are not bills.
+    if (!line || line.startsWith('#') || line.endsWith(':')) continue
+    // Paused: '(pausado)', '- pausado', 'pausada' at the end of the line.
+    const m = /^(.*?)[\s\-–—(]*pausad[oa]\)?\s*$/i.exec(line)
     const name = (m ? m[1] : line).trim()
     const key = normalize(name)
     if (!key || bills.some(b => b.key === key)) continue

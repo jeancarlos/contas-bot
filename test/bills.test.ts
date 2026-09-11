@@ -117,3 +117,10 @@ test('matchPlainText', () => {
   assert.equal(matchPlainText(bills, 'paguei a luz e a água'), null)
   assert.equal(matchPlainText(bills, 'bom dia'), null)
 })
+
+test('parseDescription takes the group description as people actually write it', () => {
+  const bills = parseDescription('Conta:\nLuz\nMãe Carme - pausado\nHBO pausada\nSpotify')
+  assert.deepEqual(bills.map(b => [b.name, b.paused]), [
+    ['Luz', false], ['Mãe Carme', true], ['HBO', true], ['Spotify', false],
+  ])
+})

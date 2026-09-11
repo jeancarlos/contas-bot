@@ -36,13 +36,14 @@ No caption? No problem. The bot looks at the receipt and works out which bill it
 - 👋 **Onboards itself.** Add the bot to a group and it introduces itself, sets up a demo list, and writes its own section into the group description.
 - 📝 **The group description is the settings screen.** Bills live in the bot's section of the description. Edit them in WhatsApp and the list follows. Add `(pausado)` to skip a bill this month without deleting it.
 - 🔒 **Private by default.** It only works in groups that include one of its owners. Anywhere else it says so and leaves.
+- 🌎 **Speaks your language and your money.** Portuguese, English or Spanish, with any currency (`R$ 6.237,60`, `$6,237.60`, `6237,60 €`). It understands commands in all three languages no matter which one it writes in.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/pago <bill> [amount]` | mark paid: `/pago luz`, `/pago cartão nu 6.237,60` |
-| `/despago <bill>` | unmark |
+| `/despago <bill>` | unmark (also `/reverter`, `/revert`) |
 | `/lista` | repost and repin the list |
 | `/help` | every command, with examples |
 
@@ -87,6 +88,8 @@ docker compose logs -f
 |---|---|
 | `BOT_PHONE` | the bot's number, digits with country code; used once to pair |
 | `OWNER_PHONES` | comma-separated numbers allowed to use the bot; it only stays in groups where one of them is a member |
+| `BOT_LANG` | language the bot writes in: `pt-BR` (default), `en` or `es` |
+| `BOT_CURRENCY` | currency for amounts and totals, an ISO 4217 code: `BRL` (default), `USD`, `EUR`, `MXN`… |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint |
 | `LLM_API_KEY` | key for that endpoint |
 | `LLM_TEXT_MODEL` | model for free-text captions |
@@ -105,6 +108,19 @@ npm run check   # tsc --noEmit
 ## Fine print
 
 Baileys speaks the WhatsApp Web protocol, and WhatsApp's terms don't allow automated accounts. A dedicated number in a small family group has been fine, but use it at your own risk and never on your personal number.
+
+## Credits
+
+contas-bot stands on the shoulders of these projects:
+
+- **[Baileys](https://github.com/WhiskeySockets/Baileys)**: the WhatsApp Web protocol in TypeScript. Pairing, messages, pins and group descriptions all come from it, and without it this bot wouldn't exist.
+- **[Evolution API](https://github.com/evolution-foundation/evolution-api)**: the first candidate for the WhatsApp side. Studying it showed what a self-hosted WhatsApp integration looks like, and its missing pin endpoint is what led to talking to Baileys directly.
+- **[ha-whatsapp](https://github.com/FaserF/ha-whatsapp)**: the Home Assistant route that was evaluated along the way, and a good reference for running WhatsApp automations at home.
+- **[9Router](https://www.npmjs.com/package/9router)**: the OpenAI-compatible gateway that serves the vision and text models on my home server.
+- **[Poppler](https://poppler.freedesktop.org/)**: `pdftoppm` turns PDF receipts into images the model can read.
+- **[pino](https://github.com/pinojs/pino)**: fast, structured logs.
+
+And the original contas-bot: a hand-written checklist, reposted in the group every time a bill was paid. This project only automates what it already did well.
 
 ## Made by Jean Souza
 

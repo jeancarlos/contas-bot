@@ -71,7 +71,7 @@ export function makeBot(deps: BotDeps) {
   const { wa, llm, store } = deps
   const now = deps.now ?? (() => new Date())
   const log: Log = deps.log ?? { info() {}, warn() {}, error() {} }
-  let bills: Bill[] = []
+  let bills: Bill[] = parseDescription((store.get()._meta.bills ?? []).join('\n'))
 
   const state = () => store.get()
   // One handler at a time: state.json saves and pin/unpin must not interleave.

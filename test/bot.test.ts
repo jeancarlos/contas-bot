@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeBot, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
 import { openState } from '../src/state.ts'
+import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
 import type { Llm, Verdict } from '../src/llm.ts'
 
 const G = '123@g.us'
@@ -332,6 +333,23 @@ test('a message queued behind an onboarding join is handled after it', async () 
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
   await Promise.all([bot.join(), bot.onMessage(msg('/pago luz 10'))])
   assert.equal(store.get().months['2026-09'].luz.amount, 10)
+})
+
+test('restart before join does not repost the list and still handles a queued payment', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  const bills = parseDescription(DESC)
+  store.get()._meta.last_reset = '2026-08'
+  store.get()._meta.bills = bills.map(billLine)
+  store.get()._meta.section = true
+  const w = fakeWa(DESC, ['5549111111111'])
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
+  // No bot.join(): this simulates onOpen's groups.update/messages.upsert reaching a freshly
+  // built bot before its join() call has run.
+  await bot.onDescription(composeDescription('', bills))
+  assert.equal(w.sent.length, 0)
+  await bot.onMessage(msg('pago luz'))
+  assert.ok(store.get().months['2026-09'].luz)
 })
 
 test('a receipt captioned with /pago or "pago" uses the typed bill and amount', async () => {

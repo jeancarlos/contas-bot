@@ -35,7 +35,7 @@ function botFor(jid: string) {
 
 const join = (jid: string) => botFor(jid).join()
   .then(r => log.info({ jid, result: r }, 'group joined'))
-  .catch(e => log.error({ err: e, jid }, 'join failed, retrying on next start'))
+  .catch(e => log.error({ err: e, jid }, 'join failed, retrying on next connection'))
 
 wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),

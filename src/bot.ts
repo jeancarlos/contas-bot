@@ -2,8 +2,8 @@ import {
   parseDescription, resolveBill, parseCommand, matchPlainText, renderList, monthKey,
   type Bill,
 } from './bills.ts'
-import type { StateStore, PinKey } from './state.ts'
-import type { Llm, Verdict } from './llm.ts'
+import type { StateStore } from './state.ts'
+import type { Llm } from './llm.ts'
 
 export type MsgKey = { id: string; fromMe: boolean; remoteJid: string; participant?: string }
 export type Incoming = {
@@ -57,7 +57,7 @@ export function makeBot(deps: BotDeps) {
   async function postList() {
     const { key, paid } = month()
     const sentKey = await wa.sendText(renderList(key, bills, paid))
-    const prev: PinKey | undefined = state()._meta.pinned
+    const prev = state()._meta.pinned
     try {
       if (prev) await wa.unpin(prev)
       await wa.pin(sentKey)
@@ -129,15 +129,13 @@ export function makeBot(deps: BotDeps) {
       return
     }
     const known = resolveBill(bills, m.text)
-    const verdict: Verdict | null = await llm.readReceipt(image, mime, m.text, billNames())
+    const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     if (known) {
       if (!verdict) await wa.sendText(NO_AMOUNT, m.key)
       await markPaid(known, verdict?.amount ?? null, m)
       return
     }
-    const bill = verdict && verdict.bill && verdict.confidence >= CONFIDENCE
-      ? bills.find(b => b.name === verdict.bill) ?? null
-      : null
+    const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
     if (!bill) { await wa.sendText(ASK, m.key); return }
     await markPaid(bill, verdict!.amount, m)
   }
@@ -179,7 +177,6 @@ export function makeBot(deps: BotDeps) {
       return serial(async () => {
         const key = monthKey(now())
         if (state()._meta.last_reset === key) return
-        state().months[key] ??= {}
         await postList()
         state()._meta.last_reset = key
         await store.save()

@@ -39,6 +39,7 @@ test('resolveBill: exact, prefix, ambiguous, unknown', () => {
   assert.equal(resolveBill(bills, 'cond')?.name, 'Condomínio')
   assert.equal(resolveBill(bills, 'a'), null) // Água, Aluguel
   assert.equal(resolveBill(bills, 'netflix'), null)
+  assert.equal(resolveBill([bills[0]], '!'), null) // an empty query is not a prefix of everything
 })
 
 test('parseAmount accepts BR and dot formats', () => {
@@ -114,6 +115,8 @@ test('matchPlainText', () => {
   assert.equal(matchPlainText(bills, 'luz')?.name, 'Luz')
   assert.equal(matchPlainText(bills, 'pago luz')?.name, 'Luz')
   assert.equal(matchPlainText(bills, 'Paguei a luz')?.name, 'Luz')
+  assert.equal(matchPlainText(bills, 'pago agua')?.name, 'Água') // the article is a whole word, not the bill's first letter
+  assert.equal(matchPlainText(bills, 'paguei aluguel')?.name, 'Aluguel')
   assert.equal(matchPlainText(bills, 'paguei a luz e a água'), null)
   assert.equal(matchPlainText(bills, 'bom dia'), null)
 })
@@ -123,6 +126,7 @@ test('parseDescription takes the group description as people actually write it',
   assert.deepEqual(bills.map(b => [b.name, b.paused]), [
     ['Luz', false], ['Mãe Carme', true], ['HBO', true], ['Spotify', false],
   ])
+  assert.equal(parseDescription('Luz\nLUZ').length, 1)
 })
 
 test('parseDescription stops at a divider so the description can carry help text', () => {

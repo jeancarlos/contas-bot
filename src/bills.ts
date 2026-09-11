@@ -13,7 +13,7 @@ const TZ = 'America/Sao_Paulo'
 
 export function normalize(s: string): string {
   return s.normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -102,8 +102,8 @@ export function parseCommand(text: string): Command | null {
   switch (cmd.toLowerCase()) {
     case 'pago': {
       // trailing amount: last token that parses as money, e.g. "cartão nu R$ 6.237,60"
-      const m = /^(.*?)\s+(r\$\s*)?([\d.,]+)$/i.exec(arg)
-      const amount = m ? parseAmount(m[3]) : null
+      const m = /^(.*?)\s+(?:r\$\s*)?([\d.,]+)$/i.exec(arg)
+      const amount = m ? parseAmount(m[2]) : null
       return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
     }
     case 'despago': return { cmd: 'despago', name: arg }
@@ -114,6 +114,6 @@ export function parseCommand(text: string): Command | null {
 }
 
 export function matchPlainText(bills: Bill[], text: string): Bill | null {
-  const t = normalize(text).replace(/^(pago|paguei|paga)\s+(a|o|as|os)?\s*/, '')
+  const t = normalize(text).replace(/^(pago|paguei|paga)\s+((a|o|as|os)\s+)?/, '')
   return bills.find(b => b.key === t) ?? null
 }

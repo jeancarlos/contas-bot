@@ -516,3 +516,17 @@ test('a receipt captioned with a bill name holding a digit marks that bill with 
   assert.equal(store.get().months['2026-09']['internet 5g']?.amount, 1500)
   assert.equal(store.get().months['2026-09']['cartao c6']?.message_id, 'm1')
 })
+
+test('a bill whose name ends in a number wins over reading that number as the amount', async () => {
+  const { bot, store } = await setup({ desc: 'Apartamento\nApartamento 101\nLuz', verdict: { bill: 'Luz', amount: 80, confidence: 0.99 } })
+  await bot.onMessage(msg('/pago apartamento 101'))
+  assert.deepEqual(Object.keys(store.get().months['2026-09']), ['apartamento 101'])
+  assert.equal(store.get().months['2026-09']['apartamento 101'].amount, null)
+  await bot.onMessage(msg('/pago apartamento 250'))
+  assert.equal(store.get().months['2026-09'].apartamento?.amount, 250)
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('x') }
+  await bot.onMessage(msg('/pago Apartamento 101', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09']['apartamento 101'].message_id, 'm2')
+  assert.equal(store.get().months['2026-09']['apartamento 101'].amount, 80)
+  assert.equal(store.get().months['2026-09'].luz, undefined)
+})

@@ -3,7 +3,7 @@ import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
 export type Bill = { name: string; key: string; paused: boolean }
 export type Payment = { name: string; paid_at: string; amount: number | null; by: string; message_id: string }
 export type Command =
-  | { cmd: 'pago'; name: string; amount: number | null }
+  | { cmd: 'pago'; name: string; amount: number | null; full: string }
   | { cmd: 'despago'; name: string }
   | { cmd: 'lista' }
   | { cmd: 'ajuda' }
@@ -133,7 +133,8 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
       // multi-word bill name, acronyms included ("Plano TIM 100"), is never swallowed into the amount.
       const m = new RegExp(`^(.*?)\\s+((?:(?:[A-Za-z]{0,3}\\p{Sc}|${loc.currency})\\s*)?[\\d.,]+(?:\\s*(?:\\p{Sc}|${loc.currency}))?)$`, 'iu').exec(arg)
       const amount = m ? parseAmount(m[2].toUpperCase(), loc) : null
-      return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
+      // `full` lets the caller prefer a bill literally named "Apartamento 101" over "Apartamento" + 101.
+      return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount, full: arg }
     }
     case 'despago':
     case 'despagado':

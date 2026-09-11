@@ -102,9 +102,9 @@ test('renderList without missing amounts has no footnote', () => {
 })
 
 test('parseCommand', () => {
-  assert.deepEqual(parseCommand('/pago luz'), { cmd: 'pago', name: 'luz', amount: null })
-  assert.deepEqual(parseCommand('/pago cartão nu R$ 6.237,60'), { cmd: 'pago', name: 'cartão nu', amount: 6237.6 })
-  assert.deepEqual(parseCommand('/pago luz 231,45'), { cmd: 'pago', name: 'luz', amount: 231.45 })
+  assert.deepEqual(parseCommand('/pago luz'), { cmd: 'pago', name: 'luz', amount: null, full: 'luz' })
+  assert.deepEqual(parseCommand('/pago cartão nu R$ 6.237,60'), { cmd: 'pago', name: 'cartão nu', amount: 6237.6, full: 'cartão nu R$ 6.237,60' })
+  assert.deepEqual(parseCommand('/pago luz 231,45'), { cmd: 'pago', name: 'luz', amount: 231.45, full: 'luz 231,45' })
   assert.deepEqual(parseCommand('/despago Luz'), { cmd: 'despago', name: 'Luz' })
   assert.deepEqual(parseCommand('/lista'), { cmd: 'lista' })
   assert.deepEqual(parseCommand('/ajuda'), { cmd: 'ajuda' })
@@ -244,21 +244,21 @@ test('parseAmount is currency-agnostic and uses the locale only for ambiguity', 
 })
 
 test('commands in every language map to the same actions', () => {
-  for (const c of ['/pago luz 10', '/paid luz 10', '/pagado luz 10']) assert.deepEqual(parseCommand(c), { cmd: 'pago', name: 'luz', amount: 10 }, c)
+  for (const c of ['/pago luz 10', '/paid luz 10', '/pagado luz 10']) assert.deepEqual(parseCommand(c), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10' }, c)
   for (const c of ['/despago luz', '/despagado luz', '/unpaid luz', '/reverter luz', '/revert luz', '/revertir luz']) assert.deepEqual(parseCommand(c), { cmd: 'despago', name: 'luz' }, c)
   for (const c of ['/lista', '/list']) assert.deepEqual(parseCommand(c), { cmd: 'lista' }, c)
   for (const c of ['/ajuda', '/help', '/ayuda']) assert.deepEqual(parseCommand(c), { cmd: 'ajuda' }, c)
-  assert.deepEqual(parseCommand('/paid water $80.10', EN), { cmd: 'pago', name: 'water', amount: 80.1 })
-  assert.deepEqual(parseCommand('/pagado luz 80 €', ES), { cmd: 'pago', name: 'luz', amount: 80 })
+  assert.deepEqual(parseCommand('/paid water $80.10', EN), { cmd: 'pago', name: 'water', amount: 80.1, full: 'water $80.10' })
+  assert.deepEqual(parseCommand('/pagado luz 80 €', ES), { cmd: 'pago', name: 'luz', amount: 80, full: 'luz 80 €' })
 })
 
 test('parseCommand keeps the full multi-word bill name and only swallows currency tokens', () => {
-  assert.deepEqual(parseCommand('/pago cartão nu 500'), { cmd: 'pago', name: 'cartão nu', amount: 500 })
-  assert.deepEqual(parseCommand('/pago conta de luz 150'), { cmd: 'pago', name: 'conta de luz', amount: 150 })
+  assert.deepEqual(parseCommand('/pago cartão nu 500'), { cmd: 'pago', name: 'cartão nu', amount: 500, full: 'cartão nu 500' })
+  assert.deepEqual(parseCommand('/pago conta de luz 150'), { cmd: 'pago', name: 'conta de luz', amount: 150, full: 'conta de luz 150' })
   // "101" here is the bill's own name, not an amount: no currency token follows it, so nothing parses as money.
-  assert.deepEqual(parseCommand('/pago apto 101 luz'), { cmd: 'pago', name: 'apto 101 luz', amount: null })
-  assert.deepEqual(parseCommand('/pago luz r$ 10'), { cmd: 'pago', name: 'luz', amount: 10 })
-  assert.deepEqual(parseCommand('/paid water USD 80', EN), { cmd: 'pago', name: 'water', amount: 80 })
+  assert.deepEqual(parseCommand('/pago apto 101 luz'), { cmd: 'pago', name: 'apto 101 luz', amount: null, full: 'apto 101 luz' })
+  assert.deepEqual(parseCommand('/pago luz r$ 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz r$ 10' })
+  assert.deepEqual(parseCommand('/paid water USD 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water USD 80' })
 })
 
 test('plain-text payments, pause tags and greetings in every language', () => {
@@ -300,11 +300,11 @@ test('parseAmount rejects repeated separators that are not thousands groups', ()
 })
 
 test('a bare currency code is only swallowed when it is the configured currency', () => {
-  assert.deepEqual(parseCommand('/pago Plano TIM 100'), { cmd: 'pago', name: 'Plano TIM', amount: 100 })
-  assert.deepEqual(parseCommand('/pago Cartão BTG 500'), { cmd: 'pago', name: 'Cartão BTG', amount: 500 })
-  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water USD', amount: 80 })
-  assert.deepEqual(parseCommand('/pago luz BRL 10'), { cmd: 'pago', name: 'luz', amount: 10 })
-  assert.deepEqual(parseCommand('/pago luz brl 10'), { cmd: 'pago', name: 'luz', amount: 10 })
-  assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10 })
-  assert.deepEqual(parseCommand('/paid water US$ 80', EN), { cmd: 'pago', name: 'water', amount: 80 })
+  assert.deepEqual(parseCommand('/pago Plano TIM 100'), { cmd: 'pago', name: 'Plano TIM', amount: 100, full: 'Plano TIM 100' })
+  assert.deepEqual(parseCommand('/pago Cartão BTG 500'), { cmd: 'pago', name: 'Cartão BTG', amount: 500, full: 'Cartão BTG 500' })
+  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water USD', amount: 80, full: 'water USD 80' })
+  assert.deepEqual(parseCommand('/pago luz BRL 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz BRL 10' })
+  assert.deepEqual(parseCommand('/pago luz brl 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz brl 10' })
+  assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10 BRL' })
+  assert.deepEqual(parseCommand('/paid water US$ 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water US$ 80' })
 })

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { makeBot, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
 import { openState } from '../src/state.ts'
 import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
-import { makeLocale, type Locale } from '../src/i18n.ts'
+import { makeLocale, DEFAULT_LOCALE, type Locale } from '../src/i18n.ts'
 import type { Llm, Verdict } from '../src/llm.ts'
 
 const G = '123@g.us'
@@ -326,8 +326,21 @@ test('owners match member phones across the Brazilian ninth digit, both ways', a
 test('join migrates a legacy group: description becomes the section, no intro', async () => {
   const { bot, sent, descs } = await setup()
   assert.equal(sent.length, 0)
-  assert.ok(descs[0].startsWith('──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz\nÁgua'))
+  // the old list moves into the section and the empty group text above gets the placeholder
+  assert.ok(descs[0].startsWith(`${DEFAULT_LOCALE.t.descPlaceholder}\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz\nÁgua`))
   assert.ok(descs[0].includes('Mãe Carme (pausado)'))
+  assert.equal(bot.bills().length, 5)
+})
+
+test('text typed below the section moves up into the group text; bills unchanged, no repost', async () => {
+  const { bot, sent, descs, edit } = await setup()
+  const edited = `${descs[0]}\nPix: chave 123`
+  edit(edited)
+  const posts = sent.length
+  await bot.onDescription(edited)
+  assert.ok(descs.at(-1)!.startsWith('Pix: chave 123\n\n──── 🤖 contas-bot ────'))
+  assert.ok(!descs.at(-1)!.includes(DEFAULT_LOCALE.t.descPlaceholder))
+  assert.equal(sent.length, posts)
   assert.equal(bot.bills().length, 5)
 })
 

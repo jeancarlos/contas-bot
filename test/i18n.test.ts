@@ -13,6 +13,7 @@ test('makeLocale accepts the three languages and upper-cases the currency', () =
 
 test('makeLocale rejects bad values with a clear message', () => {
   assert.throws(() => makeLocale('fr', 'EUR'), { message: 'unsupported BOT_LANG "fr": use pt-BR, en or es' })
+  for (const lang of ['toString', 'constructor']) assert.throws(() => makeLocale(lang, 'BRL'), { message: `unsupported BOT_LANG "${lang}": use pt-BR, en or es` })
   assert.throws(() => makeLocale('en', 'US'), { message: 'invalid BOT_CURRENCY "US": use an ISO 4217 code like BRL, USD, EUR' })
   assert.throws(() => makeLocale('en', 'U$D'), /invalid BOT_CURRENCY/)
 })

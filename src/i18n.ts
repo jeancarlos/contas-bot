@@ -156,7 +156,7 @@ const es: Catalog = {
 export const CATALOGS: Record<Lang, Catalog> = { 'pt-BR': ptBR, en, es }
 
 export function makeLocale(lang: string, currency: string): Locale {
-  if (!(lang in CATALOGS)) throw new Error(`unsupported BOT_LANG "${lang}": use pt-BR, en or es`)
+  if (!Object.hasOwn(CATALOGS, lang)) throw new Error(`unsupported BOT_LANG "${lang}": use pt-BR, en or es`)
   if (!/^[A-Za-z]{3}$/.test(currency)) throw new Error(`invalid BOT_CURRENCY "${currency}": use an ISO 4217 code like BRL, USD, EUR`)
   const l = lang as Lang
   const decimal = new Intl.NumberFormat(l).formatToParts(1.5).find(p => p.type === 'decimal')?.value === '.' ? '.' : ','

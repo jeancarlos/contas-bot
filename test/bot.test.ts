@@ -24,11 +24,13 @@ function fakeWa(desc = DESC, phones: (string | null)[] = ['5549111111111']) {
     async pin(key) { pins.push(`pin:${key.id}`) },
     async unpin(key) { pins.push(`unpin:${key.id}`) },
     async getDescription() { return desc },
-    async setDescription(text) { descs.push(text) },
+    async setDescription(text) { descs.push(text); desc = text },
     async leave() { left = true },
     async memberPhones() { return phones },
   }
-  return { wa, sent, reactions, pins, descs, isLeft: () => left }
+  // A member edit: the current description changes, then the event arrives.
+  const edit = (text: string) => { desc = text }
+  return { wa, sent, reactions, pins, descs, edit, isLeft: () => left }
 }
 
 function fakeLlm(verdict: Verdict | null) {
@@ -160,11 +162,13 @@ test('messages from the bot itself are ignored', async () => {
 })
 
 test('onDescription replaces the bill list and keeps payments', async () => {
-  const { bot, store } = await setup()
+  const { bot, store, edit } = await setup()
   await bot.onMessage(msg('/pago luz'))
+  edit('──── 🤖 contas-bot ────\nLuz\nNetflix')
   await bot.onDescription('──── 🤖 contas-bot ────\nLuz\nNetflix')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Netflix'])
   assert.equal(store.get().months['2026-09'].luz.name, 'Luz')
+  edit('')
   await bot.onDescription('')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Netflix'])
 })
@@ -203,7 +207,8 @@ test('concurrent messages are handled one at a time, pins never interleave', asy
 })
 
 test('onDescription republishes the list', async () => {
-  const { bot, sent } = await setup()
+  const { bot, sent, edit } = await setup()
+  edit('──── 🤖 contas-bot ────\nLuz\nNetflix')
   await bot.onDescription('──── 🤖 contas-bot ────\nLuz\nNetflix')
   assert.match(sent.at(-1)!.text, /Netflix/)
 })
@@ -288,8 +293,9 @@ test('join migrates a legacy group: description becomes the section, no intro', 
 })
 
 test('a description edit inside the section reposts the list; the echo of our own write does nothing', async () => {
-  const { bot, sent, descs } = await setup()
+  const { bot, sent, descs, edit } = await setup()
   const edited = descs[0].replace('Aluguel', 'Aluguel\nNetflix')
+  edit(edited)
   await bot.onDescription(edited)
   assert.match(sent.at(-1)!.text, /Netflix/)
   const posts = sent.length
@@ -298,16 +304,37 @@ test('a description edit inside the section reposts the list; the echo of our ow
   assert.equal(descs.length, 1) // edited text was already canonical: no rewrite
 })
 
+test('a stale pre-migration description event changes nothing: the current description wins', async () => {
+  const { bot, store, sent, descs } = await setup() // legacy group: join rewrote the plain list into the section
+  const bills = store.get()._meta.bills
+  await bot.onDescription(DESC) // Baileys delivers the old plain list after the rewrite
+  assert.equal(descs.length, 1)
+  assert.deepEqual(store.get()._meta.bills, bills)
+  assert.equal(sent.length, 0)
+})
+
+test('an unreadable description on an update event changes nothing', async () => {
+  const { bot, wa, sent, descs } = await setup()
+  wa.getDescription = async () => { throw new Error('offline') }
+  await bot.onDescription('──── 🤖 contas-bot ────\nLuz')
+  assert.equal(bot.bills().length, 5)
+  assert.equal(descs.length, 1)
+  assert.equal(sent.length, 0)
+})
+
 test('a deleted section is put back below the remaining text', async () => {
-  const { bot, descs } = await setup()
+  const { bot, descs, edit } = await setup()
+  edit('Só a descrição do grupo')
   await bot.onDescription('Só a descrição do grupo')
   assert.ok(descs.at(-1)!.startsWith('Só a descrição do grupo\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz'))
 })
 
 test('a refused description write warns once and keeps the bills', async () => {
-  const { bot, wa, sent } = await setup()
+  const { bot, wa, sent, edit } = await setup()
   wa.setDescription = async () => { throw new Error('not-authorized') }
+  edit('──── 🤖 contas-bot ────\nLuz\nGás')
   await bot.onDescription('──── 🤖 contas-bot ────\nLuz\nGás')
+  edit('──── 🤖 contas-bot ────\nLuz\nGás\nIPTU')
   await bot.onDescription('──── 🤖 contas-bot ────\nLuz\nGás\nIPTU')
   const warnings = sent.filter(s => s.text.startsWith('não consigo editar a descrição'))
   assert.equal(warnings.length, 1)
@@ -356,7 +383,7 @@ test('restart before join does not repost the list and still handles a queued pa
   store.get()._meta.last_reset = '2026-08'
   store.get()._meta.bills = bills.map(billLine)
   store.get()._meta.section = true
-  const w = fakeWa(DESC, ['5549111111111'])
+  const w = fakeWa(composeDescription('', bills)!, ['5549111111111'])
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
   // No bot.join(): this simulates onOpen's groups.update/messages.upsert reaching a freshly
   // built bot before its join() call has run.

@@ -126,7 +126,8 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
       }
     })
     s.ev.on('groups.update', updates => {
-      for (const g of updates) if (g.id && typeof g.desc === 'string') cfg.onDescription(g.id, g.desc)
+      // A cleared description arrives with the key present and no text.
+      for (const g of updates) if (g.id && 'desc' in g) cfg.onDescription(g.id, g.desc ?? '')
     })
     s.ev.on('group-participants.update', ({ id, participants, action }) => {
       const me = self()

@@ -250,10 +250,17 @@ export function makeBot(deps: BotDeps) {
       })
     },
 
-    onDescription(desc: string) {
+    // The event text is only a trigger: Baileys can deliver the pre-migration description after join() rewrote
+    // it, and reading that as "section deleted" would paste the old list above the section. Read the current one.
+    onDescription(_desc: string) {
       return serial(async () => {
         if (!active()) return
-        if (await reconcile(desc)) {
+        let fresh: string
+        try { fresh = await wa.getDescription() } catch (e) {
+          log.warn({ err: e }, 'description unreadable, ignoring update')
+          return
+        }
+        if (await reconcile(fresh)) {
           log.info({ bills: billNames() }, 'bills updated from description')
           await postList()
         }

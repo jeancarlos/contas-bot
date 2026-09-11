@@ -289,3 +289,12 @@ test('parseAmount never reads a digit inside a bill name as money', () => {
     assert.equal(parseAmount(s, EN), null, `en ${s}`)
   }
 })
+
+test('parseAmount rejects repeated separators that are not thousands groups', () => {
+  for (const s of ['1.234.56', '1,23,4']) {
+    assert.equal(parseAmount(s), null, `pt ${s}`)
+    assert.equal(parseAmount(s, EN), null, `en ${s}`)
+  }
+  assert.equal(parseAmount('1.234.567'), 1234567)
+  assert.equal(parseAmount('1,234,567', EN), 1234567)
+})

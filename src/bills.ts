@@ -72,6 +72,8 @@ export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | n
     const sep = t[last]
     const count = t.split(sep).length - 1
     const tail = t.length - last - 1
+    // Several separators of one kind are thousands groups, so every group after the first has 3 digits.
+    if (count > 1 && !/^\d{1,3}(?:[.,]\d{3})+$/.test(t)) return null
     const isDecimal = count === 1 && (tail !== 3 || sep === loc.decimal)
     num = isDecimal ? t.replace(sep, '.') : t.split(sep).join('')
   }

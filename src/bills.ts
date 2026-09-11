@@ -152,8 +152,10 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
 }
 
 export function matchPlainText(bills: Bill[], text: string): Bill | null {
-  const t = normalize(text).replace(/^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/, '')
-  return bills.find(b => b.key === t) ?? null
+  const n = normalize(text)
+  // A bill literally named "Pago Luz" matches before the payment word is stripped.
+  const t = n.replace(/^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/, '')
+  return bills.find(b => b.key === n) ?? bills.find(b => b.key === t) ?? null
 }
 
 export const SECTION_MARK = '🤖 contas-bot'

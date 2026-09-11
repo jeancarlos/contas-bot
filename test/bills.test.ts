@@ -308,3 +308,9 @@ test('a bare currency code is only swallowed when it is the configured currency'
   assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10 BRL' })
   assert.deepEqual(parseCommand('/paid water US$ 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water US$ 80' })
 })
+
+test('matchPlainText prefers a bill named with a payment word over stripping it', () => {
+  const bills = parseDescription('Luz\nPago Luz')
+  assert.equal(matchPlainText(bills, 'Pago Luz')?.name, 'Pago Luz')
+  assert.equal(matchPlainText(bills, 'paguei a luz')?.name, 'Luz')
+})

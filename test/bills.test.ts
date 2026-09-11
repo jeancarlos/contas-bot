@@ -234,6 +234,8 @@ test('parseAmount is currency-agnostic and uses the locale only for ambiguity', 
     ['1.234.567', 1234567, 1234567],
     ['abc', null, null],
     ['0', null, null],
+    ['.5', null, null],
+    ['-10', null, null],
   ]
   for (const [s, pt, en] of cases) {
     assert.equal(parseAmount(s), pt, `pt ${s}`)
@@ -248,6 +250,15 @@ test('commands in every language map to the same actions', () => {
   for (const c of ['/ajuda', '/help', '/ayuda']) assert.deepEqual(parseCommand(c), { cmd: 'ajuda' }, c)
   assert.deepEqual(parseCommand('/paid water $80.10', EN), { cmd: 'pago', name: 'water', amount: 80.1 })
   assert.deepEqual(parseCommand('/pagado luz 80 €', ES), { cmd: 'pago', name: 'luz', amount: 80 })
+})
+
+test('parseCommand keeps the full multi-word bill name and only swallows currency tokens', () => {
+  assert.deepEqual(parseCommand('/pago cartão nu 500'), { cmd: 'pago', name: 'cartão nu', amount: 500 })
+  assert.deepEqual(parseCommand('/pago conta de luz 150'), { cmd: 'pago', name: 'conta de luz', amount: 150 })
+  // "101" here is the bill's own name, not an amount: no currency token follows it, so nothing parses as money.
+  assert.deepEqual(parseCommand('/pago apto 101 luz'), { cmd: 'pago', name: 'apto 101 luz', amount: null })
+  assert.deepEqual(parseCommand('/pago luz r$ 10'), { cmd: 'pago', name: 'luz', amount: 10 })
+  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water', amount: 80 })
 })
 
 test('plain-text payments, pause tags and greetings in every language', () => {

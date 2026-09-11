@@ -9,7 +9,15 @@ export type Command =
   | { cmd: 'ajuda' }
   | { cmd: 'unknown'; raw: string }
 
-const TZ = process.env.TZ || 'America/Sao_Paulo'
+function validTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+const TZ = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'America/Sao_Paulo'
 
 export function normalize(s: string): string {
   return s.normalize('NFKD')
@@ -51,7 +59,8 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
 
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
   // Currency symbols and codes sit at the ends ("R$ 10", "10 €", "USD 10"); spaces may group thousands.
-  const t = s.replace(/^\D+|\D+$/g, '').replace(/\s/g, '')
+  // A leading digit/comma/dot/hyphen is never stripped, so a bare ".5" or "-10" fails the digit-start check below.
+  const t = s.replace(/^[^\d.,-]+|\D+$/g, '').replace(/\s/g, '')
   if (!/^\d[\d.,]*$/.test(t)) return null
   let num: string
   const last = Math.max(t.lastIndexOf(','), t.lastIndexOf('.'))
@@ -116,8 +125,11 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
     case 'pago':
     case 'paid':
     case 'pagado': {
-      // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €"
-      const m = /^(.*?)\s+((?:[^\d\s]{1,4}\s*)?[\d.,]+(?:\s*[^\d\s]{1,4})?)$/i.exec(arg)
+      // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €", "luz USD 10".
+      // The optional prefix/suffix is restricted to currency tokens (a symbol, optionally led by
+      // up to 3 letters as in "R$"/"US$", or an upper-case 3-letter code like "USD") so a
+      // multi-word bill name is never swallowed into the amount.
+      const m = /^(.*?)\s+((?:(?:[A-Za-z]{0,3}[^\p{L}\d\s]|[A-Z]{3})\s*)?[\d.,]+(?:\s*(?:[^\p{L}\d\s]{1,3}|[A-Z]{3}))?)$/u.exec(arg)
       const amount = m ? parseAmount(m[2], loc) : null
       return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount }
     }

@@ -209,6 +209,10 @@ test('splitDescription moves text typed below the section up into the group text
   const once = composeDescription(splitDescription(twice).original, parseDescription(splitDescription(twice).section!), DEFAULT_LOCALE)!
   assert.equal(once, `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
   assert.deepEqual(parseDescription(splitDescription(once).section!), bills)
+  // divider deleted: the help line ends the list, so a note after it is still rescued, not read as a bill
+  const noDivider = `${composeDescription('Grupo', bills)!.replace('\n──────────────', '')}\nPix: chave 123`
+  assert.deepEqual(parseDescription(splitDescription(noDivider).section!), bills)
+  assert.equal(splitDescription(noDivider).original, 'Grupo\n\nPix: chave 123')
   // nothing typed below: the group text is exactly what sits above the header
   assert.equal(splitDescription(composeDescription('Grupo', bills)!).original, 'Grupo\n')
 })

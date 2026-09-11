@@ -176,14 +176,17 @@ export function splitDescription(desc: string): { original: string; section: str
   if (i < 0) return { original: desc, section: null }
   const above = lines.slice(0, i).join('\n')
   const section = lines.slice(i + 1)
+  // The divider ends the list. If a member deleted it, the help line is the next best end: without one, a note typed
+  // after it would be read as a bill. With the divider present, a stray '/' line inside the list never cuts it short.
   const d = section.findIndex(l => DIVIDER_RE.test(l.trim()))
-  const below = d < 0 ? [] : section.slice(d + 1)
+  const end = d >= 0 ? d : section.findIndex(l => l.trim().startsWith('/'))
+  const below = end < 0 ? [] : section.slice(end + 1)
   // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
   // the first header on the next read, its title and list parsed as bills.
   const h = below.findIndex(l => HEADER_RE.test(l.trim()))
   const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !l.trim().startsWith('/') && !DIVIDER_RE.test(l.trim())).join('\n').trim()
   const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
-  return { original, section: section.join('\n') }
+  return { original, section: (end < 0 ? section : section.slice(0, end)).join('\n') }
 }
 
 export function billLine(b: Bill, loc: Locale = DEFAULT_LOCALE): string {

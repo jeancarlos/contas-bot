@@ -124,3 +124,8 @@ test('parseDescription takes the group description as people actually write it',
     ['Luz', false], ['Mãe Carme', true], ['HBO', true], ['Spotify', false],
   ])
 })
+
+test('parseDescription stops at a divider so the description can carry help text', () => {
+  const bills = parseDescription('Contas:\nLuz\n/pago luz 10\nÁgua\n───────\nBot das contas\nMande o comprovante')
+  assert.deepEqual(bills.map(b => b.name), ['Luz', 'Água'])
+})

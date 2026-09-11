@@ -24,8 +24,10 @@ export function parseDescription(desc: string): Bill[] {
   const bills: Bill[] = []
   for (const raw of desc.split('\n')) {
     const line = raw.trim()
+    // A divider line ends the bill list: below it the description is free text (help, notes).
+    if (/^[-_=—–─━.·*~]{3,}$/.test(line)) break
     // '#' comments and 'Contas:'-style headings are not bills.
-    if (!line || line.startsWith('#') || line.endsWith(':')) continue
+    if (!line || line.startsWith('#') || line.startsWith('/') || line.endsWith(':')) continue
     // Paused: '(pausado)', '- pausado', 'pausada' at the end of the line.
     const m = /^(.*?)[\s\-–—(]*pausad[oa]\)?\s*$/i.exec(line)
     const name = (m ? m[1] : line).trim()

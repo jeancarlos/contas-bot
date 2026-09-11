@@ -17,3 +17,7 @@ test('pdfToPng renders the first page', { skip: !hasPoppler && 'pdftoppm not ins
   const png = await pdfToPng(MINIMAL_PDF)
   assert.deepEqual(png.subarray(0, 4), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
 })
+
+test('pdfToPng rejects a file that is not a PDF', { skip: !hasPoppler && 'pdftoppm not installed' }, async () => {
+  await assert.rejects(pdfToPng(Buffer.from('not a pdf')))
+})

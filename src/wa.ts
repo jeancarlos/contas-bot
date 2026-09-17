@@ -11,12 +11,15 @@ import type { Incoming, MsgKey, Wa } from './bot.ts'
 type Cfg = {
   authDir: string
   phone: string
+  groups: Set<string>
   log: Logger
   onOpen(jids: string[]): void
   onJoined(jid: string): void
   onMessage(jid: string, m: Incoming): void
   onDescription(jid: string, desc: string): void
 }
+
+type Handlers = Pick<Cfg, 'onOpen' | 'onJoined' | 'onMessage' | 'onDescription'>
 
 // WhatsApp expires a pairing code in a couple of minutes and rate-limits
 // repeat requests. A boolean latch was never cleared on reconnect, so the
@@ -25,6 +28,21 @@ const PAIRING_CODE_TTL_MS = 180_000
 let pairingCodeAt = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
+
+export function parseGroupJids(raw: string): Set<string> {
+  const jids = raw.split(',').map(s => s.trim()).filter(Boolean).map(s => s.includes('@') ? s : `${s}@g.us`)
+  return new Set(jids)
+}
+
+export function gate(groups: Set<string>, cfg: Handlers): Handlers {
+  const mine = (jid?: string | null): jid is string => jid != null && groups.has(jid)
+  return {
+    onOpen: jids => cfg.onOpen(jids.filter(mine)),
+    onJoined: jid => { if (mine(jid)) cfg.onJoined(jid) },
+    onMessage: (jid, m) => { if (mine(jid)) cfg.onMessage(jid, m) },
+    onDescription: (jid, desc) => { if (mine(jid)) cfg.onDescription(jid, desc) },
+  }
+}
 
 export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   const c = normalizeMessageContent(msg.message)

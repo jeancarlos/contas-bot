@@ -41,6 +41,7 @@ function fakeLlm(verdict: Verdict | null) {
 }
 
 async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale } = {}) {
+  seq = 0
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
@@ -51,8 +52,9 @@ async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date
   return { bot, store, ...w, llmCalls: l.calls, llm: l.llm }
 }
 
+let seq = 0
 const msg = (text: string, extra: Partial<Incoming> = {}): Incoming => ({
-  key: { id: 'm1', fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net' },
+  key: { id: `m${++seq}`, fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net' },
   sender: 'Gabi', text, ...extra,
 })
 
@@ -64,12 +66,13 @@ test('start loads bills from the description', async () => {
 
 test('/pago marks paid, reacts, posts and pins the list', async () => {
   const { bot, store, sent, reactions, pins } = await setup()
-  await bot.onMessage(msg('/pago luz 231,45'))
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
   const p = store.get().months['2026-09'].luz
   assert.equal(p.amount, 231.45)
   assert.equal(p.by, 'Gabi')
-  assert.equal(p.message_id, 'm1')
-  assert.deepEqual(reactions[0], { key: msg('').key, emoji: '✅' })
+  assert.equal(p.message_id, m.key.id)
+  assert.deepEqual(reactions[0], { key: m.key, emoji: '✅' })
   assert.match(sent[0].text, /✅ Luz — R\$ 231,45/)
   assert.deepEqual(pins, ['pin:s1'])
   assert.equal(store.get()._meta.pinned?.id, 's1')
@@ -223,6 +226,32 @@ test('messages from the bot itself are ignored', async () => {
   const { bot, sent } = await setup()
   await bot.onMessage(msg('/lista', { key: { id: 'x', fromMe: true, remoteJid: G } }))
   assert.equal(sent.length, 0)
+})
+
+test('a redelivered message id is applied once, not re-applied on retry', async () => {
+  const { bot, store, reactions } = await setup()
+  const first = msg('/pago luz 100')
+  await bot.onMessage(first)
+  await bot.onMessage(msg('/pago luz 150'))
+  await bot.onMessage(first) // WhatsApp redelivery: same id, same content
+  assert.equal(store.get().months['2026-09'].luz.amount, 150)
+  assert.equal(reactions.length, 2)
+})
+
+test('two distinct messages carrying identical text both apply', async () => {
+  const { bot, store, reactions } = await setup()
+  await bot.onMessage(msg('luz'))
+  await bot.onMessage(msg('luz'))
+  assert.equal(reactions.length, 2)
+  assert.equal(store.get().months['2026-09'].luz.message_id, 'm2')
+})
+
+test('the handled id list stays capped at 50, keeping the newest', async () => {
+  const { bot, store } = await setup()
+  for (let i = 0; i < 55; i++) await bot.onMessage(msg('/lista'))
+  const handled = store.get()._meta.handled!
+  assert.equal(handled.length, 50)
+  assert.deepEqual(handled, Array.from({ length: 50 }, (_, i) => `m${i + 6}`))
 })
 
 test('onDescription replaces the bill list and keeps payments', async () => {
@@ -680,8 +709,8 @@ test('a bill whose name ends in a number wins over reading that number as the am
   await bot.onMessage(msg('/pago apartamento 250'))
   assert.equal(store.get().months['2026-09'].apartamento?.amount, 250)
   const media = { mime: 'image/jpeg', download: async () => Buffer.from('x') }
-  await bot.onMessage(msg('/pago Apartamento 101', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
-  assert.equal(store.get().months['2026-09']['apartamento 101'].message_id, 'm2')
+  await bot.onMessage(msg('/pago Apartamento 101', { media, key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09']['apartamento 101'].message_id, 'm3')
   assert.equal(store.get().months['2026-09']['apartamento 101'].amount, 80)
   assert.equal(store.get().months['2026-09'].luz, undefined)
 })

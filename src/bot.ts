@@ -23,15 +23,12 @@ export type Wa = {
   unpin(key: MsgKey): Promise<void>
   getDescription(): Promise<string>
   setDescription(text: string): Promise<void>
-  leave(): Promise<void>
-  memberPhones(): Promise<(string | null)[]>
 }
 type Log = { info(o: any, m?: string): void; warn(o: any, m?: string): void; error(o: any, m?: string): void }
 export type BotDeps = {
   wa: Wa
   llm: Llm
   store: StateStore
-  owners?: string[]
   now?: () => Date
   log?: Log
   pdfToPng?: (pdf: Buffer) => Promise<Buffer>
@@ -39,8 +36,6 @@ export type BotDeps = {
 }
 
 const CONFIDENCE = 0.7
-// WhatsApp keeps some Brazilian mobiles without the 9th digit (55 + DDD + 8) while owners type it (55 + DDD + 9 + 8).
-const br = (p: string) => /^55\d\d9\d{8}$/.test(p) ? p.slice(0, 4) + p.slice(5) : p
 
 export function makeBot(deps: BotDeps) {
   const { wa, llm, store } = deps
@@ -203,7 +198,7 @@ export function makeBot(deps: BotDeps) {
     bills: () => bills,
 
     join() {
-      return serial(async (): Promise<'onboarded' | 'left' | 'active'> => {
+      return serial(async (): Promise<'onboarded' | 'active'> => {
         const meta = state()._meta
         if (active()) {
           let desc: string
@@ -216,15 +211,6 @@ export function makeBot(deps: BotDeps) {
           await reconcile(desc)
           log.info({ bills: billNames() }, 'bills loaded')
           return 'active'
-        }
-        const phones = await wa.memberPhones()
-        const owners = deps.owners ?? []
-        if (!phones.some(p => p !== null && owners.some(o => br(o) === br(p)))) {
-          // One owner is enough to stay; leaving needs every member resolved, never a guess.
-          if (phones.includes(null)) throw new Error('could not resolve member phones; not deciding on this group now')
-          await wa.sendText(t.private)
-          await wa.leave()
-          return 'left'
         }
         const desc = await wa.getDescription()
         bills = parseDescription(t.demoBills)

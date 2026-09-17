@@ -61,6 +61,7 @@ export function makeBot(deps: BotDeps) {
   async function postList() {
     const { key, paid } = month()
     const sentKey = await wa.sendText(renderList(key, bills, paid, loc))
+    state()._meta.listed = true
     const prev = state()._meta.pinned
     try {
       // Pin first: a refused pin must not leave the group with no list pinned at all.
@@ -83,7 +84,13 @@ export function makeBot(deps: BotDeps) {
     } catch (e) {
       log.warn({ err: e }, 'reaction failed')
     }
-    if (existing) await wa.sendText(t.updated, m.key)
+    if (existing) {
+      try {
+        await wa.sendText(t.updated, m.key)
+      } catch (e) {
+        log.warn({ err: e }, 'update notice failed')
+      }
+    }
     await postList()
   }
 
@@ -215,7 +222,7 @@ export function makeBot(deps: BotDeps) {
             return 'active'
           }
           const changed = await reconcile(desc)
-          if (meta.pinned && changed) await postList()
+          if (meta.listed && changed) await postList()
           log.info({ bills: billNames() }, 'bills loaded')
           return 'active'
         }

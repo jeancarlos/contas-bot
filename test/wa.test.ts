@@ -35,6 +35,10 @@ test('normalizeLegacyJid applies the same rule as GROUP_JIDS', () => {
   assert.throws(() => normalizeLegacyJid('123@s.whatsapp.net'), /not a group jid: 123@s\.whatsapp\.net/)
 })
 
+test('normalizeLegacyJid names GROUP_JID, not GROUP_JIDS, in its error', () => {
+  assert.throws(() => normalizeLegacyJid('123@s.whatsapp.net'), /^Error: GROUP_JID: not a group jid: 123@s\.whatsapp\.net$/)
+})
+
 test('gate passes through jids on the allowlist and swallows the rest', () => {
   const seen: string[] = []
   const spy = {

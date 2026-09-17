@@ -53,10 +53,13 @@ async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date
 }
 
 let seq = 0
-const msg = (text: string, extra: Partial<Incoming> = {}): Incoming => ({
-  key: { id: `m${++seq}`, fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net' },
-  sender: 'Gabi', text, ...extra,
-})
+const msg = (text: string, extra: Partial<Incoming> = {}): Incoming => {
+  const { key: extraKey, ...restExtra } = extra
+  return {
+    key: { id: `m${++seq}`, fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net', ...extraKey },
+    sender: 'Gabi', text, ...restExtra,
+  }
+}
 
 test('start loads bills from the description', async () => {
   const { bot, store } = await setup()
@@ -207,20 +210,28 @@ test('a second receipt replaces the pending amount instead of stacking', async (
 test('a pending receipt amount only applies to the sender who sent the receipt', async () => {
   const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
   const media = { mime: 'image/png', download: async () => Buffer.from('png') }
-  await bot.onMessage(msg('', { media })) // sent by Gabi
-  await bot.onMessage(msg('/pago agua', { sender: 'Marido', key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  await bot.onMessage(msg('', { media }))
+  await bot.onMessage(msg('/pago agua', { sender: 'Marido', key: { id: 'm2', fromMe: false, remoteJid: G, participant: 'marido@s.whatsapp.net' } }))
   assert.equal(store.get().months['2026-09'].agua.amount, null)
-  await bot.onMessage(msg('/pago luz', { key: { id: 'm3', fromMe: false, remoteJid: G } })) // back to Gabi
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
   assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
 })
 
 test('a receipt that fails to complete still clears a stale pending amount', async () => {
   const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
   const media = { mime: 'image/png', download: async () => Buffer.from('png') }
-  await bot.onMessage(msg('', { media })) // Gabi: pending amount set to 231.45
+  await bot.onMessage(msg('', { media }))
   const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('expired') } }
   await bot.onMessage(msg('luz', { media: broken, key: { id: 'm2', fromMe: false, remoteJid: G } }))
   await bot.onMessage(msg('/pago agua', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].agua.amount, null)
+})
+
+test('two members with the same display name but different jids do not share pending amounts', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 100, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media, key: { id: 'm2', fromMe: false, remoteJid: G, participant: 'alice@s.whatsapp.net' }, sender: 'Sam' }))
+  await bot.onMessage(msg('/pago agua', { key: { id: 'm3', fromMe: false, remoteJid: G, participant: 'bob@s.whatsapp.net' }, sender: 'Sam' }))
   assert.equal(store.get().months['2026-09'].agua.amount, null)
 })
 

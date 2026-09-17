@@ -42,6 +42,15 @@ test('a malformed group entry loads as empty instead of crashing', async () => {
   assert.deepEqual(store.forGroup('a@g.us').get(), { _meta: {}, months: {} })
 })
 
+test('a corrupt month value is dropped; other months load unchanged', async () => {
+  const path = await tmp()
+  await writeFile(path, JSON.stringify({
+    groups: { 'a@g.us': { _meta: {}, months: { '2026-09': [], '2026-08': { luz: { name: 'Luz' } } } } },
+  }))
+  const store = await openState(path)
+  assert.deepEqual(store.forGroup('a@g.us').get().months, { '2026-08': { luz: { name: 'Luz' } } })
+})
+
 test('concurrent saves from two groups both land', async () => {
   const path = await tmp()
   const store = await openState(path)
@@ -65,4 +74,14 @@ test('listed remains undefined when pinned is absent', async () => {
   await writeFile(path, JSON.stringify({ groups: { 'a@g.us': { _meta: { last_reset: '2026-09' }, months: {} } } }))
   const store = await openState(path)
   assert.equal(store.forGroup('a@g.us').get()._meta.listed, undefined)
+})
+
+test('a corrupt month is reported through the given logger, not console.warn', async () => {
+  const path = await tmp()
+  await writeFile(path, JSON.stringify({
+    groups: { 'a@g.us': { _meta: {}, months: { '2026-09': [] } } },
+  }))
+  const warnings: unknown[] = []
+  await openState(path, undefined, { warn: (o: unknown) => warnings.push(o) })
+  assert.equal(warnings.length, 1)
 })

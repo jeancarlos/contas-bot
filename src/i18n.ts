@@ -14,6 +14,7 @@ export type Catalog = {
   help: string
   ask: string
   noLlmAmount: string
+  saveFailed: string
   downloadFailed: string
   unknownCmd: string
   descDenied: string
@@ -59,6 +60,7 @@ const ptBR: Catalog = {
   ].join('\n'),
   ask: 'esse comprovante é de qual conta? responde /pago <nome>',
   noLlmAmount: 'sem valor (LLM indisponível)',
+  saveFailed: 'não consegui salvar, tenta de novo',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
   descDenied: 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos',
@@ -102,6 +104,7 @@ const en: Catalog = {
   ].join('\n'),
   ask: 'which bill is this receipt for? reply /paid <name>',
   noLlmAmount: 'no amount (LLM unavailable)',
+  saveFailed: "couldn't save, try again",
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
   descDenied: "I can't edit the description: make me an admin or let everyone edit group info",
@@ -145,6 +148,7 @@ const es: Catalog = {
   ].join('\n'),
   ask: '¿de qué cuenta es este comprobante? responde /pagado <nombre>',
   noLlmAmount: 'sin monto (LLM no disponible)',
+  saveFailed: 'no pude guardar, intenta de nuevo',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',
   descDenied: 'no puedo editar la descripción: hazme admin o permite que todos editen la info del grupo',

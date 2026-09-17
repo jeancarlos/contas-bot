@@ -13,10 +13,13 @@ const isObj = (v: unknown): v is Record<string, any> => typeof v === 'object' &&
 const toState = (v: unknown): State => {
   const meta = isObj(v) && isObj(v._meta) ? v._meta : {}
   if (meta.pinned && meta.listed === undefined) meta.listed = true
-  return {
-    _meta: meta,
-    months: isObj(v) && isObj(v.months) ? v.months : {},
+  const rawMonths = isObj(v) && isObj(v.months) ? v.months : {}
+  const months: Record<string, Record<string, Payment>> = {}
+  for (const [key, val] of Object.entries(rawMonths)) {
+    if (isObj(val)) months[key] = val
+    else console.warn(`state: dropping corrupt month "${key}" (not an object)`)
   }
+  return { _meta: meta, months }
 }
 
 export async function openState(path: string, legacyJid?: string): Promise<Store> {

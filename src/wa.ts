@@ -90,6 +90,7 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
+  const on = gate(cfg.groups, cfg)
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
   let sock = start()
 
@@ -121,8 +122,8 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
         const groups = await s.groupFetchAllParticipating()
-        for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject }, 'member of group')
-        cfg.onOpen(Object.keys(groups))
+        for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject, mine: cfg.groups.has(g.id) }, 'member of group')
+        on.onOpen(Object.keys(groups))
       }
       if (u.connection === 'close') {
         const code = (u.lastDisconnect?.error as any)?.output?.statusCode
@@ -146,19 +147,19 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
         const jid = raw.key.remoteJid
         if (!jid?.endsWith('@g.us')) continue
         const m = toIncoming(raw, self())
-        if (m) cfg.onMessage(jid, m)
+        if (m) on.onMessage(jid, m)
       }
     })
     s.ev.on('groups.update', updates => {
       // A cleared description arrives with the key present and no text.
-      for (const g of updates) if (g.id && 'desc' in g) cfg.onDescription(g.id, g.desc ?? '')
+      for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
     })
     s.ev.on('group-participants.update', ({ id, participants, action }) => {
       const me = self()
       const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
-      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) cfg.onJoined(id)
+      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) on.onJoined(id)
     })
-    s.ev.on('groups.upsert', groups => { for (const g of groups) cfg.onJoined(g.id) })
+    s.ev.on('groups.upsert', groups => { for (const g of groups) on.onJoined(g.id) })
     return s
   }
 

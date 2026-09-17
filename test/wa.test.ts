@@ -1,7 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { WAMessage } from '@whiskeysockets/baileys'
 import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup } from '../src/wa.ts'
+import { openState, cachedGroupsForCodes } from '../src/state.ts'
 import type { Incoming } from '../src/bot.ts'
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
@@ -172,4 +176,94 @@ test('a rejecting groupGetInviteInfo leaves the Set unchanged, logs a warning, a
   assert.deepEqual([...jids], ['good@g.us'])
   assert.equal(warnings.length, 1)
   assert.equal(infos.length, 1)
+})
+
+test('a resolved code persists its jid and is served on the next startup with groupGetInviteInfo never called', async () => {
+  const path = join(await mkdtemp(join(tmpdir(), 'contas-wa-')), 'state.json')
+  const store = await openState(path)
+  const { jids } = parseGroupJids('')
+  const cfg = {
+    groups: jids,
+    log: { info() {}, warn() {} },
+    onResolved: async (code: string, jid: string) => {
+      store.forGroup(jid).get()._meta.invite = code
+      await store.forGroup(jid).save()
+    },
+  }
+  const s = { groupGetInviteInfo: async () => ({ id: 'new@g.us', subject: 'New Group' }) }
+
+  await resolveInviteCodes(s, cfg, ['AbCdEf123'])
+  assert.deepEqual([...jids], ['new@g.us'])
+
+  const reopened = await openState(path)
+  assert.equal(reopened.forGroup('new@g.us').get()._meta.invite, 'AbCdEf123')
+
+  const cached = cachedGroupsForCodes(reopened, ['AbCdEf123'])
+  assert.deepEqual(cached, { jids: ['new@g.us'], toResolve: [] })
+
+  const nextJids = new Set(cached.jids)
+  let calls = 0
+  const s2 = { groupGetInviteInfo: async () => { calls++; throw new Error('must not be called') } }
+  await resolveInviteCodes(s2, { groups: nextJids, log: { info() {}, warn() {} } }, cached.toResolve)
+
+  assert.equal(calls, 0)
+  assert.deepEqual([...nextJids], ['new@g.us'])
+})
+
+test('a cached group survives a rejecting groupGetInviteInfo and stays in the allowlist, with the warning logged', async () => {
+  const path = join(await mkdtemp(join(tmpdir(), 'contas-wa-')), 'state.json')
+  const store = await openState(path)
+  store.forGroup('good@g.us').get()._meta.invite = 'good-code'
+  await store.forGroup('good@g.us').save()
+
+  const cached = cachedGroupsForCodes(store, ['good-code', 'bad-code'])
+  assert.deepEqual(cached, { jids: ['good@g.us'], toResolve: ['bad-code'] })
+
+  const { jids } = parseGroupJids('')
+  for (const jid of cached.jids) jids.add(jid)
+  const warnings: unknown[] = []
+  const cfg = { groups: jids, log: { info() {}, warn: (o: unknown) => warnings.push(o) } }
+  const s = { groupGetInviteInfo: async () => { throw new Error('invite revoked') } }
+
+  await resolveInviteCodes(s, cfg, cached.toResolve)
+
+  assert.deepEqual([...jids], ['good@g.us'])
+  assert.equal(warnings.length, 1)
+})
+
+test('removing the code from the configuration drops the cached group from the allowlist', async () => {
+  const path = join(await mkdtemp(join(tmpdir(), 'contas-wa-')), 'state.json')
+  const store = await openState(path)
+  store.forGroup('a@g.us').get()._meta.invite = 'code-a'
+  await store.forGroup('a@g.us').save()
+
+  assert.deepEqual(cachedGroupsForCodes(store, ['code-a']), { jids: ['a@g.us'], toResolve: [] })
+  assert.deepEqual(cachedGroupsForCodes(store, []), { jids: [], toResolve: [] })
+})
+
+test('a configured code with no cache entry still resolves over the network and gets persisted', async () => {
+  const path = join(await mkdtemp(join(tmpdir(), 'contas-wa-')), 'state.json')
+  const store = await openState(path)
+
+  const cached = cachedGroupsForCodes(store, ['fresh-code'])
+  assert.deepEqual(cached, { jids: [], toResolve: ['fresh-code'] })
+
+  const { jids } = parseGroupJids('')
+  let calls = 0
+  const s = { groupGetInviteInfo: async () => { calls++; return { id: 'fresh@g.us', subject: 'Fresh Group' } } }
+  const cfg = {
+    groups: jids,
+    log: { info() {}, warn() {} },
+    onResolved: async (code: string, jid: string) => {
+      store.forGroup(jid).get()._meta.invite = code
+      await store.forGroup(jid).save()
+    },
+  }
+
+  await resolveInviteCodes(s, cfg, cached.toResolve)
+
+  assert.equal(calls, 1)
+  assert.deepEqual([...jids], ['fresh@g.us'])
+  const reopened = await openState(path)
+  assert.equal(reopened.forGroup('fresh@g.us').get()._meta.invite, 'fresh-code')
 })

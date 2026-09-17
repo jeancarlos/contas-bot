@@ -14,6 +14,7 @@ type Cfg = {
   groups: Set<string>
   inviteCodes: string[]
   log: Logger
+  onResolved(code: string, jid: string): void | Promise<void>
   onOpen(jids: string[]): void
   onJoined(jid: string): void
   onMessage(jid: string, m: Incoming): void
@@ -51,7 +52,7 @@ export function parseGroupJids(raw: string): { jids: Set<string>; inviteCodes: s
 
 export async function resolveInviteCodes(
   s: { groupGetInviteInfo(code: string): Promise<{ id: string; subject: string }> },
-  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
+  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'>; onResolved?(code: string, jid: string): void | Promise<void> },
   codes: string[],
 ): Promise<void> {
   await Promise.allSettled(codes.map(async code => {
@@ -59,6 +60,7 @@ export async function resolveInviteCodes(
       const { id, subject } = await s.groupGetInviteInfo(code)
       cfg.groups.add(id)
       cfg.log.info({ code, jid: id, subject }, 'resolved invite link; put this jid in GROUP_INVITE_LINKS directly to stop depending on the link')
+      await cfg.onResolved?.(code, id)
     } catch (err) {
       cfg.log.warn({ err, code }, 'invite link resolution failed')
     }

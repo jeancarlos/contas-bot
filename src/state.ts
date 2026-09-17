@@ -3,17 +3,21 @@ import { dirname } from 'node:path'
 import type { Payment } from './bills.ts'
 
 export type PinKey = { id: string; fromMe: boolean; remoteJid: string }
-export type Meta = { last_reset?: string; pinned?: PinKey; bills?: string[]; section?: boolean; desc_warned?: boolean; long_warned?: boolean }
+export type Meta = { last_reset?: string; pinned?: PinKey; listed?: boolean; bills?: string[]; section?: boolean; desc_warned?: boolean; long_warned?: boolean }
 export type State = { _meta: Meta; months: Record<string, Record<string, Payment>> }
 export type StateStore = { get(): State; save(): Promise<void> }
 export type Store = { forGroup(jid: string): StateStore; jids(): string[] }
 
 const isObj = (v: unknown): v is Record<string, any> => typeof v === 'object' && v !== null && !Array.isArray(v)
 // A hand-edited or half-written file must not crash startup or turn `months` into an array that drops data on save.
-const toState = (v: unknown): State => ({
-  _meta: isObj(v) && isObj(v._meta) ? v._meta : {},
-  months: isObj(v) && isObj(v.months) ? v.months : {},
-})
+const toState = (v: unknown): State => {
+  const meta = isObj(v) && isObj(v._meta) ? v._meta : {}
+  if (meta.pinned && meta.listed === undefined) meta.listed = true
+  return {
+    _meta: meta,
+    months: isObj(v) && isObj(v.months) ? v.months : {},
+  }
+}
 
 export async function openState(path: string, legacyJid?: string): Promise<Store> {
   let groups: Record<string, State> = {}

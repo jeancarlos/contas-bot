@@ -79,7 +79,12 @@ export function makeBot(deps: BotDeps) {
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
-    await store.save()
+    try {
+      await store.save()
+    } catch (e) {
+      await wa.sendText(t.saveFailed, m.key)
+      throw e
+    }
     try {
       await wa.react(m.key, '✅')
     } catch (e) {
@@ -160,7 +165,12 @@ export function makeBot(deps: BotDeps) {
         const bill = resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
         delete month().paid[bill.key]
-        await store.save()
+        try {
+          await store.save()
+        } catch (e) {
+          await wa.sendText(t.saveFailed, m.key)
+          throw e
+        }
         await wa.react(m.key, '✅')
         await postList()
         return true

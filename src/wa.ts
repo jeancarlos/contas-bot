@@ -19,9 +19,10 @@ type Cfg = {
   onJoined(jid: string): void
   onMessage(jid: string, m: Incoming): void
   onDescription(jid: string, desc: string): void
+  onRemoved(jid: string): void | Promise<void>
 }
 
-type Handlers = Pick<Cfg, 'onOpen' | 'onJoined' | 'onMessage' | 'onDescription'>
+type Handlers = Pick<Cfg, 'onOpen' | 'onJoined' | 'onMessage' | 'onDescription' | 'onRemoved'>
 
 // WhatsApp expires a pairing code in a couple of minutes and rate-limits
 // repeat requests. A boolean latch was never cleared on reconnect, so the
@@ -85,6 +86,11 @@ export function logJoinedGroup(cfg: { groups: Set<string>; log: Pick<Logger, 'in
   cfg.log.info({ jid, subject, mine: cfg.groups.has(jid) }, 'added to a group; put this jid in GROUP_INVITE_LINKS to serve it')
 }
 
+export function participantsIncludeSelf(me: string[], participants: { id?: string; phoneNumber?: string; lid?: string }[]): boolean {
+  const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
+  return participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))
+}
+
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {
   const mine = (jid?: string | null): jid is string => jid != null && groups.has(jid)
   return {
@@ -92,6 +98,7 @@ export function gate(groups: Set<string>, cfg: Handlers): Handlers {
     onJoined: jid => { if (mine(jid)) cfg.onJoined(jid) },
     onMessage: (jid, m) => { if (mine(jid)) cfg.onMessage(jid, m) },
     onDescription: (jid, desc) => { if (mine(jid)) cfg.onDescription(jid, desc) },
+    onRemoved: jid => { if (mine(jid)) cfg.onRemoved(jid) },
   }
 }
 
@@ -121,7 +128,7 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   return { key, sender, text, media, mentionsBot, repliesToBot }
 }
 
-export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ...cfg }: Cfg): Promise<{ forGroup(jid: string): Wa }> {
+export async function connectWa({ onOpen, onJoined, onMessage, onDescription, onRemoved, ...cfg }: Cfg): Promise<{ forGroup(jid: string): Wa }> {
   // authDir is a bind-mount point: removing it needs write on /app, which this
   // container does not have, and the EACCES took the process down instead of
   // letting it exit cleanly. Emptying it does the same job.
@@ -141,7 +148,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
-  const on = gate(cfg.groups, { onOpen, onJoined, onMessage, onDescription })
+  const on = gate(cfg.groups, { onOpen, onJoined, onMessage, onDescription, onRemoved })
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
   let sock = start()
 
@@ -206,11 +213,13 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
     })
     s.ev.on('group-participants.update', async ({ id, participants, action }) => {
-      const me = self()
-      const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
-      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) {
+      const isSelf = participantsIncludeSelf(self(), participants)
+      if (action === 'add' && isSelf) {
         logJoinedGroup(cfg, id)
         on.onJoined(id)
+      }
+      if (action === 'remove' && isSelf) {
+        on.onRemoved(id)
       }
     })
     s.ev.on('groups.upsert', groups => { for (const g of groups) { logJoinedGroup(cfg, g.id, g.subject); on.onJoined(g.id) } })

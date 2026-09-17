@@ -180,6 +180,10 @@ const DESC_LIMIT = 2048
 // The header is a line holding only the marker and decoration; prose that mentions the bot is not it.
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
 
+// WhatsApp may drop emoji variation selectors or respace a line; the placeholder must still be recognized.
+const flat = (s: string) => s.replace(/️/g, '').replace(/\s+/g, ' ').trim()
+const SECTION_HELP_LINES = new Set(Object.values(CATALOGS).map(c => flat(c.sectionHelp)))
+
 // The bot owns everything from its header line down; text above it belongs to the group. Text a member typed
 // below the section's divider is theirs too: it is handed back with the group's text instead of being rewritten away.
 export function splitDescription(desc: string): { original: string; section: string | null } {
@@ -196,7 +200,7 @@ export function splitDescription(desc: string): { original: string; section: str
   // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
   // the first header on the next read, its title and list parsed as bills.
   const h = below.findIndex(l => HEADER_RE.test(l.trim()))
-  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !l.trim().startsWith('/') && !DIVIDER_RE.test(l.trim())).join('\n').trim()
+  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && !DIVIDER_RE.test(l.trim())).join('\n').trim()
   const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
   return { original, section: (end < 0 ? section : section.slice(0, end)).join('\n') }
 }
@@ -211,8 +215,6 @@ export function renderSection(bills: Bill[], loc: Locale = DEFAULT_LOCALE, withH
   return lines.join('\n')
 }
 
-// WhatsApp may drop emoji variation selectors or respace a line; the placeholder must still be recognized.
-const flat = (s: string) => s.replace(/\uFE0F/g, '').replace(/\s+/g, ' ').trim()
 const PLACEHOLDER_LINES = new Set(Object.values(CATALOGS).flatMap(c => c.descPlaceholder.split('\n').map(flat)))
 // Over WhatsApp's limit only the placeholder and the help line may go. The group's text and the bill list are never cut:
 // null means it does not fit and the caller must leave the description alone.

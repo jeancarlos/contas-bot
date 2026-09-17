@@ -198,9 +198,9 @@ test('splitDescription moves text typed below the section up into the group text
   const bills = parseDescription('Luz\nÁgua')
   const d = `Grupo\n\n${renderSection(bills)}\nPix: chave 123\n\n/pago luz`
   const { original, section } = splitDescription(d)
-  assert.equal(original, 'Grupo\n\nPix: chave 123')
+  assert.equal(original, 'Grupo\n\nPix: chave 123\n\n/pago luz')
   assert.deepEqual(parseDescription(section!), bills)
-  assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
+  assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n/pago luz\n\n${renderSection(bills)}`)
   // below an untouched placeholder, the rescued text replaces it
   const withPh = `${composeDescription('', bills)}\nPix: chave 123`
   assert.equal(composeDescription(splitDescription(withPh).original, bills), `Pix: chave 123\n\n${renderSection(bills)}`)

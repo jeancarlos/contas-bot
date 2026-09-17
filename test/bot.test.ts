@@ -222,6 +222,15 @@ test('an empty description is rebuilt from _meta.bills', async () => {
   assert.ok(w.descs[0].includes('Luz\nÁgua'))
 })
 
+test('a section emptied by a member stays empty instead of being restored', async () => {
+  const { bot, store, edit } = await setup()
+  const emptied = composeDescription('', [])!
+  edit(emptied)
+  await bot.onDescription(emptied)
+  assert.equal(bot.bills().length, 0)
+  assert.deepEqual(store.get()._meta.bills, [])
+})
+
 test('tick posts and pins a fresh list once per month', async () => {
   const { bot, store, sent, pins } = await setup({ now: new Date('2026-10-01T03:06:00Z') })
   await bot.tick()
@@ -275,6 +284,15 @@ test('tick retries next minute when the post fails', async () => {
   assert.equal(store.get()._meta.last_reset, '2026-08')
 })
 
+test('a failed reaction still saves the payment and updates the list', async () => {
+  const { bot, wa, store, sent, pins } = await setup()
+  wa.react = async () => { throw new Error('disconnected') }
+  await bot.onMessage(msg('/pago luz 231,45'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+  assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 231,45/)
+  assert.deepEqual(pins, ['pin:s1'])
+})
+
 test('a receipt that cannot be read asks to resend and stores nothing', async () => {
   const { bot, store, sent, llmCalls } = await setup()
   const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('media expired') } }
@@ -297,6 +315,16 @@ test('join onboards a new group that has an owner: description, intro, list, pin
   assert.deepEqual(pins, ['pin:s2'])
   assert.equal(store.get()._meta.last_reset, '2026-09')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água', 'Internet', 'Aluguel', 'Academia'])
+})
+
+test('onboarding with a lost state.json keeps an existing bill section instead of the demo', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G) // fresh: no last_reset
+  const existing = composeDescription('Grupo da casa', parseDescription('Luz\nGás'))!
+  const w = fakeWa(existing)
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  assert.equal(await bot.join(), 'onboarded')
+  assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Gás'])
 })
 
 test('an en bot onboards in English and understands /paid and /revert', async () => {
@@ -328,6 +356,15 @@ test('switching BOT_LANG rewrites the section once and keeps payments', async ()
   assert.equal(descs.length, writes)
 })
 
+test('a section deleted by a member is restored even though the rebuilt text matches the last write', async () => {
+  const { bot, descs, edit } = await setup()
+  const placeholderOnly = descs[0].split('\n\n')[0]
+  edit(placeholderOnly)
+  await bot.onDescription(placeholderOnly)
+  assert.equal(descs.length, 2)
+  assert.ok(descs.at(-1)!.includes('🤖 contas-bot'))
+})
+
 test('join migrates a legacy group: description becomes the section, no intro', async () => {
   const { bot, sent, descs } = await setup()
   assert.equal(sent.length, 0)
@@ -335,6 +372,20 @@ test('join migrates a legacy group: description becomes the section, no intro', 
   assert.ok(descs[0].startsWith(`${DEFAULT_LOCALE.t.descPlaceholder}\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz\nÁgua`))
   assert.ok(descs[0].includes('Mãe Carme (pausado)'))
   assert.equal(bot.bills().length, 5)
+})
+
+test('join republishes the list when the bills changed while the bot was offline', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  store.get()._meta.bills = ['Luz']
+  store.get()._meta.section = true
+  store.get()._meta.pinned = { id: 's0', fromMe: true, remoteJid: G }
+  const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
+  const w = fakeWa(desc)
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  assert.ok(w.sent.some(s => s.text.includes('Água')))
 })
 
 test('text typed below the section moves up into the group text; bills unchanged, no repost', async () => {
@@ -347,6 +398,14 @@ test('text typed below the section moves up into the group text; bills unchanged
   assert.ok(!descs.at(-1)!.includes(DEFAULT_LOCALE.t.descPlaceholder))
   assert.equal(sent.length, posts)
   assert.equal(bot.bills().length, 5)
+})
+
+test('a member note below the section survives even if it starts with a slash', async () => {
+  const { bot, descs, edit } = await setup()
+  const edited = `${descs[0]}\n/assembleia sábado às 10h`
+  edit(edited)
+  await bot.onDescription(edited)
+  assert.ok(descs.at(-1)!.includes('/assembleia sábado às 10h'))
 })
 
 test('a description edit inside the section reposts the list; the echo of our own write does nothing', async () => {

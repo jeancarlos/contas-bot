@@ -78,7 +78,11 @@ export function makeBot(deps: BotDeps) {
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
     await store.save()
-    await wa.react(m.key, '✅')
+    try {
+      await wa.react(m.key, '✅')
+    } catch (e) {
+      log.warn({ err: e }, 'reaction failed')
+    }
     if (existing) await wa.sendText(t.updated, m.key)
     await postList()
   }
@@ -121,13 +125,13 @@ export function makeBot(deps: BotDeps) {
     if (section !== null) next = parseDescription(section)
     else if (meta.section) next = [] // someone deleted our section: keep their text, restore the list below it
     else { next = parseDescription(desc); top = '' } // legacy group: the whole description was the list
-    if (next.length === 0) next = parseDescription((meta.bills ?? []).join('\n'))
+    if (section === null && next.length === 0) next = parseDescription((meta.bills ?? []).join('\n'))
     const changed = renderSection(next, loc) !== renderSection(bills, loc)
     bills = next
     meta.bills = bills.map(b => billLine(b, loc))
     const want = composeDescription(top, bills, loc)
     if (want === desc) meta.section = true
-    else if (want !== lastWritten) await writeDescription(want)
+    else if (want !== lastWritten || (section === null && meta.section)) await writeDescription(want)
     await store.save()
     return changed
   }
@@ -210,17 +214,20 @@ export function makeBot(deps: BotDeps) {
             bills = parseDescription((meta.bills ?? []).join('\n'))
             return 'active'
           }
-          await reconcile(desc)
+          const changed = await reconcile(desc)
+          if (meta.pinned && changed) await postList()
           log.info({ bills: billNames() }, 'bills loaded')
           return 'active'
         }
         const desc = await wa.getDescription()
-        bills = parseDescription(t.demoBills)
+        const { original, section } = splitDescription(desc)
+        const existingBills = section !== null ? parseDescription(section) : []
+        bills = existingBills.length > 0 ? existingBills : parseDescription(t.demoBills)
         meta.bills = bills.map(b => billLine(b, loc))
         // A new group is section-style from birth: even if the write below is refused, a later description
         // without our section means "keep their text, restore the list", never "their text is the bill list".
         meta.section = true
-        await writeDescription(composeDescription(splitDescription(desc).original, bills, loc))
+        await writeDescription(composeDescription(original, bills, loc))
         await wa.sendText(t.intro)
         await postList()
         // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.

@@ -12,13 +12,12 @@ import type { Llm, Verdict } from '../src/llm.ts'
 const G = '123@g.us'
 const DESC = 'Luz\nÁgua\nAluguel\nCartão Nu\nMãe Carme (pausado)'
 
-function fakeWa(desc = DESC, phones: (string | null)[] = ['5549111111111']) {
+function fakeWa(desc = DESC) {
   let n = 0
   const sent: { text: string; quoted?: MsgKey }[] = []
   const reactions: { key: MsgKey; emoji: string }[] = []
   const pins: string[] = []
   const descs: string[] = []
-  let left = false
   const wa: Wa = {
     async sendText(text, quoted) { sent.push({ text, quoted }); return { id: `s${++n}`, fromMe: true, remoteJid: G } },
     async react(key, emoji) { reactions.push({ key, emoji }) },
@@ -26,12 +25,10 @@ function fakeWa(desc = DESC, phones: (string | null)[] = ['5549111111111']) {
     async unpin(key) { pins.push(`unpin:${key.id}`) },
     async getDescription() { return desc },
     async setDescription(text) { descs.push(text); desc = text },
-    async leave() { left = true },
-    async memberPhones() { return phones },
   }
   // A member edit: the current description changes, then the event arrives.
   const edit = (text: string) => { desc = text }
-  return { wa, sent, reactions, pins, descs, edit, isLeft: () => left }
+  return { wa, sent, reactions, pins, descs, edit }
 }
 
 function fakeLlm(verdict: Verdict | null) {
@@ -43,13 +40,13 @@ function fakeLlm(verdict: Verdict | null) {
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; phones?: (string | null)[]; owners?: string[]; fresh?: boolean; locale?: Locale } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
-  const w = fakeWa(opts.desc, opts.phones)
+  const w = fakeWa(opts.desc)
   const l = fakeLlm(opts.verdict ?? null)
-  const bot = makeBot({ wa: w.wa, llm: l.llm, store, owners: opts.owners ?? ['5549111111111'], now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
+  const bot = makeBot({ wa: w.wa, llm: l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
   await bot.join()
   return { bot, store, ...w, llmCalls: l.calls }
 }
@@ -180,7 +177,7 @@ test('an empty description is rebuilt from _meta.bills', async () => {
   store.get()._meta.last_reset = '2026-08'
   store.get()._meta.bills = ['Luz', 'Água']
   const w = fakeWa('')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: [] })
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
   await bot.join()
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água'])
   assert.ok(w.descs[0].includes('Luz\nÁgua'))
@@ -281,7 +278,7 @@ test('switching BOT_LANG rewrites the section once and keeps payments', async ()
   const { store, descs, wa } = await setup() // pt-BR legacy group, migrated to a pt section
   store.get().months['2026-09'] = { luz: { name: 'Luz', paid_at: '', amount: 10, by: 'x', message_id: 'm' } }
   const EN = makeLocale('en', 'USD')
-  const bot = makeBot({ wa, llm: fakeLlm(null).llm, store, owners: [], locale: EN, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ wa, llm: fakeLlm(null).llm, store, locale: EN, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   const last = descs.at(-1)!
   assert.ok(last.includes('Bills (edit this list):'), last)
@@ -290,37 +287,6 @@ test('switching BOT_LANG rewrites the section once and keeps payments', async ()
   const writes = descs.length
   await bot.onDescription(last)
   assert.equal(descs.length, writes)
-})
-
-test('join leaves a group without an owner and stores nothing', async () => {
-  const { store, sent, descs, isLeft } = await setup({ fresh: true, phones: ['5511000000000'] })
-  assert.equal(sent[0].text, 'sou um bot privado 🤖')
-  assert.equal(isLeft(), true)
-  assert.equal(descs.length, 0)
-  assert.equal(store.get()._meta.last_reset, undefined)
-})
-
-test('join does not leave when member phones cannot be resolved', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
-  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
-  const w = fakeWa(DESC, [null])
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'] })
-  await assert.rejects(bot.join())
-  assert.equal(w.isLeft(), false)
-})
-
-test('join onboards when an owner is resolvable even if another member is not', async () => {
-  const { store, isLeft } = await setup({ fresh: true, phones: ['5549111111111', null] })
-  assert.equal(store.get()._meta.last_reset, '2026-09')
-  assert.equal(isLeft(), false)
-})
-
-test('owners match member phones across the Brazilian ninth digit, both ways', async () => {
-  for (const [owner, phone] of [['5534999998888', '553499998888'], ['553499998888', '5534999998888']]) {
-    const { store, isLeft } = await setup({ fresh: true, owners: [owner], phones: [phone] })
-    assert.equal(store.get()._meta.last_reset, '2026-09', `${owner} vs ${phone}`)
-    assert.equal(isLeft(), false)
-  }
 })
 
 test('join migrates a legacy group: description becomes the section, no intro', async () => {
@@ -410,7 +376,7 @@ test('onboarding with a refused description write still never reads the group te
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa('Grupo da casa 🏠')
   w.wa.setDescription = async () => { throw new Error('not-authorized') }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   assert.equal(await bot.join(), 'onboarded')
   await bot.onDescription('Grupo da casa 🏠')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água', 'Internet', 'Aluguel', 'Academia'])
@@ -425,7 +391,7 @@ test('a failed first list post leaves the group inactive so the next join retrie
   let sends = 0
   const send = w.wa.sendText
   w.wa.sendText = async (t, q) => { if (++sends === 2) throw new Error('offline'); return send(t, q) }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'] })
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
   await assert.rejects(bot.join())
   assert.equal(store.get()._meta.last_reset, undefined)
   assert.equal(await bot.join(), 'onboarded')
@@ -435,7 +401,7 @@ test('a message queued behind an onboarding join is handled after it', async () 
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa('Grupo')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await Promise.all([bot.join(), bot.onMessage(msg('/pago luz 10'))])
   assert.equal(store.get().months['2026-09'].luz.amount, 10)
 })
@@ -447,8 +413,8 @@ test('restart before join does not repost the list and still handles a queued pa
   store.get()._meta.last_reset = '2026-08'
   store.get()._meta.bills = bills.map(b => billLine(b))
   store.get()._meta.section = true
-  const w = fakeWa(composeDescription('', bills)!, ['5549111111111'])
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, owners: ['5549111111111'], now: () => new Date('2026-09-10T15:00:00Z') })
+  const w = fakeWa(composeDescription('', bills)!)
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   // No bot.join(): this simulates onOpen's groups.update/messages.upsert reaching a freshly
   // built bot before its join() call has run.
   await bot.onDescription(composeDescription('', bills)!)
@@ -513,11 +479,13 @@ test('/help lists every command; unknown commands point to /help', async () => {
 })
 
 test('an inactive group ignores messages and ticks', async () => {
-  const { bot, sent } = await setup({ fresh: true, phones: ['5511000000000'] })
-  const before = sent.length
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
   await bot.onMessage(msg('/lista'))
   await bot.tick()
-  assert.equal(sent.length, before)
+  assert.equal(w.sent.length, 0)
 })
 
 test('a receipt captioned with a bill name holding a digit marks that bill with the receipt amount', async () => {

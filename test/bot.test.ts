@@ -133,11 +133,29 @@ test('plain chat is ignored, plain bill name is a payment', async () => {
 })
 
 test('receipt with mechanical caption: paid immediately, LLM only for amount', async () => {
-  const { bot, store, llmCalls } = await setup({ verdict: { bill: null, amount: 6237.6, confidence: 0.4 } })
+  const { bot, store, llmCalls } = await setup({ verdict: { bill: null, amount: 6237.6, confidence: 0.9 } })
   const media = { mime: 'image/jpeg', download: async () => Buffer.from('jpg') }
   await bot.onMessage(msg('cartão nu', { media }))
   assert.equal(store.get().months['2026-09']['cartao nu'].amount, 6237.6)
   assert.deepEqual(llmCalls, ['receipt:cartão nu'])
+})
+
+test('a receipt captioned with a known bill but low LLM confidence is paid without an amount', async () => {
+  const { bot, store, sent, llmCalls } = await setup({ verdict: { bill: null, amount: 6237.6, confidence: 0.4 } })
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('jpg') }
+  await bot.onMessage(msg('cartão nu', { media }))
+  assert.equal(store.get().months['2026-09']['cartao nu'].amount, null)
+  assert.equal(sent[0].text, 'sem valor (LLM indisponível)')
+  assert.deepEqual(llmCalls, ['receipt:cartão nu'])
+})
+
+test('a receipt captioned with an unrelated command is dispatched as the command, not read', async () => {
+  const { bot, store, llmCalls } = await setup()
+  await bot.onMessage(msg('/pago luz 10'))
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('jpg') }
+  await bot.onMessage(msg('/despago luz', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz, undefined)
+  assert.deepEqual(llmCalls, [])
 })
 
 test('receipt without caption: LLM picks the bill when confident', async () => {

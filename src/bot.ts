@@ -185,8 +185,10 @@ export function makeBot(deps: BotDeps) {
     const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     if (known) {
-      if (!verdict && typed == null) await wa.sendText(t.noLlmAmount, m.key)
-      await markPaid(known, typed ?? verdict?.amount ?? null, m)
+      const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
+      const amount = typed ?? inferred
+      if (amount == null) await wa.sendText(t.noLlmAmount, m.key)
+      await markPaid(known, amount, m)
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
@@ -250,7 +252,11 @@ export function makeBot(deps: BotDeps) {
       if (m.key.fromMe) return Promise.resolve()
       return serial(async () => { try {
         if (!active()) return
-        if (m.media) return await handleMedia(m)
+        if (m.media) {
+          const c = parseCommand(m.text, loc)
+          if (c && c.cmd !== 'pago' && c.cmd !== 'unknown') { await handleCommand(m); return }
+          return await handleMedia(m)
+        }
         if (await handleCommand(m)) return
         const bill = matchPlainText(bills, m.text)
         if (bill) return await markPaid(bill, null, m)

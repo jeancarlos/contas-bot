@@ -23,19 +23,12 @@ const toState = (v: unknown, log?: Log): State => {
   return { _meta: meta, months }
 }
 
-export async function openState(path: string, legacyJid?: string, log?: Log): Promise<Store> {
+export async function openState(path: string, log?: Log): Promise<Store> {
   let groups: Record<string, State> = {}
-  let migrated = false
   try {
     const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
     if (!isObj(parsed)) throw new Error(`${path} is not a JSON object`)
     if (isObj(parsed.groups)) for (const [jid, g] of Object.entries(parsed.groups)) groups[jid] = toState(g, log)
-    else if (parsed._meta) {
-      // First version kept one group at the top level; without its JID the data would be orphaned.
-      if (!legacyJid) throw new Error('state file is from the single-group version: set GROUP_JID once so it can be migrated')
-      groups[legacyJid] = toState(parsed, log)
-      migrated = true
-    }
   } catch (e: any) {
     if (e.code !== 'ENOENT') throw e
   }
@@ -52,7 +45,6 @@ export async function openState(path: string, legacyJid?: string, log?: Log): Pr
     chain = run.catch(() => {})
     return run
   }
-  if (migrated) await save()
 
   return {
     forGroup(jid) {

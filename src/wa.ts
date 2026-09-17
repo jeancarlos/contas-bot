@@ -1,6 +1,6 @@
 import makeWASocket, {
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
-  jidNormalizedUser, jidDecode, isLidUser,
+  jidNormalizedUser,
   type WAMessage, type WAMessageKey, normalizeMessageContent,
 } from '@whiskeysockets/baileys'
 import { readdir, rm } from 'node:fs/promises'
@@ -165,12 +165,6 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
 
   const toKey = (k: MsgKey): WAMessageKey => ({ id: k.id, fromMe: k.fromMe, remoteJid: k.remoteJid, participant: k.participant })
 
-  const phoneOf = async (p: { id: string; phoneNumber?: string }): Promise<string | null> => {
-    const pn = p.phoneNumber ?? (p.id.endsWith('@s.whatsapp.net') ? p.id : null)
-      ?? (isLidUser(p.id) ? await sock.signalRepository.lidMapping.getPNForLID(p.id) : null)
-    return pn ? jidDecode(pn)?.user ?? null : null
-  }
-
   return {
     forGroup(jid: string): Wa {
       return {
@@ -184,13 +178,6 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
         async unpin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 2 }) },
         async getDescription() { return (await sock.groupMetadata(jid)).desc ?? '' },
         async setDescription(text) { await sock.groupUpdateDescription(jid, text) },
-        async leave() { await sock.groupLeave(jid) },
-        // null for a member whose phone is unknown: the owner check must never leave a group on a guess.
-        async memberPhones() {
-          const me = [sock.user?.id, sock.user?.lid].filter((j): j is string => Boolean(j)).map(jidNormalizedUser)
-          const others = (await sock.groupMetadata(jid)).participants.filter(p => !me.includes(jidNormalizedUser(p.id)))
-          return Promise.all(others.map(phoneOf))
-        },
       }
     },
   }

@@ -87,7 +87,7 @@ docker compose logs -f
 | Variable | Meaning |
 |---|---|
 | `BOT_PHONE` | the bot's number, digits with country code; used once to pair |
-| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves — a `chat.whatsapp.com` invite link or a jid, mixed freely; a link is resolved to its jid at boot (no need to join first) and the jid is remembered, so a later revoked or failing link only logs a warning and the group keeps working off the cached jid; removing the link from this variable is still what turns a group off; optional, empty serves no group; anywhere else it's completely inert |
+| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves — a `chat.whatsapp.com` invite link or a jid, mixed freely; a link is resolved to its jid at boot (no need to join first) and the jid is remembered, so a later revoked or failing link only logs a warning and the group keeps working off the cached jid; removing the link from this variable is still what turns a group off; being removed from the group itself turns it off immediately too, and the only way back is this variable still naming the group at a later start; optional, empty serves no group; anywhere else it's completely inert |
 | `BOT_LANG` | language the bot writes in: `pt-BR` (default), `en` or `es` |
 | `BOT_CURRENCY` | currency for amounts and totals, an ISO 4217 code: `BRL` (default), `USD`, `EUR`, `MXN`… |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint |
@@ -102,6 +102,8 @@ You can set up a group before the bot ever joins it, using its invite link:
 4. Add the bot to the group. It's already allowed in, so it onboards itself right away.
 
 No link handy? Fall back to the old dance: start the bot with `GROUP_INVITE_LINKS` empty — it boots and serves no group, that's expected — then add the bot to the group. The moment it's added, the log prints a line carrying the real `jid`. Copy that into `GROUP_INVITE_LINKS` in `.env` and restart (`docker compose up -d`). Only then does the bot actually answer in it.
+
+Being removed from a group turns the bot off for that group immediately, on the spot — no restart needed. That revocation only drops the cached invite pairing; the group's bill history is untouched. The only way back in is `GROUP_INVITE_LINKS` still naming the group (jid or link) at the next start — being re-added to the group on its own does not restore it.
 
 For development:
 

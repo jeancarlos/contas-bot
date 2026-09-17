@@ -1,5 +1,5 @@
 import pino from 'pino'
-import { connectWa, parseGroupJids, normalizeLegacyJid } from './wa.ts'
+import { connectWa, parseGroupJids } from './wa.ts'
 import { makeBot } from './bot.ts'
 import { makeLlm } from './llm.ts'
 import { openState } from './state.ts'
@@ -15,7 +15,7 @@ function env(name: string, fallback?: string): string {
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
 const locale = makeLocale(env('BOT_LANG', 'pt-BR'), env('BOT_CURRENCY', 'BRL'))
 log.info({ lang: locale.lang, currency: locale.currency }, 'locale')
-const groups = await openState(env('STATE_FILE', 'data/state.json'), normalizeLegacyJid(process.env.GROUP_JID || undefined), log)
+const groups = await openState(env('STATE_FILE', 'data/state.json'), log)
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),

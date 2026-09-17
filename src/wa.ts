@@ -29,16 +29,14 @@ let pairingCodeAt = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
 
-export function parseGroupJids(raw: string): Set<string> {
+export function parseGroupJids(raw: string, envName = 'GROUP_JIDS'): Set<string> {
   const jids = raw.split(',').map(s => s.trim()).filter(Boolean).map(s => s.includes('@') ? s : `${s}@g.us`)
-  for (const s of jids) if (!s.endsWith('@g.us')) throw new Error(`GROUP_JIDS: not a group jid: ${s}`)
+  for (const s of jids) if (!s.endsWith('@g.us')) throw new Error(`${envName}: not a group jid: ${s}`)
   return new Set(jids)
 }
 
-// The one-shot migration key must resolve to the same state.json key a served group would: a bare
-// digit passed here and left unnormalized would migrate the old data under a jid the bot never reads.
 export function normalizeLegacyJid(raw: string | undefined): string | undefined {
-  return raw ? [...parseGroupJids(raw)][0] : undefined
+  return raw ? [...parseGroupJids(raw, 'GROUP_JID')][0] : undefined
 }
 
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {

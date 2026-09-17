@@ -293,6 +293,21 @@ test('a failed reaction still saves the payment and updates the list', async () 
   assert.deepEqual(pins, ['pin:s1'])
 })
 
+test('a failed "updated" notice still saves the payment and posts the list', async () => {
+  const { bot, wa, store, sent } = await setup()
+  await bot.onMessage(msg('/pago luz 231,45'))
+  const posts = sent.length
+  wa.sendText = async (text, quoted) => {
+    if (text === DEFAULT_LOCALE.t.updated) throw new Error('disconnected')
+    sent.push({ text, quoted })
+    return { id: `s${sent.length + 1}`, fromMe: true, remoteJid: G }
+  }
+  await bot.onMessage(msg('/pago luz 300'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 300)
+  assert.equal(sent.length, posts + 1)
+  assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 300,00/)
+})
+
 test('a receipt that cannot be read asks to resend and stores nothing', async () => {
   const { bot, store, sent, llmCalls } = await setup()
   const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('media expired') } }
@@ -381,11 +396,28 @@ test('join republishes the list when the bills changed while the bot was offline
   store.get()._meta.bills = ['Luz']
   store.get()._meta.section = true
   store.get()._meta.pinned = { id: 's0', fromMe: true, remoteJid: G }
+  store.get()._meta.listed = true
   const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
   const w = fakeWa(desc)
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   assert.ok(w.sent.some(s => s.text.includes('Água')))
+})
+
+test('join republishes on offline changes even when every pin has failed (admin-restricted group)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  store.get()._meta.bills = ['Luz']
+  store.get()._meta.section = true
+  store.get()._meta.listed = true
+  const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
+  const w = fakeWa(desc)
+  w.wa.pin = async () => { throw new Error('not admin') }
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  assert.ok(w.sent.some(s => s.text.includes('Água')))
+  assert.equal(store.get()._meta.pinned, undefined)
 })
 
 test('text typed below the section moves up into the group text; bills unchanged, no repost', async () => {

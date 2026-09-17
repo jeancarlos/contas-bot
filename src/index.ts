@@ -2,7 +2,7 @@ import pino from 'pino'
 import { connectWa, parseGroupJids } from './wa.ts'
 import { makeBot } from './bot.ts'
 import { makeLlm } from './llm.ts'
-import { openState } from './state.ts'
+import { openState, cachedGroupsForCodes } from './state.ts'
 import { pdfToPng } from './pdf.ts'
 import { makeLocale } from './i18n.ts'
 
@@ -27,6 +27,8 @@ const llm = makeLlm({
 const { jids: groupJids, inviteCodes } = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
 if (groupJids.size === 0 && inviteCodes.length === 0) log.warn('serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_INVITE_LINKS and restart')
 else log.info({ groups: [...groupJids], inviteCodes }, 'serving groups')
+const cached = cachedGroupsForCodes(groups, inviteCodes)
+for (const jid of cached.jids) groupJids.add(jid)
 const bots = new Map<string, ReturnType<typeof makeBot>>()
 let wa: Awaited<ReturnType<typeof connectWa>> | undefined
 
@@ -47,8 +49,12 @@ wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
   phone: env('BOT_PHONE'),
   groups: groupJids,
-  inviteCodes,
+  inviteCodes: cached.toResolve,
   log,
+  onResolved: async (code, jid) => {
+    groups.forGroup(jid).get()._meta.invite = code
+    await groups.forGroup(jid).save()
+  },
   onOpen: jids => { for (const jid of jids) join(jid) },
   onJoined: jid => { join(jid) },
   onMessage: (jid, m) => { botFor(jid).onMessage(m) },

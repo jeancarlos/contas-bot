@@ -10,10 +10,14 @@ export type Store = { forGroup(jid: string): StateStore; jids(): string[] }
 
 const isObj = (v: unknown): v is Record<string, any> => typeof v === 'object' && v !== null && !Array.isArray(v)
 // A hand-edited or half-written file must not crash startup or turn `months` into an array that drops data on save.
-const toState = (v: unknown): State => ({
-  _meta: isObj(v) && isObj(v._meta) ? v._meta : {},
-  months: isObj(v) && isObj(v.months) ? v.months : {},
-})
+const toState = (v: unknown): State => {
+  const meta = isObj(v) && isObj(v._meta) ? v._meta : {}
+  if (meta.pinned && meta.listed === undefined) meta.listed = true
+  return {
+    _meta: meta,
+    months: isObj(v) && isObj(v.months) ? v.months : {},
+  }
+}
 
 export async function openState(path: string, legacyJid?: string): Promise<Store> {
   let groups: Record<string, State> = {}

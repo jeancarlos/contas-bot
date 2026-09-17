@@ -49,6 +49,24 @@ export async function resolveOpenJids(
   return [...cfg.groups]
 }
 
+export function logJoinedGroup(cfg: { groups: Set<string>; log: Pick<Logger, 'info'> }, jid: string, subject?: string): void {
+  cfg.log.info({ jid, subject, mine: cfg.groups.has(jid) }, 'added to a group; put this jid in GROUP_JIDS to serve it')
+}
+
+export async function fetchAndLogJoinedGroup(
+  s: { groupMetadata(jid: string): Promise<{ subject: string }> },
+  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
+  jid: string,
+): Promise<void> {
+  let subject: string | undefined
+  try {
+    subject = (await s.groupMetadata(jid)).subject
+  } catch (err) {
+    cfg.log.warn({ err, jid }, 'group metadata fetch failed')
+  }
+  logJoinedGroup(cfg, jid, subject)
+}
+
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {
   const mine = (jid?: string | null): jid is string => jid != null && groups.has(jid)
   return {
@@ -168,12 +186,15 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       // A cleared description arrives with the key present and no text.
       for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
     })
-    s.ev.on('group-participants.update', ({ id, participants, action }) => {
+    s.ev.on('group-participants.update', async ({ id, participants, action }) => {
       const me = self()
       const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
-      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) on.onJoined(id)
+      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) {
+        await fetchAndLogJoinedGroup(s, cfg, id)
+        on.onJoined(id)
+      }
     })
-    s.ev.on('groups.upsert', groups => { for (const g of groups) on.onJoined(g.id) })
+    s.ev.on('groups.upsert', groups => { for (const g of groups) { logJoinedGroup(cfg, g.id, g.subject); on.onJoined(g.id) } })
     return s
   }
 

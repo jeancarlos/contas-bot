@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, gate, resolveOpenJids } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, gate, resolveOpenJids, logJoinedGroup, fetchAndLogJoinedGroup } from '../src/wa.ts'
 import type { Incoming } from '../src/bot.ts'
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
@@ -78,4 +78,29 @@ test('resolveOpenJids narrows to groups the bot is actually a member of when dis
   const s = { groupFetchAllParticipating: async () => ({ 'mine@g.us': { id: 'mine@g.us', subject: 'Mine' } }) }
   const jids = await resolveOpenJids(s, cfg)
   assert.deepEqual(jids, ['mine@g.us'])
+})
+
+test('logJoinedGroup logs the jid, subject and allowlist membership (groups.upsert path)', () => {
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us'), log: { info: (o: unknown) => infos.push(o) } }
+  logJoinedGroup(cfg, 'new@g.us', 'New Group')
+  assert.deepEqual(infos, [{ jid: 'new@g.us', subject: 'New Group', mine: false }])
+})
+
+test('fetchAndLogJoinedGroup fetches the subject before logging (group-participants.update path)', async () => {
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us'), log: { info: (o: unknown) => infos.push(o), warn() {} } }
+  const s = { groupMetadata: async () => ({ subject: 'Mine' }) }
+  await fetchAndLogJoinedGroup(s, cfg, 'mine@g.us')
+  assert.deepEqual(infos, [{ jid: 'mine@g.us', subject: 'Mine', mine: true }])
+})
+
+test('fetchAndLogJoinedGroup still logs without a subject when the metadata fetch fails', async () => {
+  const infos: unknown[] = []
+  const warnings: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us'), log: { info: (o: unknown) => infos.push(o), warn: (o: unknown) => warnings.push(o) } }
+  const s = { groupMetadata: async () => { throw new Error('socket dropped') } }
+  await fetchAndLogJoinedGroup(s, cfg, 'mine@g.us')
+  assert.deepEqual(infos, [{ jid: 'mine@g.us', subject: undefined, mine: true }])
+  assert.equal(warnings.length, 1)
 })

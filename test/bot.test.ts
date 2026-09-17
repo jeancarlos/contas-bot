@@ -320,6 +320,23 @@ test('a failed reaction still saves the payment and updates the list', async () 
   assert.deepEqual(pins, ['pin:s1'])
 })
 
+test('a failed save while marking paid warns the group instead of going silent', async () => {
+  const { bot, store, sent } = await setup()
+  store.save = async () => { throw new Error('disk full') }
+  await bot.onMessage(msg('/pago luz 231,45'))
+  assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+})
+
+test('a failed save on /despago warns the group instead of going silent', async () => {
+  const { bot, store, sent } = await setup()
+  await bot.onMessage(msg('/pago luz 231,45'))
+  store.save = async () => { throw new Error('disk full') }
+  await bot.onMessage(msg('/despago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
+  assert.equal(store.get().months['2026-09'].luz, undefined)
+})
+
 test('a failed "updated" notice still saves the payment and posts the list', async () => {
   const { bot, wa, store, sent } = await setup()
   await bot.onMessage(msg('/pago luz 231,45'))

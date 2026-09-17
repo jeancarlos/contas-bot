@@ -48,7 +48,7 @@ async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date
   const l = fakeLlm(opts.verdict ?? null)
   const bot = makeBot({ wa: w.wa, llm: l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
   await bot.join()
-  return { bot, store, ...w, llmCalls: l.calls }
+  return { bot, store, ...w, llmCalls: l.calls, llm: l.llm }
 }
 
 const msg = (text: string, extra: Partial<Incoming> = {}): Incoming => ({
@@ -172,6 +172,33 @@ test('receipt with low confidence asks for /pago and stores nothing', async () =
   await bot.onMessage(msg('', { media }))
   assert.equal(sent[0].text, 'esse comprovante é de qual conta? responde /pago <nome>')
   assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
+})
+
+test('a receipt that only reads an amount remembers it for the /pago that answers the ask', async () => {
+  const { bot, store, sent } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  assert.equal(sent[0].text, 'esse comprovante é de qual conta? responde /pago <nome>')
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+})
+
+test('a /pago with an explicit amount wins over a pending receipt amount', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  await bot.onMessage(msg('/pago luz 50', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 50)
+})
+
+test('a second receipt replaces the pending amount instead of stacking', async () => {
+  const { bot, store, llm } = await setup({ verdict: { bill: null, amount: 100, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  llm.readReceipt = async () => ({ bill: null, amount: 200, confidence: 0.9 })
+  await bot.onMessage(msg('', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 200)
 })
 
 test('LLM down with a known caption: paid without amount', async () => {

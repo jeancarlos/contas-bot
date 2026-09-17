@@ -278,15 +278,21 @@ export function makeBot(deps: BotDeps) {
       if (m.key.fromMe) return Promise.resolve()
       return serial(async () => { try {
         if (!active()) return
-        if (m.media) {
-          const c = parseCommand(m.text, loc)
-          if (c && c.cmd !== 'pago' && c.cmd !== 'unknown') { await handleCommand(m); return }
-          return await handleMedia(m)
+        const meta = state()._meta
+        if (meta.handled?.includes(m.key.id)) return
+        const dispatch = async () => {
+          if (m.media) {
+            const c = parseCommand(m.text, loc)
+            if (c && c.cmd !== 'pago' && c.cmd !== 'unknown') { await handleCommand(m); return }
+            return await handleMedia(m)
+          }
+          if (await handleCommand(m)) return
+          const bill = matchPlainText(bills, m.text)
+          if (bill) return await markPaid(bill, null, m)
+          if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
-        if (await handleCommand(m)) return
-        const bill = matchPlainText(bills, m.text)
-        if (bill) return await markPaid(bill, null, m)
-        if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
+        await dispatch()
+        meta.handled = [...(meta.handled ?? []), m.key.id].slice(-50)
       } catch (e) {
         log.error({ err: e, id: m.key.id }, 'message handling failed')
       } })

@@ -45,6 +45,14 @@ const join = (jid: string) => botFor(jid).join()
   .then(r => log.info({ jid, result: r }, 'group joined'))
   .catch(e => log.error({ err: e, jid }, 'join failed, retrying on next connection'))
 
+const onRemoved = (jid: string) => {
+  groupJids.delete(jid)
+  delete groups.forGroup(jid).get()._meta.invite
+  return groups.forGroup(jid).save()
+    .then(() => log.info({ jid }, 'removed from group, no longer served — name it in GROUP_INVITE_LINKS again at next start to restore it'))
+    .catch(e => log.error({ err: e, jid }, 'saving state after removal failed'))
+}
+
 wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
   phone: env('BOT_PHONE'),
@@ -59,6 +67,7 @@ wa = await connectWa({
   onJoined: jid => { join(jid) },
   onMessage: (jid, m) => { botFor(jid).onMessage(m) },
   onDescription: (jid, d) => { botFor(jid).onDescription(d).catch(e => log.error({ err: e, jid }, 'description handling failed')) },
+  onRemoved,
 })
 
 setInterval(() => {

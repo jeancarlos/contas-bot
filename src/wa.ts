@@ -128,6 +128,52 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   return { key, sender, text, media, mentionsBot, repliesToBot }
 }
 
+export function wireGroupEvents(
+  ev: { on(event: string, handler: (arg: any) => void): void },
+  on: Pick<Handlers, 'onJoined' | 'onMessage' | 'onDescription' | 'onRemoved'>,
+  self: () => string[],
+  cfg: { groups: Set<string>; log: Pick<Logger, 'info'> },
+): void {
+  ev.on('messages.upsert', ({ messages, type }: { messages: WAMessage[]; type: string }) => {
+    if (type !== 'notify') return
+    for (const raw of messages) {
+      const jid = raw.key.remoteJid
+      if (!jid?.endsWith('@g.us')) continue
+      if (!cfg.groups.has(jid)) continue
+      const m = toIncoming(raw, self())
+      if (m) on.onMessage(jid, m)
+    }
+  })
+  ev.on('groups.update', (updates: { id?: string; desc?: string }[]) => {
+    // A cleared description arrives with the key present and no text.
+    for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
+  })
+  ev.on('group-participants.update', async ({ id, participants, action }: { id: string; participants: { id?: string; phoneNumber?: string; lid?: string }[]; action: string }) => {
+    const isSelf = participantsIncludeSelf(self(), participants)
+    if (action === 'add' && isSelf) {
+      logJoinedGroup(cfg, id)
+      on.onJoined(id)
+    }
+    if (action === 'remove' && isSelf) {
+      on.onRemoved(id)
+    }
+  })
+  ev.on('groups.upsert', (groups: { id: string; subject?: string }[]) => { for (const g of groups) { logJoinedGroup(cfg, g.id, g.subject); on.onJoined(g.id) } })
+}
+
+export async function handleOpen(
+  s: {
+    groupFetchAllParticipating(): Promise<Record<string, { id: string; subject: string }>>
+    groupGetInviteInfo(code: string): Promise<{ id: string; subject: string }>
+  },
+  cfg: { groups: Set<string>; inviteCodes: string[]; log: Pick<Logger, 'info' | 'warn'>; onResolved?(code: string, jid: string): void | Promise<void> },
+  onOpen: (jids: string[]) => void,
+): Promise<void> {
+  cfg.log.info('whatsapp connected')
+  await resolveInviteCodes(s, cfg, cfg.inviteCodes)
+  onOpen(await resolveOpenJids(s, cfg))
+}
+
 export async function connectWa({ onOpen, onJoined, onMessage, onDescription, onRemoved, ...cfg }: Cfg): Promise<{ forGroup(jid: string): Wa }> {
   // authDir is a bind-mount point: removing it needs write on /app, which this
   // container does not have, and the EACCES took the process down instead of
@@ -178,9 +224,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         }
       }
       if (u.connection === 'open') {
-        cfg.log.info('whatsapp connected')
-        await resolveInviteCodes(s, cfg, cfg.inviteCodes)
-        on.onOpen(await resolveOpenJids(s, cfg))
+        await handleOpen(s, cfg, on.onOpen)
       }
       if (u.connection === 'close') {
         const code = (u.lastDisconnect?.error as any)?.output?.statusCode
@@ -198,31 +242,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         setTimeout(() => { sock = start() }, 3000)
       }
     } catch (e) { cfg.log.error({ err: e }, 'connection.update handler failed') } })
-    s.ev.on('messages.upsert', ({ messages, type }) => {
-      if (type !== 'notify') return
-      for (const raw of messages) {
-        const jid = raw.key.remoteJid
-        if (!jid?.endsWith('@g.us')) continue
-        if (!cfg.groups.has(jid)) continue
-        const m = toIncoming(raw, self())
-        if (m) on.onMessage(jid, m)
-      }
-    })
-    s.ev.on('groups.update', updates => {
-      // A cleared description arrives with the key present and no text.
-      for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
-    })
-    s.ev.on('group-participants.update', async ({ id, participants, action }) => {
-      const isSelf = participantsIncludeSelf(self(), participants)
-      if (action === 'add' && isSelf) {
-        logJoinedGroup(cfg, id)
-        on.onJoined(id)
-      }
-      if (action === 'remove' && isSelf) {
-        on.onRemoved(id)
-      }
-    })
-    s.ev.on('groups.upsert', groups => { for (const g of groups) { logJoinedGroup(cfg, g.id, g.subject); on.onJoined(g.id) } })
+    wireGroupEvents(s.ev, on, self, cfg)
     return s
   }
 

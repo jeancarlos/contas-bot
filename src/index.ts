@@ -24,8 +24,9 @@ const llm = makeLlm({
   currency: locale.currency,
 })
 
-const groupJids = parseGroupJids(env('GROUP_JIDS'))
-log.info({ groups: [...groupJids] }, 'serving groups')
+const groupJids = parseGroupJids(env('GROUP_JIDS', ''))
+if (groupJids.size === 0) log.warn('serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_JIDS and restart')
+else log.info({ groups: [...groupJids] }, 'serving groups')
 const bots = new Map<string, ReturnType<typeof makeBot>>()
 let wa: Awaited<ReturnType<typeof connectWa>> | undefined
 

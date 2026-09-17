@@ -12,6 +12,7 @@ type Cfg = {
   authDir: string
   phone: string
   groups: Set<string>
+  inviteCodes: string[]
   log: Logger
   onOpen(jids: string[]): void
   onJoined(jid: string): void
@@ -29,14 +30,39 @@ let pairingCodeAt = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
 
-export function parseGroupJids(raw: string, envName = 'GROUP_JIDS'): Set<string> {
-  const jids = raw.split(',').map(s => s.trim()).filter(Boolean).map(s => s.includes('@') ? s : `${s}@g.us`)
-  for (const s of jids) if (!s.endsWith('@g.us')) throw new Error(`${envName}: not a group jid: ${s}`)
-  return new Set(jids)
+function inviteCode(link: string): string {
+  const code = link.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop()!
+  if (code.toLowerCase() === 'chat.whatsapp.com') throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${link}`)
+  return code
 }
 
-export function normalizeLegacyJid(raw: string | undefined): string | undefined {
-  return raw ? [...parseGroupJids(raw, 'GROUP_JID')][0] : undefined
+export function parseGroupJids(raw: string): { jids: Set<string>; inviteCodes: string[] } {
+  const jids = new Set<string>()
+  const inviteCodes: string[] = []
+  for (const entry of raw.split(',').map(s => s.trim()).filter(Boolean)) {
+    const lower = entry.toLowerCase()
+    if (lower.includes('chat.whatsapp.com')) { inviteCodes.push(inviteCode(entry)); continue }
+    const jid = entry.includes('@') ? entry : /^\d+$/.test(entry) ? `${entry}@g.us` : entry
+    if (!jid.toLowerCase().endsWith('@g.us')) throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry}`)
+    jids.add(jid)
+  }
+  return { jids, inviteCodes }
+}
+
+export async function resolveInviteCodes(
+  s: { groupGetInviteInfo(code: string): Promise<{ id: string; subject: string }> },
+  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
+  codes: string[],
+): Promise<void> {
+  await Promise.allSettled(codes.map(async code => {
+    try {
+      const { id, subject } = await s.groupGetInviteInfo(code)
+      cfg.groups.add(id)
+      cfg.log.info({ code, jid: id, subject }, 'resolved invite link; put this jid in GROUP_INVITE_LINKS directly to stop depending on the link')
+    } catch (err) {
+      cfg.log.warn({ err, code }, 'invite link resolution failed')
+    }
+  }))
 }
 
 export async function resolveOpenJids(
@@ -51,6 +77,10 @@ export async function resolveOpenJids(
     cfg.log.warn({ err }, 'group discovery failed')
   }
   return [...cfg.groups]
+}
+
+export function logJoinedGroup(cfg: { groups: Set<string>; log: Pick<Logger, 'info'> }, jid: string, subject?: string): void {
+  cfg.log.info({ jid, subject, mine: cfg.groups.has(jid) }, 'added to a group; put this jid in GROUP_INVITE_LINKS to serve it')
 }
 
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {
@@ -140,6 +170,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       }
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
+        await resolveInviteCodes(s, cfg, cfg.inviteCodes)
         on.onOpen(await resolveOpenJids(s, cfg))
       }
       if (u.connection === 'close') {
@@ -172,12 +203,15 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       // A cleared description arrives with the key present and no text.
       for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
     })
-    s.ev.on('group-participants.update', ({ id, participants, action }) => {
+    s.ev.on('group-participants.update', async ({ id, participants, action }) => {
       const me = self()
       const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
-      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) on.onJoined(id)
+      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) {
+        logJoinedGroup(cfg, id)
+        on.onJoined(id)
+      }
     })
-    s.ev.on('groups.upsert', groups => { for (const g of groups) on.onJoined(g.id) })
+    s.ev.on('groups.upsert', groups => { for (const g of groups) { logJoinedGroup(cfg, g.id, g.subject); on.onJoined(g.id) } })
     return s
   }
 

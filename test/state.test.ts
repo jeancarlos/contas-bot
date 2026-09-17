@@ -19,22 +19,6 @@ test('groups are stored separately and survive a reopen', async () => {
   assert.deepEqual(again.jids().sort(), ['a@g.us', 'b@g.us'])
 })
 
-test('a legacy single-group file moves under the legacy JID and is saved', async () => {
-  const path = await tmp()
-  await writeFile(path, JSON.stringify({ _meta: { last_reset: '2026-09' }, months: { '2026-09': { luz: { name: 'Luz' } } } }))
-  const store = await openState(path, 'old@g.us')
-  assert.equal(store.forGroup('old@g.us').get()._meta.last_reset, '2026-09')
-  const onDisk = JSON.parse(await readFile(path, 'utf8'))
-  assert.ok(onDisk.groups['old@g.us'])
-  assert.equal(onDisk._meta, undefined)
-})
-
-test('a legacy file without a legacy JID refuses to start instead of dropping data', async () => {
-  const path = await tmp()
-  await writeFile(path, JSON.stringify({ _meta: { last_reset: '2026-09' }, months: {} }))
-  await assert.rejects(openState(path), /GROUP_JID/)
-})
-
 test('a malformed group entry loads as empty instead of crashing', async () => {
   const path = await tmp()
   await writeFile(path, JSON.stringify({ groups: { 'a@g.us': { _meta: null, months: [] } } }))
@@ -82,6 +66,6 @@ test('a corrupt month is reported through the given logger, not console.warn', a
     groups: { 'a@g.us': { _meta: {}, months: { '2026-09': [] } } },
   }))
   const warnings: unknown[] = []
-  await openState(path, undefined, { warn: (o: unknown) => warnings.push(o) })
+  await openState(path, { warn: (o: unknown) => warnings.push(o) })
   assert.equal(warnings.length, 1)
 })

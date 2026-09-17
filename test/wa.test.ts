@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, normalizeLegacyJid, gate, resolveOpenJids } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup } from '../src/wa.ts'
 import type { Incoming } from '../src/bot.ts'
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
@@ -17,26 +17,59 @@ test('a receipt over 16 MB is refused before it is downloaded', async () => {
 
 test('parseGroupJids trims, drops empties and adds the @g.us suffix', () => {
   assert.deepEqual(
-    [...parseGroupJids(' 123-456@g.us , 789 ,, ')],
+    [...parseGroupJids(' 123-456@g.us , 789 ,, ').jids],
     ['123-456@g.us', '789@g.us'],
   )
-  assert.equal(parseGroupJids('').size, 0)
+  const empty = parseGroupJids('')
+  assert.equal(empty.jids.size, 0)
+  assert.equal(empty.inviteCodes.length, 0)
+})
+
+test('GROUP_INVITE_LINKS unset or empty yields an empty allowlist without throwing', () => {
+  const original = process.env.GROUP_INVITE_LINKS
+  try {
+    delete process.env.GROUP_INVITE_LINKS
+    const unset = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
+    assert.equal(unset.jids.size, 0)
+    assert.equal(unset.inviteCodes.length, 0)
+
+    process.env.GROUP_INVITE_LINKS = ''
+    const empty = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
+    assert.equal(empty.jids.size, 0)
+    assert.equal(empty.inviteCodes.length, 0)
+  } finally {
+    if (original === undefined) delete process.env.GROUP_INVITE_LINKS
+    else process.env.GROUP_INVITE_LINKS = original
+  }
 })
 
 test('parseGroupJids rejects a jid that is not a group jid, but still normalizes bare digits', () => {
-  assert.throws(() => parseGroupJids('123@s.whatsapp.net'), /GROUP_JIDS: not a group jid: 123@s\.whatsapp\.net/)
-  assert.deepEqual([...parseGroupJids('456')], ['456@g.us'])
+  assert.throws(() => parseGroupJids('123@s.whatsapp.net'), /GROUP_INVITE_LINKS: not a group jid or invite link: 123@s\.whatsapp\.net/)
+  assert.deepEqual([...parseGroupJids('456').jids], ['456@g.us'])
 })
 
-test('normalizeLegacyJid applies the same rule as GROUP_JIDS', () => {
-  assert.equal(normalizeLegacyJid('456'), '456@g.us')
-  assert.equal(normalizeLegacyJid('old@g.us'), 'old@g.us')
-  assert.equal(normalizeLegacyJid(undefined), undefined)
-  assert.throws(() => normalizeLegacyJid('123@s.whatsapp.net'), /not a group jid: 123@s\.whatsapp\.net/)
+test('parseGroupJids splits a mixed value into jids and invite codes, and still throws on a junk entry', () => {
+  const { jids, inviteCodes } = parseGroupJids('456, mine@g.us, https://chat.whatsapp.com/AbCdEf123')
+  assert.deepEqual([...jids], ['456@g.us', 'mine@g.us'])
+  assert.deepEqual(inviteCodes, ['AbCdEf123'])
+  assert.throws(() => parseGroupJids('not-a-jid'), /GROUP_INVITE_LINKS: not a group jid or invite link: not-a-jid/)
 })
 
-test('normalizeLegacyJid names GROUP_JID, not GROUP_JIDS, in its error', () => {
-  assert.throws(() => normalizeLegacyJid('123@s.whatsapp.net'), /^Error: GROUP_JID: not a group jid: 123@s\.whatsapp\.net$/)
+test('parseGroupJids extracts the invite code past a trailing slash and a query string', () => {
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCdEf123/').inviteCodes, ['AbCdEf123'])
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCdEf123?mode=ac_t').inviteCodes, ['AbCdEf123'])
+})
+
+test('parseGroupJids matches an uppercase host and suffix case-insensitively, but keeps the invite code case as-is', () => {
+  assert.deepEqual(parseGroupJids('https://Chat.WhatsApp.com/AbCd123').inviteCodes, ['AbCd123'])
+  assert.deepEqual([...parseGroupJids('120363@G.US').jids], ['120363@G.US'])
+})
+
+test('parseGroupJids strips a #fragment and rejects a link with no path segment after the host', () => {
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCd123#frag').inviteCodes, ['AbCd123'])
+  for (const entry of ['https://chat.whatsapp.com/', 'chat.whatsapp.com']) {
+    assert.throws(() => parseGroupJids(entry), new RegExp(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry.replace(/[.]/g, '\\.')}`))
+  }
 })
 
 test('gate passes through jids on the allowlist and swallows the rest', () => {
@@ -47,7 +80,7 @@ test('gate passes through jids on the allowlist and swallows the rest', () => {
     onMessage: (jid: string, _m: Incoming) => { seen.push(`msg:${jid}`) },
     onDescription: (jid: string, d: string) => { seen.push(`desc:${jid}:${d}`) },
   }
-  const g = gate(parseGroupJids('mine@g.us'), spy)
+  const g = gate(parseGroupJids('mine@g.us').jids, spy)
   const m = { key: { id: 'm1', fromMe: false, remoteJid: 'mine@g.us' }, sender: 'Gabi', text: 'oi' } as Incoming
 
   g.onOpen(['mine@g.us', 'theirs@g.us'])
@@ -59,12 +92,20 @@ test('gate passes through jids on the allowlist and swallows the rest', () => {
   g.onDescription('mine@g.us', 'y')
 
   assert.deepEqual(seen, ['open:mine@g.us', 'joined:mine@g.us', 'msg:mine@g.us', 'desc:mine@g.us:y'])
+
+  seen.length = 0
+  const shut = gate(parseGroupJids('').jids, spy)
+  shut.onOpen(['mine@g.us', 'theirs@g.us'])
+  shut.onJoined('mine@g.us')
+  shut.onMessage('mine@g.us', m)
+  shut.onDescription('mine@g.us', 'y')
+  assert.deepEqual(seen, ['open:'])
 })
 
 test('resolveOpenJids resolves to the configured jids even when group discovery fails', async () => {
   const warnings: unknown[] = []
   const cfg = {
-    groups: parseGroupJids('mine@g.us,other@g.us'),
+    groups: parseGroupJids('mine@g.us,other@g.us').jids,
     log: { info() {}, warn: (o: unknown) => warnings.push(o) },
   }
   const s = { groupFetchAllParticipating: async () => { throw new Error('socket dropped') } }
@@ -75,10 +116,60 @@ test('resolveOpenJids resolves to the configured jids even when group discovery 
 
 test('resolveOpenJids narrows to groups the bot is actually a member of when discovery succeeds', async () => {
   const cfg = {
-    groups: parseGroupJids('mine@g.us,notjoined@g.us'),
+    groups: parseGroupJids('mine@g.us,notjoined@g.us').jids,
     log: { info() {}, warn() {} },
   }
   const s = { groupFetchAllParticipating: async () => ({ 'mine@g.us': { id: 'mine@g.us', subject: 'Mine' } }) }
   const jids = await resolveOpenJids(s, cfg)
   assert.deepEqual(jids, ['mine@g.us'])
+})
+
+test('logJoinedGroup logs the jid, subject and allowlist membership (groups.upsert path)', () => {
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
+  logJoinedGroup(cfg, 'new@g.us', 'New Group')
+  assert.deepEqual(infos, [{ jid: 'new@g.us', subject: 'New Group', mine: false }])
+})
+
+test('logJoinedGroup logs without a subject when called with just a jid (group-participants.update path)', () => {
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
+  logJoinedGroup(cfg, 'mine@g.us')
+  assert.deepEqual(infos, [{ jid: 'mine@g.us', subject: undefined, mine: true }])
+})
+
+test('resolveInviteCodes adds the resolved jid to the Set, and the gate then lets it through', async () => {
+  const { jids } = parseGroupJids('')
+  const cfg = { groups: jids, log: { info() {}, warn() {} } }
+  const s = { groupGetInviteInfo: async () => ({ id: 'new@g.us', subject: 'New Group' }) }
+
+  const seen: string[] = []
+  const g = gate(jids, { onOpen() {}, onJoined: (jid: string) => { seen.push(jid) }, onMessage() {}, onDescription() {} })
+  g.onJoined('new@g.us')
+  assert.deepEqual(seen, [])
+
+  await resolveInviteCodes(s, cfg, ['AbCdEf123'])
+  assert.deepEqual([...jids], ['new@g.us'])
+
+  g.onJoined('new@g.us')
+  assert.deepEqual(seen, ['new@g.us'])
+})
+
+test('a rejecting groupGetInviteInfo leaves the Set unchanged, logs a warning, and does not block a second code', async () => {
+  const { jids } = parseGroupJids('')
+  const infos: unknown[] = []
+  const warnings: unknown[] = []
+  const cfg = { groups: jids, log: { info: (o: unknown) => infos.push(o), warn: (o: unknown) => warnings.push(o) } }
+  const s = {
+    groupGetInviteInfo: async (code: string) => {
+      if (code === 'bad') throw new Error('invite revoked')
+      return { id: 'good@g.us', subject: 'Good Group' }
+    },
+  }
+
+  await resolveInviteCodes(s, cfg, ['bad', 'good'])
+
+  assert.deepEqual([...jids], ['good@g.us'])
+  assert.equal(warnings.length, 1)
+  assert.equal(infos.length, 1)
 })

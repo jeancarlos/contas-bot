@@ -23,6 +23,11 @@ test('parseGroupJids trims, drops empties and adds the @g.us suffix', () => {
   assert.equal(parseGroupJids('').size, 0)
 })
 
+test('parseGroupJids rejects a jid that is not a group jid, but still normalizes bare digits', () => {
+  assert.throws(() => parseGroupJids('123@s.whatsapp.net'), /GROUP_JIDS: not a group jid: 123@s\.whatsapp\.net/)
+  assert.deepEqual([...parseGroupJids('456')], ['456@g.us'])
+})
+
 test('gate passes through jids on the allowlist and swallows the rest', () => {
   const seen: string[] = []
   const spy = {

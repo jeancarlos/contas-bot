@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import type { Payment } from './bills.ts'
 
 export type PinKey = { id: string; fromMe: boolean; remoteJid: string }
-export type Meta = { last_reset?: string; pinned?: PinKey; listed?: boolean; bills?: string[]; section?: boolean; desc_warned?: boolean; long_warned?: boolean; handled?: string[] }
+export type Meta = { last_reset?: string; pinned?: PinKey; listed?: boolean; bills?: string[]; section?: boolean; desc_warned?: boolean; long_warned?: boolean; handled?: string[]; invite?: string }
 export type State = { _meta: Meta; months: Record<string, Record<string, Payment>> }
 export type StateStore = { get(): State; save(): Promise<void> }
 export type Store = { forGroup(jid: string): StateStore; jids(): string[] }
@@ -53,4 +53,17 @@ export async function openState(path: string, log?: Log): Promise<Store> {
     },
     jids: () => Object.keys(groups),
   }
+}
+
+export function cachedGroupsForCodes(store: Store, codes: string[]): { jids: string[]; toResolve: string[] } {
+  const jids: string[] = []
+  const remaining = new Set(codes)
+  for (const jid of store.jids()) {
+    const invite = store.forGroup(jid).get()._meta.invite
+    if (invite && remaining.has(invite)) {
+      jids.push(jid)
+      remaining.delete(invite)
+    }
+  }
+  return { jids, toResolve: [...remaining] }
 }

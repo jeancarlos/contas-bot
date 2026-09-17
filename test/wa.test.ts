@@ -48,6 +48,14 @@ test('gate passes through jids on the allowlist and swallows the rest', () => {
   g.onDescription('mine@g.us', 'y')
 
   assert.deepEqual(seen, ['open:mine@g.us', 'joined:mine@g.us', 'msg:mine@g.us', 'desc:mine@g.us:y'])
+
+  seen.length = 0
+  const shut = gate(parseGroupJids(''), spy)
+  shut.onOpen(['mine@g.us', 'theirs@g.us'])
+  shut.onJoined('mine@g.us')
+  shut.onMessage('mine@g.us', m)
+  shut.onDescription('mine@g.us', 'y')
+  assert.deepEqual(seen, ['open:'])
 })
 
 test('resolveOpenJids resolves to the configured jids even when group discovery fails', async () => {

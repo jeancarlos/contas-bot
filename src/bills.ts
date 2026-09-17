@@ -59,14 +59,24 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
 }
 
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
-  // Only currency tokens are stripped from the ends ("R$ 10", "US$ 10", "10 €", "USD 10"); spaces may group
-  // thousands. Any other text stays, so "Cartão C6" or "Internet 5G" is a bill name, never an amount.
-  const t = s.trim().replace(/^(?:[A-Za-z]{0,3}\p{Sc}|[A-Z]{3})\s*/u, '').replace(/\s*(?:\p{Sc}|[A-Z]{3})$/u, '').replace(/\s/g, '')
+  const symbol = new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).formatToParts(0).find(p => p.type === 'currency')!.value
+  const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Only the configured currency's own code or symbol is stripped from the ends ("R$ 10", "BRL 10"); spaces may
+  // group thousands. Any other text, or a foreign currency, stays and is never an amount ("US$ 10" under BRL).
+  const t = s.trim()
+    .replace(new RegExp(`^(?:[A-Za-z]{0,3}${esc}|${loc.currency})\\s*`, 'iu'), '')
+    .replace(new RegExp(`\\s*(?:${esc}|${loc.currency})$`, 'iu'), '')
+    .replace(/\s/g, '')
   if (!/^\d[\d.,]*$/.test(t)) return null
   let num: string
   const last = Math.max(t.lastIndexOf(','), t.lastIndexOf('.'))
   if (t.includes(',') && t.includes('.')) {
-    num = t.slice(0, last).replace(/[.,]/g, '') + '.' + t.slice(last + 1)
+    const decSep = t[last]
+    const groupSep = decSep === ',' ? '.' : ','
+    const intPart = t.slice(0, last)
+    const decPart = t.slice(last + 1)
+    if (!new RegExp(`^\\d{1,3}(?:\\${groupSep}\\d{3})*$`).test(intPart) || !/^\d{1,2}$/.test(decPart)) return null
+    num = intPart.replace(new RegExp(`\\${groupSep}`, 'g'), '') + '.' + decPart
   } else if (last < 0) {
     num = t
   } else {
@@ -80,7 +90,9 @@ export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | n
   }
   const n = Number(num)
   // Past 1e12 a total loses its cents (and can reach Infinity): no household bill is that big.
-  return n > 0 && n < 1e12 ? n : null
+  if (!(n > 0 && n < 1e12)) return null
+  const cents = Math.round(n * 100) / 100
+  return cents > 0 ? cents : null
 }
 
 export function formatMoney(n: number, loc: Locale = DEFAULT_LOCALE): string {
@@ -101,8 +113,8 @@ export function monthTitle(key: string, loc: Locale = DEFAULT_LOCALE): string {
 
 export function renderList(key: string, bills: Bill[], paid: Record<string, Payment>, loc: Locale = DEFAULT_LOCALE): string {
   const active = bills.filter(b => !b.paused)
-  const done = active.filter(b => paid[b.key])
-  const pending = active.filter(b => !paid[b.key])
+  const done = active.filter(b => Object.hasOwn(paid, b.key))
+  const pending = active.filter(b => !Object.hasOwn(paid, b.key))
   const paused = bills.filter(b => b.paused)
   const lines = [`📋 *${loc.t.listTitle} — ${monthTitle(key, loc)}*`, '']
   for (const b of done) {

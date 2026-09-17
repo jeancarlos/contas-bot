@@ -75,6 +75,27 @@ test('/pago marks paid, reacts, posts and pins the list', async () => {
   assert.equal(store.get()._meta.pinned?.id, 's1')
 })
 
+test('a plain-text repayment keeps the previously typed amount', async () => {
+  const { bot, store } = await setup()
+  await bot.onMessage(msg('/pago luz 231,45'))
+  await bot.onMessage(msg('luz'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+  await bot.onMessage(msg('/pago luz 300'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 300)
+})
+
+test('a bill named constructor is paid and unpaid like any other bill', async () => {
+  const { bot, store, sent } = await setup({ desc: 'constructor\nLuz' })
+  await bot.onMessage(msg('/lista'))
+  assert.match(sent.at(-1)!.text, /⬜ constructor/)
+  await bot.onMessage(msg('/pago constructor 10'))
+  assert.equal(store.get().months['2026-09']['constructor'].amount, 10)
+  await bot.onMessage(msg('/despago constructor'))
+  assert.equal(Object.hasOwn(store.get().months['2026-09'], 'constructor'), false)
+  await bot.onMessage(msg('/lista'))
+  assert.match(sent.at(-1)!.text, /⬜ constructor/)
+})
+
 test('second post pins the new list, then unpins the previous one', async () => {
   const { bot, pins } = await setup()
   await bot.onMessage(msg('/pago luz'))

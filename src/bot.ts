@@ -75,11 +75,11 @@ export function makeBot(deps: BotDeps) {
 
   async function markPaid(bill: Bill, amount: number | null, m: Incoming) {
     const { paid } = month()
-    const existed = Boolean(paid[bill.key])
-    paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount, by: m.sender, message_id: m.key.id }
+    const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
+    paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
     await store.save()
     await wa.react(m.key, '✅')
-    if (existed) await wa.sendText(t.updated, m.key)
+    if (existing) await wa.sendText(t.updated, m.key)
     await postList()
   }
 

@@ -75,6 +75,27 @@ test('/pago marks paid, reacts, posts and pins the list', async () => {
   assert.equal(store.get()._meta.pinned?.id, 's1')
 })
 
+test('a plain-text repayment keeps the previously typed amount', async () => {
+  const { bot, store } = await setup()
+  await bot.onMessage(msg('/pago luz 231,45'))
+  await bot.onMessage(msg('luz'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+  await bot.onMessage(msg('/pago luz 300'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 300)
+})
+
+test('a bill named constructor is paid and unpaid like any other bill', async () => {
+  const { bot, store, sent } = await setup({ desc: 'constructor\nLuz' })
+  await bot.onMessage(msg('/lista'))
+  assert.match(sent.at(-1)!.text, /⬜ constructor/)
+  await bot.onMessage(msg('/pago constructor 10'))
+  assert.equal(store.get().months['2026-09']['constructor'].amount, 10)
+  await bot.onMessage(msg('/despago constructor'))
+  assert.equal(Object.hasOwn(store.get().months['2026-09'], 'constructor'), false)
+  await bot.onMessage(msg('/lista'))
+  assert.match(sent.at(-1)!.text, /⬜ constructor/)
+})
+
 test('second post pins the new list, then unpins the previous one', async () => {
   const { bot, pins } = await setup()
   await bot.onMessage(msg('/pago luz'))
@@ -112,11 +133,29 @@ test('plain chat is ignored, plain bill name is a payment', async () => {
 })
 
 test('receipt with mechanical caption: paid immediately, LLM only for amount', async () => {
-  const { bot, store, llmCalls } = await setup({ verdict: { bill: null, amount: 6237.6, confidence: 0.4 } })
+  const { bot, store, llmCalls } = await setup({ verdict: { bill: null, amount: 6237.6, confidence: 0.9 } })
   const media = { mime: 'image/jpeg', download: async () => Buffer.from('jpg') }
   await bot.onMessage(msg('cartão nu', { media }))
   assert.equal(store.get().months['2026-09']['cartao nu'].amount, 6237.6)
   assert.deepEqual(llmCalls, ['receipt:cartão nu'])
+})
+
+test('a receipt captioned with a known bill but low LLM confidence is paid without an amount', async () => {
+  const { bot, store, sent, llmCalls } = await setup({ verdict: { bill: null, amount: 6237.6, confidence: 0.4 } })
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('jpg') }
+  await bot.onMessage(msg('cartão nu', { media }))
+  assert.equal(store.get().months['2026-09']['cartao nu'].amount, null)
+  assert.equal(sent[0].text, 'sem valor (LLM indisponível)')
+  assert.deepEqual(llmCalls, ['receipt:cartão nu'])
+})
+
+test('a receipt captioned with an unrelated command is dispatched as the command, not read', async () => {
+  const { bot, store, llmCalls } = await setup()
+  await bot.onMessage(msg('/pago luz 10'))
+  const media = { mime: 'image/jpeg', download: async () => Buffer.from('jpg') }
+  await bot.onMessage(msg('/despago luz', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz, undefined)
+  assert.deepEqual(llmCalls, [])
 })
 
 test('receipt without caption: LLM picks the bill when confident', async () => {
@@ -183,6 +222,15 @@ test('an empty description is rebuilt from _meta.bills', async () => {
   assert.ok(w.descs[0].includes('Luz\nÁgua'))
 })
 
+test('a section emptied by a member stays empty instead of being restored', async () => {
+  const { bot, store, edit } = await setup()
+  const emptied = composeDescription('', [])!
+  edit(emptied)
+  await bot.onDescription(emptied)
+  assert.equal(bot.bills().length, 0)
+  assert.deepEqual(store.get()._meta.bills, [])
+})
+
 test('tick posts and pins a fresh list once per month', async () => {
   const { bot, store, sent, pins } = await setup({ now: new Date('2026-10-01T03:06:00Z') })
   await bot.tick()
@@ -236,6 +284,30 @@ test('tick retries next minute when the post fails', async () => {
   assert.equal(store.get()._meta.last_reset, '2026-08')
 })
 
+test('a failed reaction still saves the payment and updates the list', async () => {
+  const { bot, wa, store, sent, pins } = await setup()
+  wa.react = async () => { throw new Error('disconnected') }
+  await bot.onMessage(msg('/pago luz 231,45'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+  assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 231,45/)
+  assert.deepEqual(pins, ['pin:s1'])
+})
+
+test('a failed "updated" notice still saves the payment and posts the list', async () => {
+  const { bot, wa, store, sent } = await setup()
+  await bot.onMessage(msg('/pago luz 231,45'))
+  const posts = sent.length
+  wa.sendText = async (text, quoted) => {
+    if (text === DEFAULT_LOCALE.t.updated) throw new Error('disconnected')
+    sent.push({ text, quoted })
+    return { id: `s${sent.length + 1}`, fromMe: true, remoteJid: G }
+  }
+  await bot.onMessage(msg('/pago luz 300'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 300)
+  assert.equal(sent.length, posts + 1)
+  assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 300,00/)
+})
+
 test('a receipt that cannot be read asks to resend and stores nothing', async () => {
   const { bot, store, sent, llmCalls } = await setup()
   const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('media expired') } }
@@ -258,6 +330,16 @@ test('join onboards a new group that has an owner: description, intro, list, pin
   assert.deepEqual(pins, ['pin:s2'])
   assert.equal(store.get()._meta.last_reset, '2026-09')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água', 'Internet', 'Aluguel', 'Academia'])
+})
+
+test('onboarding with a lost state.json keeps an existing bill section instead of the demo', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G) // fresh: no last_reset
+  const existing = composeDescription('Grupo da casa', parseDescription('Luz\nGás'))!
+  const w = fakeWa(existing)
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  assert.equal(await bot.join(), 'onboarded')
+  assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Gás'])
 })
 
 test('an en bot onboards in English and understands /paid and /revert', async () => {
@@ -289,6 +371,15 @@ test('switching BOT_LANG rewrites the section once and keeps payments', async ()
   assert.equal(descs.length, writes)
 })
 
+test('a section deleted by a member is restored even though the rebuilt text matches the last write', async () => {
+  const { bot, descs, edit } = await setup()
+  const placeholderOnly = descs[0].split('\n\n')[0]
+  edit(placeholderOnly)
+  await bot.onDescription(placeholderOnly)
+  assert.equal(descs.length, 2)
+  assert.ok(descs.at(-1)!.includes('🤖 contas-bot'))
+})
+
 test('join migrates a legacy group: description becomes the section, no intro', async () => {
   const { bot, sent, descs } = await setup()
   assert.equal(sent.length, 0)
@@ -296,6 +387,37 @@ test('join migrates a legacy group: description becomes the section, no intro', 
   assert.ok(descs[0].startsWith(`${DEFAULT_LOCALE.t.descPlaceholder}\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz\nÁgua`))
   assert.ok(descs[0].includes('Mãe Carme (pausado)'))
   assert.equal(bot.bills().length, 5)
+})
+
+test('join republishes the list when the bills changed while the bot was offline', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  store.get()._meta.bills = ['Luz']
+  store.get()._meta.section = true
+  store.get()._meta.pinned = { id: 's0', fromMe: true, remoteJid: G }
+  store.get()._meta.listed = true
+  const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
+  const w = fakeWa(desc)
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  assert.ok(w.sent.some(s => s.text.includes('Água')))
+})
+
+test('join republishes on offline changes even when every pin has failed (admin-restricted group)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  store.get()._meta.bills = ['Luz']
+  store.get()._meta.section = true
+  store.get()._meta.listed = true
+  const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
+  const w = fakeWa(desc)
+  w.wa.pin = async () => { throw new Error('not admin') }
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  assert.ok(w.sent.some(s => s.text.includes('Água')))
+  assert.equal(store.get()._meta.pinned, undefined)
 })
 
 test('text typed below the section moves up into the group text; bills unchanged, no repost', async () => {
@@ -308,6 +430,14 @@ test('text typed below the section moves up into the group text; bills unchanged
   assert.ok(!descs.at(-1)!.includes(DEFAULT_LOCALE.t.descPlaceholder))
   assert.equal(sent.length, posts)
   assert.equal(bot.bills().length, 5)
+})
+
+test('a member note below the section survives even if it starts with a slash', async () => {
+  const { bot, descs, edit } = await setup()
+  const edited = `${descs[0]}\n/assembleia sábado às 10h`
+  edit(edited)
+  await bot.onDescription(edited)
+  assert.ok(descs.at(-1)!.includes('/assembleia sábado às 10h'))
 })
 
 test('a description edit inside the section reposts the list; the echo of our own write does nothing', async () => {

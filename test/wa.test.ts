@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, gate } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, normalizeLegacyJid, gate } from '../src/wa.ts'
 import type { Incoming } from '../src/bot.ts'
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
@@ -26,6 +26,17 @@ test('parseGroupJids trims, drops empties and adds the @g.us suffix', () => {
 test('parseGroupJids rejects a jid that is not a group jid, but still normalizes bare digits', () => {
   assert.throws(() => parseGroupJids('123@s.whatsapp.net'), /GROUP_JIDS: not a group jid: 123@s\.whatsapp\.net/)
   assert.deepEqual([...parseGroupJids('456')], ['456@g.us'])
+})
+
+test('normalizeLegacyJid applies the same rule as GROUP_JIDS', () => {
+  assert.equal(normalizeLegacyJid('456'), '456@g.us')
+  assert.equal(normalizeLegacyJid('old@g.us'), 'old@g.us')
+  assert.equal(normalizeLegacyJid(undefined), undefined)
+  assert.throws(() => normalizeLegacyJid('123@s.whatsapp.net'), /not a group jid: 123@s\.whatsapp\.net/)
+})
+
+test('normalizeLegacyJid names GROUP_JID, not GROUP_JIDS, in its error', () => {
+  assert.throws(() => normalizeLegacyJid('123@s.whatsapp.net'), /^Error: GROUP_JID: not a group jid: 123@s\.whatsapp\.net$/)
 })
 
 test('gate passes through jids on the allowlist and swallows the rest', () => {

@@ -52,3 +52,17 @@ test('concurrent saves from two groups both land', async () => {
   assert.equal(onDisk.groups['a@g.us']._meta.last_reset, '2026-09')
   assert.equal(onDisk.groups['b@g.us']._meta.last_reset, '2026-10')
 })
+
+test('listed is backfilled from pinned on load', async () => {
+  const path = await tmp()
+  await writeFile(path, JSON.stringify({ groups: { 'a@g.us': { _meta: { pinned: { id: 'msg1', fromMe: true, remoteJid: 'a@g.us' } }, months: {} } } }))
+  const store = await openState(path)
+  assert.equal(store.forGroup('a@g.us').get()._meta.listed, true)
+})
+
+test('listed remains undefined when pinned is absent', async () => {
+  const path = await tmp()
+  await writeFile(path, JSON.stringify({ groups: { 'a@g.us': { _meta: { last_reset: '2026-09' }, months: {} } } }))
+  const store = await openState(path)
+  assert.equal(store.forGroup('a@g.us').get()._meta.listed, undefined)
+})

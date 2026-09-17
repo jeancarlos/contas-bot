@@ -72,3 +72,13 @@ test('resolveOpenJids resolves to the configured jids even when group discovery 
   assert.deepEqual(jids.sort(), ['mine@g.us', 'other@g.us'])
   assert.equal(warnings.length, 1)
 })
+
+test('resolveOpenJids narrows to groups the bot is actually a member of when discovery succeeds', async () => {
+  const cfg = {
+    groups: parseGroupJids('mine@g.us,notjoined@g.us'),
+    log: { info() {}, warn() {} },
+  }
+  const s = { groupFetchAllParticipating: async () => ({ 'mine@g.us': { id: 'mine@g.us', subject: 'Mine' } }) }
+  const jids = await resolveOpenJids(s, cfg)
+  assert.deepEqual(jids, ['mine@g.us'])
+})

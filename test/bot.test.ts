@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeBot, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
-import { openState } from '../src/state.ts'
+import { openState, type StateStore } from '../src/state.ts'
 import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
 import { makeLocale, DEFAULT_LOCALE, type Locale } from '../src/i18n.ts'
 import type { Llm, Verdict } from '../src/llm.ts'
@@ -204,6 +204,34 @@ test('a second receipt replaces the pending amount instead of stacking', async (
   assert.equal(store.get().months['2026-09'].luz.amount, 200)
 })
 
+test('a pending receipt amount only applies to the sender who sent the receipt', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media })) // sent by Gabi
+  await bot.onMessage(msg('/pago agua', { sender: 'Marido', key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].agua.amount, null)
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm3', fromMe: false, remoteJid: G } })) // back to Gabi
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+})
+
+test('a receipt that fails to complete still clears a stale pending amount', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media })) // Gabi: pending amount set to 231.45
+  const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('expired') } }
+  await bot.onMessage(msg('luz', { media: broken, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  await bot.onMessage(msg('/pago agua', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].agua.amount, null)
+})
+
+test('a bill name ending in a number falls back to a pending amount held by the same sender', async () => {
+  const { bot, store } = await setup({ desc: 'Apartamento\nApartamento 101\nLuz', verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  await bot.onMessage(msg('/pago apartamento 101', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09']['apartamento 101'].amount, 231.45)
+})
+
 test('LLM down with a known caption: paid without amount', async () => {
   const { bot, store, sent } = await setup({ verdict: null })
   const media = { mime: 'image/png', download: async () => Buffer.from('png') }
@@ -252,6 +280,40 @@ test('the handled id list stays capped at 50, keeping the newest', async () => {
   const handled = store.get()._meta.handled!
   assert.equal(handled.length, 50)
   assert.deepEqual(handled, Array.from({ length: 50 }, (_, i) => `m${i + 6}`))
+})
+
+test('the handled id reaches disk, so a restart after redelivery does not re-apply it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const path = join(dir, 'state.json')
+  const store = (await openState(path)).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
+  const reopened = (await openState(path)).forGroup(G)
+  assert.deepEqual(reopened.get()._meta.handled, [m.key.id])
+})
+
+test('a message whose handling threw is not recorded as handled, so redelivery retries it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const real = (await openState(join(dir, 'state.json'))).forGroup(G)
+  real.get()._meta.last_reset = '2026-08'
+  let fail = false
+  const store: StateStore = { get: () => real.get(), save: () => fail ? Promise.reject(new Error('disk full')) : real.save() }
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  fail = true
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
+  assert.equal(store.get()._meta.handled, undefined)
+  assert.equal(w.reactions.length, 0)
+  fail = false
+  await bot.onMessage(m)
+  assert.deepEqual(store.get()._meta.handled, [m.key.id])
+  assert.equal(w.reactions.length, 1)
 })
 
 test('onDescription replaces the bill list and keeps payments', async () => {

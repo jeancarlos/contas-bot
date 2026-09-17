@@ -75,7 +75,7 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function markPaid(bill: Bill, amount: number | null, m: Incoming) {
-    pendingAmount = null
+    if (pendingAmount?.sender === m.sender) pendingAmount = null
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
@@ -103,7 +103,7 @@ export function makeBot(deps: BotDeps) {
   const active = () => Boolean(state()._meta.last_reset)
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
-  let pendingAmount: number | null = null
+  let pendingAmount: { sender: string; amount: number | null } | null = null
 
   // null: the description would not fit without cutting the group's text or the list, so it is left alone.
   async function writeDescription(text: string | null) {
@@ -158,7 +158,8 @@ export function makeBot(deps: BotDeps) {
         const whole = wholeName(c.full)
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
-        await markPaid(bill, whole && c.amount != null ? null : c.amount ?? pendingAmount, m)
+        const pending = pendingAmount?.sender === m.sender ? pendingAmount.amount : null
+        await markPaid(bill, whole && c.amount != null ? pending : c.amount ?? pending, m)
         return true
       }
       case 'despago': {
@@ -182,6 +183,7 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function handleMedia(m: Incoming) {
+    pendingAmount = null
     const c = parseCommand(m.text, loc)
     const pago = c?.cmd === 'pago' ? c : null
     const whole = pago ? wholeName(pago.full) : null
@@ -215,7 +217,7 @@ export function makeBot(deps: BotDeps) {
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { pendingAmount = inferred; await wa.sendText(t.ask, m.key); return }
+    if (!bill) { pendingAmount = { sender: m.sender, amount: inferred }; await wa.sendText(t.ask, m.key); return }
     await markPaid(bill, typed ?? verdict!.amount, m)
   }
 
@@ -293,6 +295,7 @@ export function makeBot(deps: BotDeps) {
         }
         await dispatch()
         meta.handled = [...(meta.handled ?? []), m.key.id].slice(-50)
+        await store.save()
       } catch (e) {
         log.error({ err: e, id: m.key.id }, 'message handling failed')
       } })

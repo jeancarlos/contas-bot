@@ -75,3 +75,13 @@ test('listed remains undefined when pinned is absent', async () => {
   const store = await openState(path)
   assert.equal(store.forGroup('a@g.us').get()._meta.listed, undefined)
 })
+
+test('a corrupt month is reported through the given logger, not console.warn', async () => {
+  const path = await tmp()
+  await writeFile(path, JSON.stringify({
+    groups: { 'a@g.us': { _meta: {}, months: { '2026-09': [] } } },
+  }))
+  const warnings: unknown[] = []
+  await openState(path, undefined, { warn: (o: unknown) => warnings.push(o) })
+  assert.equal(warnings.length, 1)
+})

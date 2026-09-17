@@ -12,6 +12,7 @@ type Cfg = {
   authDir: string
   phone: string
   groups: Set<string>
+  inviteCodes: string[]
   log: Logger
   onOpen(jids: string[]): void
   onJoined(jid: string): void
@@ -29,10 +30,36 @@ let pairingCodeAt = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
 
-export function parseGroupJids(raw: string): Set<string> {
-  const jids = raw.split(',').map(s => s.trim()).filter(Boolean).map(s => s.includes('@') ? s : `${s}@g.us`)
-  for (const s of jids) if (!s.endsWith('@g.us')) throw new Error(`GROUP_JIDS: not a group jid: ${s}`)
-  return new Set(jids)
+function inviteCode(link: string): string {
+  return link.split('?')[0].replace(/\/+$/, '').split('/').pop()!
+}
+
+export function parseGroupJids(raw: string): { jids: Set<string>; inviteCodes: string[] } {
+  const jids = new Set<string>()
+  const inviteCodes: string[] = []
+  for (const entry of raw.split(',').map(s => s.trim()).filter(Boolean)) {
+    if (entry.includes('chat.whatsapp.com')) { inviteCodes.push(inviteCode(entry)); continue }
+    const jid = entry.includes('@') ? entry : /^\d+$/.test(entry) ? `${entry}@g.us` : entry
+    if (!jid.endsWith('@g.us')) throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry}`)
+    jids.add(jid)
+  }
+  return { jids, inviteCodes }
+}
+
+export async function resolveInviteCodes(
+  s: { groupGetInviteInfo(code: string): Promise<{ id: string; subject: string }> },
+  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
+  codes: string[],
+): Promise<void> {
+  for (const code of codes) {
+    try {
+      const { id, subject } = await s.groupGetInviteInfo(code)
+      cfg.groups.add(id)
+      cfg.log.info({ code, jid: id, subject }, 'resolved invite link; put this jid in GROUP_INVITE_LINKS directly to stop depending on the link')
+    } catch (err) {
+      cfg.log.warn({ err, code }, 'invite link resolution failed')
+    }
+  }
 }
 
 export async function resolveOpenJids(
@@ -50,7 +77,7 @@ export async function resolveOpenJids(
 }
 
 export function logJoinedGroup(cfg: { groups: Set<string>; log: Pick<Logger, 'info'> }, jid: string, subject?: string): void {
-  cfg.log.info({ jid, subject, mine: cfg.groups.has(jid) }, 'added to a group; put this jid in GROUP_JIDS to serve it')
+  cfg.log.info({ jid, subject, mine: cfg.groups.has(jid) }, 'added to a group; put this jid in GROUP_INVITE_LINKS to serve it')
 }
 
 export async function fetchAndLogJoinedGroup(
@@ -154,6 +181,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       }
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
+        await resolveInviteCodes(s, cfg, cfg.inviteCodes)
         on.onOpen(await resolveOpenJids(s, cfg))
       }
       if (u.connection === 'close') {

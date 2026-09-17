@@ -75,10 +75,16 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function markPaid(bill: Bill, amount: number | null, m: Incoming) {
+    if (pendingAmount?.participant === (m.key.participant ?? m.sender)) pendingAmount = null
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
-    await store.save()
+    try {
+      await store.save()
+    } catch (e) {
+      await wa.sendText(t.saveFailed, m.key)
+      throw e
+    }
     try {
       await wa.react(m.key, '✅')
     } catch (e) {
@@ -97,6 +103,7 @@ export function makeBot(deps: BotDeps) {
   const active = () => Boolean(state()._meta.last_reset)
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
+  let pendingAmount: { participant: string; amount: number | null } | null = null
 
   // null: the description would not fit without cutting the group's text or the list, so it is left alone.
   async function writeDescription(text: string | null) {
@@ -151,14 +158,20 @@ export function makeBot(deps: BotDeps) {
         const whole = wholeName(c.full)
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
-        await markPaid(bill, whole ? null : c.amount, m)
+        const pending = pendingAmount?.participant === (m.key.participant ?? m.sender) ? pendingAmount.amount : null
+        await markPaid(bill, whole && c.amount != null ? pending : c.amount ?? pending, m)
         return true
       }
       case 'despago': {
         const bill = resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
         delete month().paid[bill.key]
-        await store.save()
+        try {
+          await store.save()
+        } catch (e) {
+          await wa.sendText(t.saveFailed, m.key)
+          throw e
+        }
         await wa.react(m.key, '✅')
         await postList()
         return true
@@ -170,6 +183,7 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function handleMedia(m: Incoming) {
+    pendingAmount = null
     const c = parseCommand(m.text, loc)
     const pago = c?.cmd === 'pago' ? c : null
     const whole = pago ? wholeName(pago.full) : null
@@ -195,15 +209,15 @@ export function makeBot(deps: BotDeps) {
     }
     const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
+    const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
     if (known) {
-      const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
       const amount = typed ?? inferred
       if (amount == null) await wa.sendText(t.noLlmAmount, m.key)
       await markPaid(known, amount, m)
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { await wa.sendText(t.ask, m.key); return }
+    if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: inferred }; await wa.sendText(t.ask, m.key); return }
     await markPaid(bill, typed ?? verdict!.amount, m)
   }
 
@@ -266,15 +280,22 @@ export function makeBot(deps: BotDeps) {
       if (m.key.fromMe) return Promise.resolve()
       return serial(async () => { try {
         if (!active()) return
-        if (m.media) {
-          const c = parseCommand(m.text, loc)
-          if (c && c.cmd !== 'pago' && c.cmd !== 'unknown') { await handleCommand(m); return }
-          return await handleMedia(m)
+        const meta = state()._meta
+        if (meta.handled?.includes(m.key.id)) return
+        const dispatch = async () => {
+          if (m.media) {
+            const c = parseCommand(m.text, loc)
+            if (c && c.cmd !== 'pago' && c.cmd !== 'unknown') { await handleCommand(m); return }
+            return await handleMedia(m)
+          }
+          if (await handleCommand(m)) return
+          const bill = matchPlainText(bills, m.text)
+          if (bill) return await markPaid(bill, null, m)
+          if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
-        if (await handleCommand(m)) return
-        const bill = matchPlainText(bills, m.text)
-        if (bill) return await markPaid(bill, null, m)
-        if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
+        await dispatch()
+        meta.handled = [...(meta.handled ?? []), m.key.id].slice(-50)
+        await store.save()
       } catch (e) {
         log.error({ err: e, id: m.key.id }, 'message handling failed')
       } })

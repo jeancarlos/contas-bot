@@ -15,7 +15,7 @@ function env(name: string, fallback?: string): string {
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
 const locale = makeLocale(env('BOT_LANG', 'pt-BR'), env('BOT_CURRENCY', 'BRL'))
 log.info({ lang: locale.lang, currency: locale.currency }, 'locale')
-const groups = await openState(env('STATE_FILE', 'data/state.json'), normalizeLegacyJid(process.env.GROUP_JID || undefined))
+const groups = await openState(env('STATE_FILE', 'data/state.json'), normalizeLegacyJid(process.env.GROUP_JID || undefined), log)
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),

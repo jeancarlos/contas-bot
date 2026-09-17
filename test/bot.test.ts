@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeBot, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
-import { openState } from '../src/state.ts'
+import { openState, type StateStore } from '../src/state.ts'
 import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
 import { makeLocale, DEFAULT_LOCALE, type Locale } from '../src/i18n.ts'
 import type { Llm, Verdict } from '../src/llm.ts'
@@ -41,6 +41,7 @@ function fakeLlm(verdict: Verdict | null) {
 }
 
 async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale } = {}) {
+  seq = 0
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
@@ -48,13 +49,17 @@ async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date
   const l = fakeLlm(opts.verdict ?? null)
   const bot = makeBot({ wa: w.wa, llm: l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
   await bot.join()
-  return { bot, store, ...w, llmCalls: l.calls }
+  return { bot, store, ...w, llmCalls: l.calls, llm: l.llm }
 }
 
-const msg = (text: string, extra: Partial<Incoming> = {}): Incoming => ({
-  key: { id: 'm1', fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net' },
-  sender: 'Gabi', text, ...extra,
-})
+let seq = 0
+const msg = (text: string, extra: Partial<Incoming> = {}): Incoming => {
+  const { key: extraKey, ...restExtra } = extra
+  return {
+    key: { id: `m${++seq}`, fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net', ...extraKey },
+    sender: 'Gabi', text, ...restExtra,
+  }
+}
 
 test('start loads bills from the description', async () => {
   const { bot, store } = await setup()
@@ -64,12 +69,13 @@ test('start loads bills from the description', async () => {
 
 test('/pago marks paid, reacts, posts and pins the list', async () => {
   const { bot, store, sent, reactions, pins } = await setup()
-  await bot.onMessage(msg('/pago luz 231,45'))
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
   const p = store.get().months['2026-09'].luz
   assert.equal(p.amount, 231.45)
   assert.equal(p.by, 'Gabi')
-  assert.equal(p.message_id, 'm1')
-  assert.deepEqual(reactions[0], { key: msg('').key, emoji: '✅' })
+  assert.equal(p.message_id, m.key.id)
+  assert.deepEqual(reactions[0], { key: m.key, emoji: '✅' })
   assert.match(sent[0].text, /✅ Luz — R\$ 231,45/)
   assert.deepEqual(pins, ['pin:s1'])
   assert.equal(store.get()._meta.pinned?.id, 's1')
@@ -174,6 +180,69 @@ test('receipt with low confidence asks for /pago and stores nothing', async () =
   assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
 })
 
+test('a receipt that only reads an amount remembers it for the /pago that answers the ask', async () => {
+  const { bot, store, sent } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  assert.equal(sent[0].text, 'esse comprovante é de qual conta? responde /pago <nome>')
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+})
+
+test('a /pago with an explicit amount wins over a pending receipt amount', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  await bot.onMessage(msg('/pago luz 50', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 50)
+})
+
+test('a second receipt replaces the pending amount instead of stacking', async () => {
+  const { bot, store, llm } = await setup({ verdict: { bill: null, amount: 100, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  llm.readReceipt = async () => ({ bill: null, amount: 200, confidence: 0.9 })
+  await bot.onMessage(msg('', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 200)
+})
+
+test('a pending receipt amount only applies to the sender who sent the receipt', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  await bot.onMessage(msg('/pago agua', { sender: 'Marido', key: { id: 'm2', fromMe: false, remoteJid: G, participant: 'marido@s.whatsapp.net' } }))
+  assert.equal(store.get().months['2026-09'].agua.amount, null)
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+})
+
+test('a receipt that fails to complete still clears a stale pending amount', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  const broken = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('expired') } }
+  await bot.onMessage(msg('luz', { media: broken, key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  await bot.onMessage(msg('/pago agua', { key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].agua.amount, null)
+})
+
+test('two members with the same display name but different jids do not share pending amounts', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 100, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media, key: { id: 'm2', fromMe: false, remoteJid: G, participant: 'alice@s.whatsapp.net' }, sender: 'Sam' }))
+  await bot.onMessage(msg('/pago agua', { key: { id: 'm3', fromMe: false, remoteJid: G, participant: 'bob@s.whatsapp.net' }, sender: 'Sam' }))
+  assert.equal(store.get().months['2026-09'].agua.amount, null)
+})
+
+test('a bill name ending in a number falls back to a pending amount held by the same sender', async () => {
+  const { bot, store } = await setup({ desc: 'Apartamento\nApartamento 101\nLuz', verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('', { media }))
+  await bot.onMessage(msg('/pago apartamento 101', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09']['apartamento 101'].amount, 231.45)
+})
+
 test('LLM down with a known caption: paid without amount', async () => {
   const { bot, store, sent } = await setup({ verdict: null })
   const media = { mime: 'image/png', download: async () => Buffer.from('png') }
@@ -196,6 +265,66 @@ test('messages from the bot itself are ignored', async () => {
   const { bot, sent } = await setup()
   await bot.onMessage(msg('/lista', { key: { id: 'x', fromMe: true, remoteJid: G } }))
   assert.equal(sent.length, 0)
+})
+
+test('a redelivered message id is applied once, not re-applied on retry', async () => {
+  const { bot, store, reactions } = await setup()
+  const first = msg('/pago luz 100')
+  await bot.onMessage(first)
+  await bot.onMessage(msg('/pago luz 150'))
+  await bot.onMessage(first) // WhatsApp redelivery: same id, same content
+  assert.equal(store.get().months['2026-09'].luz.amount, 150)
+  assert.equal(reactions.length, 2)
+})
+
+test('two distinct messages carrying identical text both apply', async () => {
+  const { bot, store, reactions } = await setup()
+  await bot.onMessage(msg('luz'))
+  await bot.onMessage(msg('luz'))
+  assert.equal(reactions.length, 2)
+  assert.equal(store.get().months['2026-09'].luz.message_id, 'm2')
+})
+
+test('the handled id list stays capped at 50, keeping the newest', async () => {
+  const { bot, store } = await setup()
+  for (let i = 0; i < 55; i++) await bot.onMessage(msg('/lista'))
+  const handled = store.get()._meta.handled!
+  assert.equal(handled.length, 50)
+  assert.deepEqual(handled, Array.from({ length: 50 }, (_, i) => `m${i + 6}`))
+})
+
+test('the handled id reaches disk, so a restart after redelivery does not re-apply it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const path = join(dir, 'state.json')
+  const store = (await openState(path)).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
+  const reopened = (await openState(path)).forGroup(G)
+  assert.deepEqual(reopened.get()._meta.handled, [m.key.id])
+})
+
+test('a message whose handling threw is not recorded as handled, so redelivery retries it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const real = (await openState(join(dir, 'state.json'))).forGroup(G)
+  real.get()._meta.last_reset = '2026-08'
+  let fail = false
+  const store: StateStore = { get: () => real.get(), save: () => fail ? Promise.reject(new Error('disk full')) : real.save() }
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  fail = true
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
+  assert.equal(store.get()._meta.handled, undefined)
+  assert.equal(w.reactions.length, 0)
+  fail = false
+  await bot.onMessage(m)
+  assert.deepEqual(store.get()._meta.handled, [m.key.id])
+  assert.equal(w.reactions.length, 1)
 })
 
 test('onDescription replaces the bill list and keeps payments', async () => {
@@ -291,6 +420,23 @@ test('a failed reaction still saves the payment and updates the list', async () 
   assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
   assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 231,45/)
   assert.deepEqual(pins, ['pin:s1'])
+})
+
+test('a failed save while marking paid warns the group instead of going silent', async () => {
+  const { bot, store, sent } = await setup()
+  store.save = async () => { throw new Error('disk full') }
+  await bot.onMessage(msg('/pago luz 231,45'))
+  assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+})
+
+test('a failed save on /despago warns the group instead of going silent', async () => {
+  const { bot, store, sent } = await setup()
+  await bot.onMessage(msg('/pago luz 231,45'))
+  store.save = async () => { throw new Error('disk full') }
+  await bot.onMessage(msg('/despago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
+  assert.equal(store.get().months['2026-09'].luz, undefined)
 })
 
 test('a failed "updated" notice still saves the payment and posts the list', async () => {
@@ -636,8 +782,8 @@ test('a bill whose name ends in a number wins over reading that number as the am
   await bot.onMessage(msg('/pago apartamento 250'))
   assert.equal(store.get().months['2026-09'].apartamento?.amount, 250)
   const media = { mime: 'image/jpeg', download: async () => Buffer.from('x') }
-  await bot.onMessage(msg('/pago Apartamento 101', { media, key: { id: 'm2', fromMe: false, remoteJid: G } }))
-  assert.equal(store.get().months['2026-09']['apartamento 101'].message_id, 'm2')
+  await bot.onMessage(msg('/pago Apartamento 101', { media, key: { id: 'm3', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09']['apartamento 101'].message_id, 'm3')
   assert.equal(store.get().months['2026-09']['apartamento 101'].amount, 80)
   assert.equal(store.get().months['2026-09'].luz, undefined)
 })

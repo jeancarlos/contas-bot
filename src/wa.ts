@@ -39,6 +39,19 @@ export function normalizeLegacyJid(raw: string | undefined): string | undefined 
   return raw ? [...parseGroupJids(raw, 'GROUP_JID')][0] : undefined
 }
 
+export async function resolveOpenJids(
+  s: { groupFetchAllParticipating(): Promise<Record<string, { id: string; subject: string }>> },
+  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
+): Promise<string[]> {
+  try {
+    const groups = await s.groupFetchAllParticipating()
+    for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject, mine: cfg.groups.has(g.id) }, 'member of group')
+  } catch (err) {
+    cfg.log.warn({ err }, 'group discovery failed')
+  }
+  return [...cfg.groups]
+}
+
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {
   const mine = (jid?: string | null): jid is string => jid != null && groups.has(jid)
   return {
@@ -126,9 +139,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       }
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
-        const groups = await s.groupFetchAllParticipating()
-        for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject, mine: cfg.groups.has(g.id) }, 'member of group')
-        on.onOpen(Object.keys(groups))
+        on.onOpen(await resolveOpenJids(s, cfg))
       }
       if (u.connection === 'close') {
         const code = (u.lastDisconnect?.error as any)?.output?.statusCode

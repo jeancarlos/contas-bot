@@ -33,7 +33,7 @@ No caption? No problem. The bot looks at the receipt and works out which bill it
 - 🧠 **AI only where it earns its keep.** Commands, captions and names are matched mechanically: instant, free, predictable. The vision model is only called to read amounts and to identify receipts nobody labeled, and it can only answer with a bill that exists.
 - 📌 **Always pinned.** Every change posts a fresh list with the month total and pins it. The old one is unpinned, so the top of the chat is always the truth.
 - 🗓️ **Monthly reset.** On the 1st, a clean list goes up by itself.
-- 👋 **Onboards itself.** Add the bot to a group that's already on `GROUP_JIDS` and it introduces itself, sets up a demo list, and writes its own section into the group description.
+- 👋 **Onboards itself.** Add the bot to a group that's already on `GROUP_INVITE_LINKS` and it introduces itself, sets up a demo list, and writes its own section into the group description.
 - 📝 **The group description is the settings screen.** Bills live in the bot's section of the description. Edit them in WhatsApp and the list follows. Add `(pausado)` to skip a bill this month without deleting it.
 - 🔒 **Private by default.** It only serves the groups you list. Anywhere else it's completely inert: no answering, no writing, never leaves.
 - 🌎 **Speaks your language and your money.** Portuguese, English or Spanish, with any currency (`R$ 6.237,60`, `$6,237.60`, `6237,60 €`). It understands commands in all three languages no matter which one it writes in.
@@ -87,8 +87,7 @@ docker compose logs -f
 | Variable | Meaning |
 |---|---|
 | `BOT_PHONE` | the bot's number, digits with country code; used once to pair |
-| `GROUP_JIDS` | comma-separated group jids the bot serves; anywhere else it's completely inert |
-| `GROUP_JID` | **singular, migration-only.** Not `GROUP_JIDS` above — the old single-group jid, used once to import a `data/state.json` from before this feature existed. Leave it blank on a fresh install |
+| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves — a `chat.whatsapp.com` invite link or a jid, mixed freely; a link is resolved to its jid at boot (no need to join first) and never cached, so swap in the permanent jid the log prints once you have it; optional, empty serves no group; anywhere else it's completely inert |
 | `BOT_LANG` | language the bot writes in: `pt-BR` (default), `en` or `es` |
 | `BOT_CURRENCY` | currency for amounts and totals, an ISO 4217 code: `BRL` (default), `USD`, `EUR`, `MXN`… |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint |
@@ -96,10 +95,13 @@ docker compose logs -f
 | `LLM_TEXT_MODEL` | model for free-text captions |
 | `LLM_VISION_MODEL` | model for receipts (must accept images) |
 
-`GROUP_JIDS` is chicken-and-egg: you can't know a group's jid until the bot has already logged in and seen it. So the first boot is a two-step dance:
+You can set up a group before the bot ever joins it, using its invite link:
+1. Create the group and copy its invite link (Group info → Invite via link).
+2. Put that link in `GROUP_INVITE_LINKS` in `.env`.
+3. Start the bot (`docker compose up -d`). On first start the log prints `PAIRING CODE` with 8 characters — on the bot's phone, go to WhatsApp → Linked devices → Link a device → Link with phone number instead, and type it. Once it connects, the log resolves the link and prints the group's real `jid` — swap that into `GROUP_INVITE_LINKS` so the bot doesn't depend on the link staying valid. Revocation is a boot-time property only: once a link has resolved, its jid stays in the allowlist for the life of the process, so revoking the link stops nothing until the next restart.
+4. Add the bot to the group. It's already allowed in, so it onboards itself right away.
 
-1. Start it with a placeholder `GROUP_JIDS` (the one in `.env.example` works fine — it just won't match any real group yet).
-2. On first start the log prints `PAIRING CODE` with 8 characters. On the bot's phone, go to WhatsApp → Linked devices → Link a device → Link with phone number instead, and type it. Add the bot to your group, then watch the logs for a `member of group` line — it carries the real `jid`. Copy that into `GROUP_JIDS` in `.env` and restart (`docker compose up -d`). Only then does the bot actually answer in it.
+No link handy? Fall back to the old dance: start the bot with `GROUP_INVITE_LINKS` empty — it boots and serves no group, that's expected — then add the bot to the group. The moment it's added, the log prints a line carrying the real `jid`. Copy that into `GROUP_INVITE_LINKS` in `.env` and restart (`docker compose up -d`). Only then does the bot actually answer in it.
 
 For development:
 

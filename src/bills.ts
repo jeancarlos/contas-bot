@@ -200,7 +200,7 @@ export function splitDescription(desc: string): { original: string; section: str
   // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
   // the first header on the next read, its title and list parsed as bills.
   const h = below.findIndex(l => HEADER_RE.test(l.trim()))
-  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && !DIVIDER_RE.test(l.trim())).join('\n').trim()
+  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && flat(l.trim()) !== flat(SECTION_DIVIDER)).join('\n').trim()
   const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
   return { original, section: (end < 0 ? section : section.slice(0, end)).join('\n') }
 }

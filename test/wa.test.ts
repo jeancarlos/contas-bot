@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, normalizeLegacyJid, gate } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, normalizeLegacyJid, gate, resolveOpenJids } from '../src/wa.ts'
 import type { Incoming } from '../src/bot.ts'
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
@@ -59,4 +59,26 @@ test('gate passes through jids on the allowlist and swallows the rest', () => {
   g.onDescription('mine@g.us', 'y')
 
   assert.deepEqual(seen, ['open:mine@g.us', 'joined:mine@g.us', 'msg:mine@g.us', 'desc:mine@g.us:y'])
+})
+
+test('resolveOpenJids resolves to the configured jids even when group discovery fails', async () => {
+  const warnings: unknown[] = []
+  const cfg = {
+    groups: parseGroupJids('mine@g.us,other@g.us'),
+    log: { info() {}, warn: (o: unknown) => warnings.push(o) },
+  }
+  const s = { groupFetchAllParticipating: async () => { throw new Error('socket dropped') } }
+  const jids = await resolveOpenJids(s, cfg)
+  assert.deepEqual(jids.sort(), ['mine@g.us', 'other@g.us'])
+  assert.equal(warnings.length, 1)
+})
+
+test('resolveOpenJids narrows to groups the bot is actually a member of when discovery succeeds', async () => {
+  const cfg = {
+    groups: parseGroupJids('mine@g.us,notjoined@g.us'),
+    log: { info() {}, warn() {} },
+  }
+  const s = { groupFetchAllParticipating: async () => ({ 'mine@g.us': { id: 'mine@g.us', subject: 'Mine' } }) }
+  const jids = await resolveOpenJids(s, cfg)
+  assert.deepEqual(jids, ['mine@g.us'])
 })

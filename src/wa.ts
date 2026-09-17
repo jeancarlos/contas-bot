@@ -31,6 +31,7 @@ const MAX_RECEIPT = 16 * 1024 * 1024
 
 export function parseGroupJids(raw: string): Set<string> {
   const jids = raw.split(',').map(s => s.trim()).filter(Boolean).map(s => s.includes('@') ? s : `${s}@g.us`)
+  for (const s of jids) if (!s.endsWith('@g.us')) throw new Error(`GROUP_JIDS: not a group jid: ${s}`)
   return new Set(jids)
 }
 
@@ -70,7 +71,7 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   return { key, sender, text, media, mentionsBot, repliesToBot }
 }
 
-export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }> {
+export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ...cfg }: Cfg): Promise<{ forGroup(jid: string): Wa }> {
   // authDir is a bind-mount point: removing it needs write on /app, which this
   // container does not have, and the EACCES took the process down instead of
   // letting it exit cleanly. Emptying it does the same job.
@@ -90,7 +91,7 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
-  const on = gate(cfg.groups, cfg)
+  const on = gate(cfg.groups, { onOpen, onJoined, onMessage, onDescription })
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
   let sock = start()
 
@@ -146,6 +147,7 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
       for (const raw of messages) {
         const jid = raw.key.remoteJid
         if (!jid?.endsWith('@g.us')) continue
+        if (!cfg.groups.has(jid)) continue
         const m = toIncoming(raw, self())
         if (m) on.onMessage(jid, m)
       }

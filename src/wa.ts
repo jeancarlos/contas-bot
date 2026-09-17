@@ -1,6 +1,6 @@
 import makeWASocket, {
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
-  jidNormalizedUser, jidDecode, isLidUser,
+  jidNormalizedUser,
   type WAMessage, type WAMessageKey, normalizeMessageContent,
 } from '@whiskeysockets/baileys'
 import { readdir, rm } from 'node:fs/promises'
@@ -11,12 +11,15 @@ import type { Incoming, MsgKey, Wa } from './bot.ts'
 type Cfg = {
   authDir: string
   phone: string
+  groups: Set<string>
   log: Logger
   onOpen(jids: string[]): void
   onJoined(jid: string): void
   onMessage(jid: string, m: Incoming): void
   onDescription(jid: string, desc: string): void
 }
+
+type Handlers = Pick<Cfg, 'onOpen' | 'onJoined' | 'onMessage' | 'onDescription'>
 
 // WhatsApp expires a pairing code in a couple of minutes and rate-limits
 // repeat requests. A boolean latch was never cleared on reconnect, so the
@@ -25,6 +28,22 @@ const PAIRING_CODE_TTL_MS = 180_000
 let pairingCodeAt = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
+
+export function parseGroupJids(raw: string): Set<string> {
+  const jids = raw.split(',').map(s => s.trim()).filter(Boolean).map(s => s.includes('@') ? s : `${s}@g.us`)
+  for (const s of jids) if (!s.endsWith('@g.us')) throw new Error(`GROUP_JIDS: not a group jid: ${s}`)
+  return new Set(jids)
+}
+
+export function gate(groups: Set<string>, cfg: Handlers): Handlers {
+  const mine = (jid?: string | null): jid is string => jid != null && groups.has(jid)
+  return {
+    onOpen: jids => cfg.onOpen(jids.filter(mine)),
+    onJoined: jid => { if (mine(jid)) cfg.onJoined(jid) },
+    onMessage: (jid, m) => { if (mine(jid)) cfg.onMessage(jid, m) },
+    onDescription: (jid, desc) => { if (mine(jid)) cfg.onDescription(jid, desc) },
+  }
+}
 
 export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   const c = normalizeMessageContent(msg.message)
@@ -52,7 +71,7 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   return { key, sender, text, media, mentionsBot, repliesToBot }
 }
 
-export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }> {
+export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ...cfg }: Cfg): Promise<{ forGroup(jid: string): Wa }> {
   // authDir is a bind-mount point: removing it needs write on /app, which this
   // container does not have, and the EACCES took the process down instead of
   // letting it exit cleanly. Emptying it does the same job.
@@ -72,6 +91,7 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
+  const on = gate(cfg.groups, { onOpen, onJoined, onMessage, onDescription })
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
   let sock = start()
 
@@ -103,8 +123,8 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
       if (u.connection === 'open') {
         cfg.log.info('whatsapp connected')
         const groups = await s.groupFetchAllParticipating()
-        for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject }, 'member of group')
-        cfg.onOpen(Object.keys(groups))
+        for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject, mine: cfg.groups.has(g.id) }, 'member of group')
+        on.onOpen(Object.keys(groups))
       }
       if (u.connection === 'close') {
         const code = (u.lastDisconnect?.error as any)?.output?.statusCode
@@ -127,30 +147,25 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
       for (const raw of messages) {
         const jid = raw.key.remoteJid
         if (!jid?.endsWith('@g.us')) continue
+        if (!cfg.groups.has(jid)) continue
         const m = toIncoming(raw, self())
-        if (m) cfg.onMessage(jid, m)
+        if (m) on.onMessage(jid, m)
       }
     })
     s.ev.on('groups.update', updates => {
       // A cleared description arrives with the key present and no text.
-      for (const g of updates) if (g.id && 'desc' in g) cfg.onDescription(g.id, g.desc ?? '')
+      for (const g of updates) if (g.id && 'desc' in g) on.onDescription(g.id, g.desc ?? '')
     })
     s.ev.on('group-participants.update', ({ id, participants, action }) => {
       const me = self()
       const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
-      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) cfg.onJoined(id)
+      if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) on.onJoined(id)
     })
-    s.ev.on('groups.upsert', groups => { for (const g of groups) cfg.onJoined(g.id) })
+    s.ev.on('groups.upsert', groups => { for (const g of groups) on.onJoined(g.id) })
     return s
   }
 
   const toKey = (k: MsgKey): WAMessageKey => ({ id: k.id, fromMe: k.fromMe, remoteJid: k.remoteJid, participant: k.participant })
-
-  const phoneOf = async (p: { id: string; phoneNumber?: string }): Promise<string | null> => {
-    const pn = p.phoneNumber ?? (p.id.endsWith('@s.whatsapp.net') ? p.id : null)
-      ?? (isLidUser(p.id) ? await sock.signalRepository.lidMapping.getPNForLID(p.id) : null)
-    return pn ? jidDecode(pn)?.user ?? null : null
-  }
 
   return {
     forGroup(jid: string): Wa {
@@ -165,13 +180,6 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
         async unpin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 2 }) },
         async getDescription() { return (await sock.groupMetadata(jid)).desc ?? '' },
         async setDescription(text) { await sock.groupUpdateDescription(jid, text) },
-        async leave() { await sock.groupLeave(jid) },
-        // null for a member whose phone is unknown: the owner check must never leave a group on a guess.
-        async memberPhones() {
-          const me = [sock.user?.id, sock.user?.lid].filter((j): j is string => Boolean(j)).map(jidNormalizedUser)
-          const others = (await sock.groupMetadata(jid)).participants.filter(p => !me.includes(jidNormalizedUser(p.id)))
-          return Promise.all(others.map(phoneOf))
-        },
       }
     },
   }

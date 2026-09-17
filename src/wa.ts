@@ -31,16 +31,19 @@ let pairingCodeAt = 0
 const MAX_RECEIPT = 16 * 1024 * 1024
 
 function inviteCode(link: string): string {
-  return link.split('?')[0].replace(/\/+$/, '').split('/').pop()!
+  const code = link.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop()!
+  if (code.toLowerCase() === 'chat.whatsapp.com') throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${link}`)
+  return code
 }
 
 export function parseGroupJids(raw: string): { jids: Set<string>; inviteCodes: string[] } {
   const jids = new Set<string>()
   const inviteCodes: string[] = []
   for (const entry of raw.split(',').map(s => s.trim()).filter(Boolean)) {
-    if (entry.includes('chat.whatsapp.com')) { inviteCodes.push(inviteCode(entry)); continue }
+    const lower = entry.toLowerCase()
+    if (lower.includes('chat.whatsapp.com')) { inviteCodes.push(inviteCode(entry)); continue }
     const jid = entry.includes('@') ? entry : /^\d+$/.test(entry) ? `${entry}@g.us` : entry
-    if (!jid.endsWith('@g.us')) throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry}`)
+    if (!jid.toLowerCase().endsWith('@g.us')) throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry}`)
     jids.add(jid)
   }
   return { jids, inviteCodes }
@@ -51,7 +54,7 @@ export async function resolveInviteCodes(
   cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
   codes: string[],
 ): Promise<void> {
-  for (const code of codes) {
+  await Promise.allSettled(codes.map(async code => {
     try {
       const { id, subject } = await s.groupGetInviteInfo(code)
       cfg.groups.add(id)
@@ -59,7 +62,7 @@ export async function resolveInviteCodes(
     } catch (err) {
       cfg.log.warn({ err, code }, 'invite link resolution failed')
     }
-  }
+  }))
 }
 
 export async function resolveOpenJids(
@@ -78,20 +81,6 @@ export async function resolveOpenJids(
 
 export function logJoinedGroup(cfg: { groups: Set<string>; log: Pick<Logger, 'info'> }, jid: string, subject?: string): void {
   cfg.log.info({ jid, subject, mine: cfg.groups.has(jid) }, 'added to a group; put this jid in GROUP_INVITE_LINKS to serve it')
-}
-
-export async function fetchAndLogJoinedGroup(
-  s: { groupMetadata(jid: string): Promise<{ subject: string }> },
-  cfg: { groups: Set<string>; log: Pick<Logger, 'info' | 'warn'> },
-  jid: string,
-): Promise<void> {
-  let subject: string | undefined
-  try {
-    subject = (await s.groupMetadata(jid)).subject
-  } catch (err) {
-    cfg.log.warn({ err, jid }, 'group metadata fetch failed')
-  }
-  logJoinedGroup(cfg, jid, subject)
 }
 
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {
@@ -218,7 +207,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, ..
       const me = self()
       const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
       if (action === 'add' && participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))) {
-        await fetchAndLogJoinedGroup(s, cfg, id)
+        logJoinedGroup(cfg, id)
         on.onJoined(id)
       }
     })

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, fetchAndLogJoinedGroup } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup } from '../src/wa.ts'
 import type { Incoming } from '../src/bot.ts'
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
@@ -25,6 +25,24 @@ test('parseGroupJids trims, drops empties and adds the @g.us suffix', () => {
   assert.equal(empty.inviteCodes.length, 0)
 })
 
+test('GROUP_INVITE_LINKS unset or empty yields an empty allowlist without throwing', () => {
+  const original = process.env.GROUP_INVITE_LINKS
+  try {
+    delete process.env.GROUP_INVITE_LINKS
+    const unset = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
+    assert.equal(unset.jids.size, 0)
+    assert.equal(unset.inviteCodes.length, 0)
+
+    process.env.GROUP_INVITE_LINKS = ''
+    const empty = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
+    assert.equal(empty.jids.size, 0)
+    assert.equal(empty.inviteCodes.length, 0)
+  } finally {
+    if (original === undefined) delete process.env.GROUP_INVITE_LINKS
+    else process.env.GROUP_INVITE_LINKS = original
+  }
+})
+
 test('parseGroupJids rejects a jid that is not a group jid, but still normalizes bare digits', () => {
   assert.throws(() => parseGroupJids('123@s.whatsapp.net'), /GROUP_INVITE_LINKS: not a group jid or invite link: 123@s\.whatsapp\.net/)
   assert.deepEqual([...parseGroupJids('456').jids], ['456@g.us'])
@@ -40,6 +58,18 @@ test('parseGroupJids splits a mixed value into jids and invite codes, and still 
 test('parseGroupJids extracts the invite code past a trailing slash and a query string', () => {
   assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCdEf123/').inviteCodes, ['AbCdEf123'])
   assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCdEf123?mode=ac_t').inviteCodes, ['AbCdEf123'])
+})
+
+test('parseGroupJids matches an uppercase host and suffix case-insensitively, but keeps the invite code case as-is', () => {
+  assert.deepEqual(parseGroupJids('https://Chat.WhatsApp.com/AbCd123').inviteCodes, ['AbCd123'])
+  assert.deepEqual([...parseGroupJids('120363@G.US').jids], ['120363@G.US'])
+})
+
+test('parseGroupJids strips a #fragment and rejects a link with no path segment after the host', () => {
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCd123#frag').inviteCodes, ['AbCd123'])
+  for (const entry of ['https://chat.whatsapp.com/', 'chat.whatsapp.com']) {
+    assert.throws(() => parseGroupJids(entry), new RegExp(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry.replace(/[.]/g, '\\.')}`))
+  }
 })
 
 test('gate passes through jids on the allowlist and swallows the rest', () => {
@@ -101,22 +131,11 @@ test('logJoinedGroup logs the jid, subject and allowlist membership (groups.upse
   assert.deepEqual(infos, [{ jid: 'new@g.us', subject: 'New Group', mine: false }])
 })
 
-test('fetchAndLogJoinedGroup fetches the subject before logging (group-participants.update path)', async () => {
+test('logJoinedGroup logs without a subject when called with just a jid (group-participants.update path)', () => {
   const infos: unknown[] = []
-  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o), warn() {} } }
-  const s = { groupMetadata: async () => ({ subject: 'Mine' }) }
-  await fetchAndLogJoinedGroup(s, cfg, 'mine@g.us')
-  assert.deepEqual(infos, [{ jid: 'mine@g.us', subject: 'Mine', mine: true }])
-})
-
-test('fetchAndLogJoinedGroup still logs without a subject when the metadata fetch fails', async () => {
-  const infos: unknown[] = []
-  const warnings: unknown[] = []
-  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o), warn: (o: unknown) => warnings.push(o) } }
-  const s = { groupMetadata: async () => { throw new Error('socket dropped') } }
-  await fetchAndLogJoinedGroup(s, cfg, 'mine@g.us')
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
+  logJoinedGroup(cfg, 'mine@g.us')
   assert.deepEqual(infos, [{ jid: 'mine@g.us', subject: undefined, mine: true }])
-  assert.equal(warnings.length, 1)
 })
 
 test('resolveInviteCodes adds the resolved jid to the Set, and the gate then lets it through', async () => {

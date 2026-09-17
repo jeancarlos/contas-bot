@@ -75,6 +75,7 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function markPaid(bill: Bill, amount: number | null, m: Incoming) {
+    pendingAmount = null
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
@@ -97,6 +98,7 @@ export function makeBot(deps: BotDeps) {
   const active = () => Boolean(state()._meta.last_reset)
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
+  let pendingAmount: number | null = null
 
   // null: the description would not fit without cutting the group's text or the list, so it is left alone.
   async function writeDescription(text: string | null) {
@@ -151,7 +153,7 @@ export function makeBot(deps: BotDeps) {
         const whole = wholeName(c.full)
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
-        await markPaid(bill, whole ? null : c.amount, m)
+        await markPaid(bill, whole && c.amount != null ? null : c.amount ?? pendingAmount, m)
         return true
       }
       case 'despago': {
@@ -195,15 +197,15 @@ export function makeBot(deps: BotDeps) {
     }
     const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
+    const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
     if (known) {
-      const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
       const amount = typed ?? inferred
       if (amount == null) await wa.sendText(t.noLlmAmount, m.key)
       await markPaid(known, amount, m)
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { await wa.sendText(t.ask, m.key); return }
+    if (!bill) { pendingAmount = inferred; await wa.sendText(t.ask, m.key); return }
     await markPaid(bill, typed ?? verdict!.amount, m)
   }
 

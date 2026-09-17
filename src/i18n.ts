@@ -16,7 +16,6 @@ export type Catalog = {
   noLlmAmount: string
   downloadFailed: string
   unknownCmd: string
-  private: string
   descDenied: string
   descTooLong: string
   updated: string
@@ -62,7 +61,6 @@ const ptBR: Catalog = {
   noLlmAmount: 'sem valor (LLM indisponível)',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
-  private: 'sou um bot privado 🤖',
   descDenied: 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos',
   descTooLong: 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot',
   updated: 'atualizado',
@@ -106,7 +104,6 @@ const en: Catalog = {
   noLlmAmount: 'no amount (LLM unavailable)',
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
-  private: "I'm a private bot 🤖",
   descDenied: "I can't edit the description: make me an admin or let everyone edit group info",
   descTooLong: "the group description is over WhatsApp's limit: shorten the text above the bot's list",
   updated: 'updated',
@@ -150,7 +147,6 @@ const es: Catalog = {
   noLlmAmount: 'sin monto (LLM no disponible)',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',
-  private: 'soy un bot privado 🤖',
   descDenied: 'no puedo editar la descripción: hazme admin o permite que todos editen la info del grupo',
   descTooLong: 'la descripción del grupo pasó el límite de WhatsApp: acorta el texto sobre la lista del bot',
   updated: 'actualizado',

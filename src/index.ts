@@ -1,5 +1,5 @@
 import pino from 'pino'
-import { connectWa } from './wa.ts'
+import { connectWa, parseGroupJids } from './wa.ts'
 import { makeBot } from './bot.ts'
 import { makeLlm } from './llm.ts'
 import { openState } from './state.ts'
@@ -24,14 +24,15 @@ const llm = makeLlm({
   currency: locale.currency,
 })
 
-const owners = env('OWNER_PHONES').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean)
+const groupJids = parseGroupJids(env('GROUP_JIDS'))
+log.info({ groups: [...groupJids] }, 'serving groups')
 const bots = new Map<string, ReturnType<typeof makeBot>>()
 let wa: Awaited<ReturnType<typeof connectWa>> | undefined
 
 function botFor(jid: string) {
   let bot = bots.get(jid)
   if (!bot) {
-    bot = makeBot({ wa: wa!.forGroup(jid), llm, store: groups.forGroup(jid), owners, log: log.child({ group: jid }), pdfToPng, locale })
+    bot = makeBot({ wa: wa!.forGroup(jid), llm, store: groups.forGroup(jid), log: log.child({ group: jid }), pdfToPng, locale })
     bots.set(jid, bot)
   }
   return bot
@@ -44,6 +45,7 @@ const join = (jid: string) => botFor(jid).join()
 wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
   phone: env('BOT_PHONE'),
+  groups: groupJids,
   log,
   onOpen: jids => { for (const jid of jids) join(jid) },
   onJoined: jid => { join(jid) },

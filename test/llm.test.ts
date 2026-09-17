@@ -87,3 +87,15 @@ test('absurd amounts become null', async () => {
   const v = await llmWith(fn).interpretCaption('luz', bills)
   assert.equal(v?.amount, null)
 })
+
+test('sub-cent amounts from the model are quantized to null', async () => {
+  const { fn } = fakeFetch(reply('{"bill":"Luz","amount":0.004,"confidence":0.9}'))
+  const v = await llmWith(fn).interpretCaption('luz', bills)
+  assert.equal(v?.amount, null)
+})
+
+test('the model amount is quantized to cents', async () => {
+  const { fn } = fakeFetch(reply('{"bill":"Luz","amount":231.456,"confidence":0.9}'))
+  const v = await llmWith(fn).interpretCaption('luz', bills)
+  assert.equal(v?.amount, 231.46)
+})

@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, participantsIncludeSelf } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, participantsIncludeSelf, wireGroupEvents, handleOpen } from '../src/wa.ts'
 import { openState, cachedGroupsForCodes } from '../src/state.ts'
 import type { Incoming } from '../src/bot.ts'
 
@@ -343,4 +343,135 @@ test('removal drops the jid from the allowlist, clears _meta.invite on disk, and
   assert.equal(g2._meta.invite, undefined)
   assert.deepEqual(g2._meta.bills, ['luz'])
   assert.deepEqual(g2.months, { '2026-09': { luz: { name: 'Luz' } } })
+})
+
+function fakeEmitter() {
+  const handlers = new Map<string, (arg: any) => void>()
+  return {
+    on: (event: string, handler: (arg: any) => void) => { handlers.set(event, handler) },
+    fire: (event: string, arg: any) => handlers.get(event)!(arg),
+  }
+}
+
+test('wireGroupEvents: messages.upsert reaches onMessage for a notify message in a served group; not for another type, an unserved group, or a non-group jid; still delivers a fromMe message unchanged', () => {
+  const ev = fakeEmitter()
+  const seen: Array<{ jid: string; fromMe: boolean }> = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
+  const on = { onJoined() {}, onMessage: (jid: string, m: Incoming) => { seen.push({ jid, fromMe: m.key.fromMe }) }, onDescription() {}, onRemoved() {} }
+  wireGroupEvents(ev, on, () => [], cfg)
+
+  const wam = (remoteJid: string, fromMe = false): WAMessage => ({ key: { id: 'm1', remoteJid, fromMe }, message: { conversation: 'oi' } } as WAMessage)
+
+  ev.fire('messages.upsert', { messages: [wam('mine@g.us')], type: 'append' })
+  ev.fire('messages.upsert', { messages: [wam('theirs@g.us')], type: 'notify' })
+  ev.fire('messages.upsert', { messages: [wam('mine@s.whatsapp.net')], type: 'notify' })
+  assert.deepEqual(seen, [])
+
+  ev.fire('messages.upsert', { messages: [wam('mine@g.us', true)], type: 'notify' })
+  assert.deepEqual(seen, [{ jid: 'mine@g.us', fromMe: true }])
+})
+
+test('wireGroupEvents: groups.update reaches onDescription when desc is present, including cleared to empty, and not when the key is absent', () => {
+  const ev = fakeEmitter()
+  const seen: Array<{ jid: string; desc: string }> = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
+  const on = { onJoined() {}, onMessage() {}, onDescription: (jid: string, desc: string) => { seen.push({ jid, desc }) }, onRemoved() {} }
+  wireGroupEvents(ev, on, () => [], cfg)
+
+  ev.fire('groups.update', [{ id: 'mine@g.us' }])
+  assert.deepEqual(seen, [])
+
+  ev.fire('groups.update', [{ id: 'mine@g.us', desc: 'new description' }])
+  ev.fire('groups.update', [{ id: 'mine@g.us', desc: '' }])
+  assert.deepEqual(seen, [{ jid: 'mine@g.us', desc: 'new description' }, { jid: 'mine@g.us', desc: '' }])
+})
+
+test('wireGroupEvents: group-participants.update reaches onJoined on add-self and onRemoved on remove-self, but not for somebody else or for promote/demote/modify', () => {
+  const ev = fakeEmitter()
+  const joined: string[] = []
+  const removed: string[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
+  const on = { onJoined: (jid: string) => { joined.push(jid) }, onMessage() {}, onDescription() {}, onRemoved: (jid: string) => { removed.push(jid) } }
+  const me = ['bot@s.whatsapp.net']
+  wireGroupEvents(ev, on, () => me, cfg)
+
+  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'gabi@s.whatsapp.net' }], action: 'add' })
+  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'gabi@s.whatsapp.net' }], action: 'remove' })
+  for (const action of ['promote', 'demote', 'modify']) {
+    ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action })
+  }
+  assert.deepEqual(joined, [])
+  assert.deepEqual(removed, [])
+
+  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action: 'add' })
+  assert.deepEqual(joined, ['mine@g.us'])
+
+  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action: 'remove' })
+  assert.deepEqual(removed, ['mine@g.us'])
+})
+
+test('wireGroupEvents: groups.upsert reaches onJoined for each group and logs the jid', () => {
+  const ev = fakeEmitter()
+  const joined: string[] = []
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('b@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
+  const on = { onJoined: (jid: string) => { joined.push(jid) }, onMessage() {}, onDescription() {}, onRemoved() {} }
+  wireGroupEvents(ev, on, () => [], cfg)
+
+  ev.fire('groups.upsert', [{ id: 'a@g.us', subject: 'A' }, { id: 'b@g.us', subject: 'B' }])
+
+  assert.deepEqual(joined, ['a@g.us', 'b@g.us'])
+  assert.deepEqual(infos, [
+    { jid: 'a@g.us', subject: 'A', mine: false },
+    { jid: 'b@g.us', subject: 'B', mine: true },
+  ])
+})
+
+test('handleOpen logs every fetched group, resolves invite codes, and calls onOpen', async () => {
+  const infos: unknown[] = []
+  const resolved: string[] = []
+  const opened: string[][] = []
+  const cfg = {
+    groups: parseGroupJids('mine@g.us').jids,
+    inviteCodes: ['AbCdEf123'],
+    log: { info: (o: unknown) => infos.push(o), warn() {} },
+  }
+  const s = {
+    groupFetchAllParticipating: async () => ({
+      'mine@g.us': { id: 'mine@g.us', subject: 'Mine' },
+      'new@g.us': { id: 'new@g.us', subject: 'New' },
+    }),
+    groupGetInviteInfo: async (code: string) => { resolved.push(code); return { id: 'new@g.us', subject: 'New Group' } },
+  }
+
+  await handleOpen(s, cfg, jids => { opened.push(jids) })
+
+  assert.equal(infos[0], 'whatsapp connected')
+  assert.deepEqual(resolved, ['AbCdEf123'])
+  assert.deepEqual([...cfg.groups], ['mine@g.us', 'new@g.us'])
+  assert.deepEqual(opened, [['mine@g.us', 'new@g.us']])
+  const groupLogs = infos.filter((o: any) => o && typeof o === 'object' && 'mine' in o)
+  assert.deepEqual(groupLogs, [
+    { jid: 'mine@g.us', subject: 'Mine', mine: true },
+    { jid: 'new@g.us', subject: 'New', mine: true },
+  ])
+})
+
+test('handleOpen still calls onOpen when groupFetchAllParticipating rejects', async () => {
+  const warnings: unknown[] = []
+  const cfg = {
+    groups: parseGroupJids('mine@g.us').jids,
+    inviteCodes: [] as string[],
+    log: { info() {}, warn: (o: unknown) => warnings.push(o) },
+  }
+  const s = {
+    groupFetchAllParticipating: async () => { throw new Error('socket dropped') },
+    groupGetInviteInfo: async () => { throw new Error('must not be called') },
+  }
+  const opened: string[][] = []
+
+  await handleOpen(s, cfg, jids => { opened.push(jids) })
+
+  assert.deepEqual(opened, [['mine@g.us']])
+  assert.equal(warnings.length, 1)
 })

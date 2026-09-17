@@ -198,9 +198,9 @@ test('splitDescription moves text typed below the section up into the group text
   const bills = parseDescription('Luz\nÁgua')
   const d = `Grupo\n\n${renderSection(bills)}\nPix: chave 123\n\n/pago luz`
   const { original, section } = splitDescription(d)
-  assert.equal(original, 'Grupo\n\nPix: chave 123')
+  assert.equal(original, 'Grupo\n\nPix: chave 123\n\n/pago luz')
   assert.deepEqual(parseDescription(section!), bills)
-  assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
+  assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n/pago luz\n\n${renderSection(bills)}`)
   // below an untouched placeholder, the rescued text replaces it
   const withPh = `${composeDescription('', bills)}\nPix: chave 123`
   assert.equal(composeDescription(splitDescription(withPh).original, bills), `Pix: chave 123\n\n${renderSection(bills)}`)
@@ -277,11 +277,11 @@ test('parseAmount is currency-agnostic and uses the locale only for ambiguity', 
     ['231,45', 231.45, 231.45],
     ['231.45', 231.45, 231.45],
     ['R$ 6.237,60', 6237.6, 6237.6],
-    ['$6,237.60', 6237.6, 6237.6],
-    ['6.237,60 €', 6237.6, 6237.6],
-    ['USD 10', 10, 10],
-    ['1.234', 1234, 1.234],
-    ['1,234', 1.234, 1234],
+    ['$6,237.60', null, 6237.6],
+    ['6.237,60 €', null, null],
+    ['USD 10', null, 10],
+    ['1.234', 1234, 1.23],
+    ['1,234', 1.23, 1234],
     ['1.234.567', 1234567, 1234567],
     ['abc', null, null],
     ['0', null, null],
@@ -370,4 +370,32 @@ test('parseAmount rejects absurd amounts', () => {
   assert.equal(parseAmount('9007199254740993'), null)
   assert.equal(parseAmount('1000000000000'), null)
   assert.equal(parseAmount('999999999999'), 999999999999)
+})
+
+test('parseAmount rejects malformed thousands grouping mixed with a decimal mark', () => {
+  assert.equal(parseAmount('1,23.45'), null)
+  assert.equal(parseAmount('1..234,56'), null)
+  assert.equal(parseAmount('1,2,3.45'), null)
+  assert.equal(parseAmount('1.234,56'), 1234.56)
+  assert.equal(parseAmount('$1,234.56', EN), 1234.56)
+})
+
+test('parseAmount rejects an amount that quantizes to zero cents', () => {
+  assert.equal(parseAmount('0,004'), null)
+  assert.equal(parseAmount('R$ 0,004'), null)
+  assert.equal(parseAmount('231,456'), 231.46)
+})
+
+test('parseAmount rejects a currency other than the configured one', () => {
+  assert.equal(parseAmount('US$ 100'), null)
+  assert.equal(parseAmount('100 EUR'), null)
+  assert.equal(parseAmount('$ 100'), null)
+  assert.equal(parseAmount('R$ 100'), 100)
+  assert.equal(parseAmount('US$ 80', EN), 80)
+})
+
+test('renderList does not treat an inherited Object property as a payment', () => {
+  const bills: Bill[] = [{ name: 'Constructor', key: 'constructor', paused: false }]
+  const out = renderList('2026-09', bills, {})
+  assert.match(out, /⬜ Constructor/)
 })

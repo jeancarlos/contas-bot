@@ -215,7 +215,6 @@ test('splitDescription moves text typed below the section up into the group text
   assert.equal(splitDescription(noDivider).original, 'Grupo\n\nPix: chave 123')
   // nothing typed below: the group text is exactly what sits above the header
   assert.equal(splitDescription(composeDescription('Grupo', bills)!).original, 'Grupo\n')
-  // a member's own divider below the section is their text, not the bot's, and survives
   const ownDivider = `Grupo\n\n${renderSection(bills)}\n-----\nPix: chave 123`
   assert.equal(splitDescription(ownDivider).original, 'Grupo\n\n-----\nPix: chave 123')
   assert.equal(composeDescription(splitDescription(ownDivider).original, bills), `Grupo\n\n-----\nPix: chave 123\n\n${renderSection(bills)}`)

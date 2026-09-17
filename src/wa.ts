@@ -46,6 +46,7 @@ export async function resolveOpenJids(
   try {
     const groups = await s.groupFetchAllParticipating()
     for (const g of Object.values(groups)) cfg.log.info({ jid: g.id, subject: g.subject, mine: cfg.groups.has(g.id) }, 'member of group')
+    return [...cfg.groups].filter(jid => groups[jid])
   } catch (err) {
     cfg.log.warn({ err }, 'group discovery failed')
   }

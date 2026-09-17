@@ -9,30 +9,31 @@ export type StateStore = { get(): State; save(): Promise<void> }
 export type Store = { forGroup(jid: string): StateStore; jids(): string[] }
 
 const isObj = (v: unknown): v is Record<string, any> => typeof v === 'object' && v !== null && !Array.isArray(v)
+type Log = { warn(o: any, msg?: string): void }
 // A hand-edited or half-written file must not crash startup or turn `months` into an array that drops data on save.
-const toState = (v: unknown): State => {
+const toState = (v: unknown, log?: Log): State => {
   const meta = isObj(v) && isObj(v._meta) ? v._meta : {}
   if (meta.pinned && meta.listed === undefined) meta.listed = true
   const rawMonths = isObj(v) && isObj(v.months) ? v.months : {}
   const months: Record<string, Record<string, Payment>> = {}
   for (const [key, val] of Object.entries(rawMonths)) {
     if (isObj(val)) months[key] = val
-    else console.warn(`state: dropping corrupt month "${key}" (not an object)`)
+    else log?.warn({ key }, 'dropping corrupt month (not an object)')
   }
   return { _meta: meta, months }
 }
 
-export async function openState(path: string, legacyJid?: string): Promise<Store> {
+export async function openState(path: string, legacyJid?: string, log?: Log): Promise<Store> {
   let groups: Record<string, State> = {}
   let migrated = false
   try {
     const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
     if (!isObj(parsed)) throw new Error(`${path} is not a JSON object`)
-    if (isObj(parsed.groups)) for (const [jid, g] of Object.entries(parsed.groups)) groups[jid] = toState(g)
+    if (isObj(parsed.groups)) for (const [jid, g] of Object.entries(parsed.groups)) groups[jid] = toState(g, log)
     else if (parsed._meta) {
       // First version kept one group at the top level; without its JID the data would be orphaned.
       if (!legacyJid) throw new Error('state file is from the single-group version: set GROUP_JID once so it can be migrated')
-      groups[legacyJid] = toState(parsed)
+      groups[legacyJid] = toState(parsed, log)
       migrated = true
     }
   } catch (e: any) {

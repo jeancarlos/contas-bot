@@ -181,7 +181,7 @@ const DESC_LIMIT = 2048
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
 
 // WhatsApp may drop emoji variation selectors or respace a line; the placeholder must still be recognized.
-const flat = (s: string) => s.replace(/️/g, '').replace(/\s+/g, ' ').trim()
+const flat = (s: string) => s.replace(/\uFE0F/g, '').replace(/\s+/g, ' ').trim()
 const SECTION_HELP_LINES = new Set(Object.values(CATALOGS).map(c => flat(c.sectionHelp)))
 
 // The bot owns everything from its header line down; text above it belongs to the group. Text a member typed

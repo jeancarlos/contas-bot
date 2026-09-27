@@ -47,6 +47,7 @@ const join = (jid: string) => botFor(jid).join()
 
 const onRemoved = (jid: string) => {
   groupJids.delete(jid)
+  bots.delete(jid)
   delete groups.forGroup(jid).get()._meta.invite
   return groups.forGroup(jid).save()
     .then(() => log.info({ jid }, 'removed from group, no longer served — name it in GROUP_INVITE_LINKS again at next start to restore it'))

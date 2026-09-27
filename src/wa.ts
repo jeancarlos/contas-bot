@@ -29,6 +29,7 @@ type Handlers = Pick<Cfg, 'onOpen' | 'onJoined' | 'onMessage' | 'onDescription' 
 // bot sat on a dead code forever; a timestamp both throttles and expires.
 const PAIRING_CODE_TTL_MS = 180_000
 let pairingCodeAt = 0
+let reconnects = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
 
@@ -60,6 +61,7 @@ export async function resolveInviteCodes(
     try {
       const { id, subject } = await s.groupGetInviteInfo(code)
       cfg.groups.add(id)
+      codes.splice(codes.indexOf(code), 1)
       cfg.log.info({ code, jid: id, subject }, 'resolved invite link; put this jid in GROUP_INVITE_LINKS directly to stop depending on the link')
       await cfg.onResolved?.(code, id)
     } catch (err) {
@@ -224,6 +226,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         }
       }
       if (u.connection === 'open') {
+        reconnects = 0
         await handleOpen(s, cfg, on.onOpen)
       }
       if (u.connection === 'close') {
@@ -238,8 +241,9 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
           await new Promise(r => setTimeout(r, 60_000))
           process.exit(2)
         }
-        cfg.log.warn({ code }, 'connection closed, reconnecting')
-        setTimeout(() => { sock = start() }, 3000)
+        const delay = code === DisconnectReason.restartRequired ? 3000 : Math.min(3000 * 2 ** reconnects++, 300_000)
+        cfg.log.warn({ code, delay }, 'connection closed, reconnecting')
+        setTimeout(() => { sock = start() }, delay)
       }
     } catch (e) { cfg.log.error({ err: e }, 'connection.update handler failed') } })
     wireGroupEvents(s.ev, on, self, cfg)

@@ -475,3 +475,15 @@ test('handleOpen still calls onOpen when groupFetchAllParticipating rejects', as
   assert.deepEqual(opened, [['mine@g.us']])
   assert.equal(warnings.length, 1)
 })
+
+test('resolveInviteCodes drops a resolved code, so a reconnect cannot re-add a group the bot left', async () => {
+  const { jids } = parseGroupJids('')
+  const cfg = { groups: jids, log: { info() {}, warn() {} } }
+  const s = { groupGetInviteInfo: async () => ({ id: 'new@g.us', subject: 'New Group' }) }
+  const codes = ['AbCdEf123']
+  await resolveInviteCodes(s, cfg, codes)
+  assert.deepEqual(codes, [])
+  jids.delete('new@g.us')
+  await resolveInviteCodes(s, cfg, codes)
+  assert.deepEqual([...jids], [])
+})

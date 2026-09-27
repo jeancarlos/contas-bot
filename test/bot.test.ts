@@ -787,3 +787,26 @@ test('a bill whose name ends in a number wins over reading that number as the am
   assert.equal(store.get().months['2026-09']['apartamento 101'].amount, 80)
   assert.equal(store.get().months['2026-09'].luz, undefined)
 })
+
+test('an amount typed with a receipt survives the ask for which bill it is', async () => {
+  const { bot, store } = await setup({ verdict: { bill: null, amount: 231.45, confidence: 0.9 } })
+  const media = { mime: 'image/png', download: async () => Buffer.from('png') }
+  await bot.onMessage(msg('/pago 150,00', { media }))
+  await bot.onMessage(msg('/pago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 150)
+})
+
+test('the save that records a payment also records the message as handled', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const real = (await openState(join(dir, 'state.json'))).forGroup(G)
+  real.get()._meta.last_reset = '2026-08'
+  const saves: string[][] = []
+  const store: StateStore = { get: () => real.get(), save: () => { saves.push([...(real.get()._meta.handled ?? [])]); return real.save() } }
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  saves.length = 0
+  const m = msg('/pago luz 231,45')
+  await bot.onMessage(m)
+  assert.ok(saves[0].includes(m.key.id))
+})

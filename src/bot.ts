@@ -79,9 +79,12 @@ export function makeBot(deps: BotDeps) {
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
+    const handled = state()._meta.handled
+    markHandled(m.key.id)
     try {
       await store.save()
     } catch (e) {
+      state()._meta.handled = handled
       await wa.sendText(t.saveFailed, m.key)
       throw e
     }
@@ -101,6 +104,10 @@ export function makeBot(deps: BotDeps) {
   }
 
   const active = () => Boolean(state()._meta.last_reset)
+  const markHandled = (id: string) => {
+    const meta = state()._meta
+    if (!meta.handled?.includes(id)) meta.handled = [...(meta.handled ?? []), id].slice(-50)
+  }
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
   let pendingAmount: { participant: string; amount: number | null } | null = null
@@ -172,7 +179,7 @@ export function makeBot(deps: BotDeps) {
           await wa.sendText(t.saveFailed, m.key)
           throw e
         }
-        await wa.react(m.key, '✅')
+        await wa.react(m.key, '✅').catch(e => log.warn({ err: e }, 'reaction failed'))
         await postList()
         return true
       }
@@ -217,7 +224,7 @@ export function makeBot(deps: BotDeps) {
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: inferred }; await wa.sendText(t.ask, m.key); return }
+    if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed ?? inferred }; await wa.sendText(t.ask, m.key); return }
     await markPaid(bill, typed ?? verdict!.amount, m)
   }
 
@@ -294,7 +301,7 @@ export function makeBot(deps: BotDeps) {
           if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
         await dispatch()
-        meta.handled = [...(meta.handled ?? []), m.key.id].slice(-50)
+        markHandled(m.key.id)
         await store.save()
       } catch (e) {
         log.error({ err: e, id: m.key.id }, 'message handling failed')

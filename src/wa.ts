@@ -235,6 +235,11 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
           // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
           cfg.log.error('logged out: wiping auth, restart pairs again')
           await wipeAuth()
+          if (!state.creds.registered) {
+            cfg.log.warn('pairing code expired unused: idle until `docker restart contas-bot`')
+            setInterval(() => {}, 2 ** 30)
+            return
+          }
           // Back off before the restart: rapid re-pairing gets the number rate-limited
           // by WhatsApp. This used to read state.creds.registered, which is the copy
           // loaded at startup and still true for a session that was just logged out.

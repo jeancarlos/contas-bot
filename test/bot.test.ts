@@ -427,7 +427,7 @@ test('a failed save while marking paid warns the group instead of going silent',
   store.save = async () => { throw new Error('disk full') }
   await bot.onMessage(msg('/pago luz 231,45'))
   assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
-  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
+  assert.equal(Object.hasOwn(store.get().months['2026-09'], 'luz'), false)
 })
 
 test('a failed save on /despago warns the group instead of going silent', async () => {
@@ -436,7 +436,7 @@ test('a failed save on /despago warns the group instead of going silent', async 
   store.save = async () => { throw new Error('disk full') }
   await bot.onMessage(msg('/despago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
   assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
-  assert.equal(store.get().months['2026-09'].luz, undefined)
+  assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
 })
 
 test('a failed "updated" notice still saves the payment and posts the list', async () => {
@@ -754,14 +754,16 @@ test('/help lists every command; unknown commands point to /help', async () => {
   assert.equal(sent[1].text, 'não conheço esse comando. /help mostra todos.')
 })
 
-test('an inactive group ignores messages and ticks', async () => {
+test('an inactive group ignores messages until a tick onboards it', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa()
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
   await bot.onMessage(msg('/lista'))
-  await bot.tick()
   assert.equal(w.sent.length, 0)
+  await bot.tick()
+  assert.equal(w.sent[0].text, DEFAULT_LOCALE.t.intro)
+  assert.ok(store.get()._meta.last_reset)
 })
 
 test('a receipt captioned with a bill name holding a digit marks that bill with the receipt amount', async () => {
@@ -809,4 +811,109 @@ test('the save that records a payment also records the message as handled', asyn
   const m = msg('/pago luz 231,45')
   await bot.onMessage(m)
   assert.ok(saves[0].includes(m.key.id))
+})
+
+test('a pending receipt amount expires instead of landing on a /pago typed days later', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  const w = fakeWa()
+  let clock = new Date('2026-09-10T15:00:00Z')
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm({ bill: null, amount: 50, confidence: 0.9 }).llm, store, now: () => clock })
+  await bot.join()
+  await bot.onMessage(msg('', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
+  clock = new Date('2026-09-17T15:00:00Z')
+  await bot.onMessage(msg('/pago luz'))
+  assert.equal(store.get().months['2026-09'].luz.amount, null)
+})
+
+test('a pending receipt amount still applies to a /pago a few minutes later', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  const w = fakeWa()
+  let clock = new Date('2026-09-10T15:00:00Z')
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm({ bill: null, amount: 50, confidence: 0.9 }).llm, store, now: () => clock })
+  await bot.join()
+  await bot.onMessage(msg('', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
+  clock = new Date('2026-09-10T15:05:00Z')
+  await bot.onMessage(msg('/pago luz'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 50)
+})
+
+async function failingStore() {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const path = join(dir, 'state.json')
+  const real = (await openState(path)).forGroup(G)
+  real.get()._meta.last_reset = '2026-08'
+  const ctl = { fail: false }
+  const store: StateStore = { get: () => real.get(), save: () => ctl.fail ? Promise.reject(new Error('disk full')) : real.save() }
+  return { store, ctl, path }
+}
+
+test('a /pago whose save failed is not written later by an unrelated save', async () => {
+  const { store, ctl, path } = await failingStore()
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  await bot.onMessage(msg('/pago luz 10'))
+  ctl.fail = true
+  await bot.onMessage(msg('/pago luz 99'))
+  assert.ok(w.sent.some(s => s.text === DEFAULT_LOCALE.t.saveFailed))
+  assert.equal(store.get().months['2026-09'].luz.amount, 10)
+  ctl.fail = false
+  await bot.onMessage(msg('/pago agua'))
+  const disk = (await openState(path)).forGroup(G).get()
+  assert.equal(disk.months['2026-09'].luz.amount, 10)
+})
+
+test('a first /pago whose save failed leaves the bill unpaid', async () => {
+  const { store, ctl } = await failingStore()
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  ctl.fail = true
+  await bot.onMessage(msg('/pago luz 10'))
+  assert.equal(Object.hasOwn(store.get().months['2026-09'] ?? {}, 'luz'), false)
+})
+
+test('a /despago whose save failed keeps the payment', async () => {
+  const { store, ctl } = await failingStore()
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await bot.join()
+  await bot.onMessage(msg('/pago luz 10'))
+  ctl.fail = true
+  await bot.onMessage(msg('/despago luz'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 10)
+})
+
+test('tick retries an onboarding that failed, without repeating the intro', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  const w = fakeWa('Grupo')
+  let sends = 0
+  const send = w.wa.sendText
+  w.wa.sendText = async (t, q) => { if (++sends === 2) throw new Error('offline'); return send(t, q) }
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await assert.rejects(bot.join())
+  await bot.tick()
+  assert.equal(store.get()._meta.last_reset, '2026-09')
+  assert.equal(w.sent.filter(s => s.text === DEFAULT_LOCALE.t.intro).length, 1)
+  assert.match(w.sent.at(-1)!.text, /^📋/)
+})
+
+test('tick on a group that never onboarded tries again on the next tick after a failure', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  const w = fakeWa('Grupo')
+  let down = true
+  const get = w.wa.getDescription
+  w.wa.getDescription = async () => { if (down) throw new Error('timeout'); return get() }
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await assert.rejects(bot.join())
+  await assert.rejects(bot.tick())
+  down = false
+  await bot.tick()
+  assert.equal(store.get()._meta.last_reset, '2026-09')
 })

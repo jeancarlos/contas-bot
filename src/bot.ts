@@ -36,6 +36,7 @@ export type BotDeps = {
 }
 
 const CONFIDENCE = 0.7
+const PENDING_TTL_MS = 10 * 60_000
 
 export function makeBot(deps: BotDeps) {
   const { wa, llm, store } = deps
@@ -75,7 +76,6 @@ export function makeBot(deps: BotDeps) {
   }
 
   async function markPaid(bill: Bill, amount: number | null, m: Incoming) {
-    if (pendingAmount?.participant === (m.key.participant ?? m.sender)) pendingAmount = null
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
     paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
@@ -85,9 +85,12 @@ export function makeBot(deps: BotDeps) {
       await store.save()
     } catch (e) {
       state()._meta.handled = handled
+      if (existing) paid[bill.key] = existing
+      else delete paid[bill.key]
       await wa.sendText(t.saveFailed, m.key)
       throw e
     }
+    if (pendingAmount?.participant === (m.key.participant ?? m.sender)) pendingAmount = null
     try {
       await wa.react(m.key, '✅')
     } catch (e) {
@@ -110,7 +113,12 @@ export function makeBot(deps: BotDeps) {
   }
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
-  let pendingAmount: { participant: string; amount: number | null } | null = null
+  let pendingAmount: { participant: string; amount: number | null; at: number } | null = null
+  const pendingFor = (m: Incoming) =>
+    pendingAmount?.participant === (m.key.participant ?? m.sender) && now().getTime() - pendingAmount.at <= PENDING_TTL_MS
+      ? pendingAmount.amount
+      : null
+  let introduced = false
 
   // null: the description would not fit without cutting the group's text or the list, so it is left alone.
   async function writeDescription(text: string | null) {
@@ -165,17 +173,20 @@ export function makeBot(deps: BotDeps) {
         const whole = wholeName(c.full)
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
-        const pending = pendingAmount?.participant === (m.key.participant ?? m.sender) ? pendingAmount.amount : null
+        const pending = pendingFor(m)
         await markPaid(bill, whole && c.amount != null ? pending : c.amount ?? pending, m)
         return true
       }
       case 'despago': {
         const bill = resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
-        delete month().paid[bill.key]
+        const { paid } = month()
+        const removed = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
+        delete paid[bill.key]
         try {
           await store.save()
         } catch (e) {
+          if (removed) paid[bill.key] = removed
           await wa.sendText(t.saveFailed, m.key)
           throw e
         }
@@ -224,46 +235,51 @@ export function makeBot(deps: BotDeps) {
       return
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed ?? inferred }; await wa.sendText(t.ask, m.key); return }
+    if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed ?? inferred, at: now().getTime() }; await wa.sendText(t.ask, m.key); return }
     await markPaid(bill, typed ?? verdict!.amount, m)
+  }
+
+  async function joinNow(): Promise<'onboarded' | 'active'> {
+    const meta = state()._meta
+    if (active()) {
+      let desc: string
+      try { desc = await wa.getDescription() } catch (e) {
+        // Rewriting from an unread description would wipe the group's own text: load and wait.
+        log.warn({ err: e }, 'description unreadable, using saved bills')
+        bills = parseDescription((meta.bills ?? []).join('\n'))
+        return 'active'
+      }
+      const changed = await reconcile(desc)
+      if (meta.listed && changed) await postList()
+      log.info({ bills: billNames() }, 'bills loaded')
+      return 'active'
+    }
+    const desc = await wa.getDescription()
+    const { original, section } = splitDescription(desc)
+    const existingBills = section !== null ? parseDescription(section) : []
+    bills = existingBills.length > 0 ? existingBills : parseDescription(t.demoBills)
+    meta.bills = bills.map(b => billLine(b, loc))
+    // A new group is section-style from birth: even if the write below is refused, a later description
+    // without our section means "keep their text, restore the list", never "their text is the bill list".
+    meta.section = true
+    await writeDescription(composeDescription(original, bills, loc))
+    if (!introduced) {
+      await wa.sendText(t.intro)
+      introduced = true
+    }
+    await postList()
+    // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
+    meta.last_reset = monthKey(now())
+    await store.save()
+    log.info({ bills: billNames() }, 'group onboarded')
+    return 'onboarded'
   }
 
   return {
     bills: () => bills,
 
     join() {
-      return serial(async (): Promise<'onboarded' | 'active'> => {
-        const meta = state()._meta
-        if (active()) {
-          let desc: string
-          try { desc = await wa.getDescription() } catch (e) {
-            // Rewriting from an unread description would wipe the group's own text: load and wait.
-            log.warn({ err: e }, 'description unreadable, using saved bills')
-            bills = parseDescription((meta.bills ?? []).join('\n'))
-            return 'active'
-          }
-          const changed = await reconcile(desc)
-          if (meta.listed && changed) await postList()
-          log.info({ bills: billNames() }, 'bills loaded')
-          return 'active'
-        }
-        const desc = await wa.getDescription()
-        const { original, section } = splitDescription(desc)
-        const existingBills = section !== null ? parseDescription(section) : []
-        bills = existingBills.length > 0 ? existingBills : parseDescription(t.demoBills)
-        meta.bills = bills.map(b => billLine(b, loc))
-        // A new group is section-style from birth: even if the write below is refused, a later description
-        // without our section means "keep their text, restore the list", never "their text is the bill list".
-        meta.section = true
-        await writeDescription(composeDescription(original, bills, loc))
-        await wa.sendText(t.intro)
-        await postList()
-        // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
-        meta.last_reset = monthKey(now())
-        await store.save()
-        log.info({ bills: billNames() }, 'group onboarded')
-        return 'onboarded'
-      })
+      return serial(joinNow)
     },
 
     // The event text is only a trigger: Baileys can deliver the pre-migration description after join() rewrote
@@ -310,7 +326,7 @@ export function makeBot(deps: BotDeps) {
 
     tick() {
       return serial(async () => {
-        if (!active()) return
+        if (!active()) { await joinNow(); return }
         const key = monthKey(now())
         if (state()._meta.last_reset === key) return
         await postList()

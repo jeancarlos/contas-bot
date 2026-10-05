@@ -237,7 +237,6 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
           await wipeAuth()
           if (!state.creds.registered) {
             cfg.log.warn('pairing code expired unused: idle until `docker restart contas-bot`')
-            setInterval(() => {}, 2 ** 30)
             return
           }
           // Back off before the restart: rapid re-pairing gets the number rate-limited

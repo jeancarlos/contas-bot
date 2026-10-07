@@ -951,3 +951,39 @@ test('/despago with a typo suggests the bill', async () => {
   await bot.onMessage(msg('/despago aguaa'))
   assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\*\?/)
 })
+
+test('/pago alone asks for the bill with an example', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})
+
+test('/pago with only an amount asks for the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})
+
+test('/despago alone asks for the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/despago'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /despago luz')
+})
+
+test('/pago alone with a receipt still reads the receipt', async () => {
+  const { bot, store } = await setup({ verdict: { bill: 'Luz', amount: 80, confidence: 0.9 } })
+  await bot.onMessage(msg('/pago', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 80)
+})
+
+test('a mistyped command suggests the right one', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pgao luz'))
+  assert.equal(must(sent.at(-1)).text, 'não conheço /pgao, você quis dizer /pago? /help mostra todos.')
+})
+
+test('an unrelated unknown command still gets the generic help pointer', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/xyz'))
+  assert.equal(must(sent.at(-1)).text, 'não conheço esse comando. /help mostra todos.')
+})

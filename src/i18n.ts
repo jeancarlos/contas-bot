@@ -17,6 +17,9 @@ export type Catalog = {
   saveFailed: string
   downloadFailed: string
   unknownCmd: string
+  unknownCmdSuggest: (typed: string, cmd: string) => string
+  missingBillPago: string
+  missingBillDespago: string
   descDenied: string
   descTooLong: string
   updated: string
@@ -63,6 +66,9 @@ const ptBR: Catalog = {
   saveFailed: 'não consegui salvar, tenta de novo',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
+  unknownCmdSuggest: (typed, cmd) => `não conheço /${typed}, você quis dizer /${cmd}? /help mostra todos.`,
+  missingBillPago: 'faltou a conta: /pago luz 80,00',
+  missingBillDespago: 'faltou a conta: /despago luz',
   descDenied: 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos',
   descTooLong: 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot',
   updated: 'atualizado',
@@ -109,6 +115,9 @@ const en: Catalog = {
   saveFailed: "couldn't save, try again",
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
+  unknownCmdSuggest: (typed, cmd) => `I don't know /${typed}, did you mean /${cmd}? /help lists them all.`,
+  missingBillPago: 'missing the bill: /paid power 80.00',
+  missingBillDespago: 'missing the bill: /unpaid power',
   descDenied: "I can't edit the description: make me an admin or let everyone edit group info",
   descTooLong: "the group description is over WhatsApp's limit: shorten the text above the bot's list",
   updated: 'updated',
@@ -155,6 +164,9 @@ const es: Catalog = {
   saveFailed: 'no pude guardar, intenta de nuevo',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',
+  unknownCmdSuggest: (typed, cmd) => `no conozco /${typed}, ¿quisiste decir /${cmd}? /ayuda los muestra todos.`,
+  missingBillPago: 'falta la cuenta: /pagado luz 80,00',
+  missingBillDespago: 'falta la cuenta: /despagado luz',
   descDenied: 'no puedo editar la descripción: hazme admin o permite que todos editen la info del grupo',
   descTooLong: 'la descripción del grupo pasó el límite de WhatsApp: acorta el texto sobre la lista del bot',
   updated: 'actualizado',

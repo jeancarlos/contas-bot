@@ -1,6 +1,6 @@
 import {
   normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, closestBills, paymentAttempt, renderList, monthKey,
-  splitDescription, renderSection, composeDescription, billLine, isGreeting,
+  splitDescription, renderSection, composeDescription, billLine, isGreeting, suggestCommand,
   type Bill,
 } from './bills.ts'
 import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
@@ -174,6 +174,7 @@ export function makeBot(deps: BotDeps) {
     if (!c) return false
     switch (c.cmd) {
       case 'pago': {
+        if (!c.full.trim() || parseAmount(c.full, loc) !== null) { await wa.sendText(t.missingBillPago, m.key); return true }
         const whole = wholeName(c.full)
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
@@ -182,6 +183,7 @@ export function makeBot(deps: BotDeps) {
         return true
       }
       case 'despago': {
+        if (!c.name.trim()) { await wa.sendText(t.missingBillDespago, m.key); return true }
         const bill = resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const { paid } = month()
@@ -200,7 +202,11 @@ export function makeBot(deps: BotDeps) {
       }
       case 'lista': await postList(); return true
       case 'ajuda': await wa.sendText(t.help, m.key); return true
-      case 'unknown': await wa.sendText(t.unknownCmd, m.key); return true
+      case 'unknown': {
+        const s = suggestCommand(c.name)
+        await wa.sendText(s ? t.unknownCmdSuggest(c.name, s) : t.unknownCmd, m.key)
+        return true
+      }
     }
   }
 

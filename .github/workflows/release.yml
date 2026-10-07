@@ -37,7 +37,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -47,7 +47,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: APP_VERSION=${{ steps.v.outputs.version }}
       - name: Stamp the installer
-        run: mkdir -p dist && sed "s/__VERSION__/${{ steps.v.outputs.version }}/" install.sh > dist/install.sh
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: mkdir -p dist && sed "s|__VERSION__|$VERSION|" install.sh > dist/install.sh
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

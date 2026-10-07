@@ -109,3 +109,15 @@ test('makeLlm without a base URL is disabled and never calls fetch', async () =>
   assert.equal(await llm.readReceipt(Buffer.from('x'), 'image/png', '', ['Luz']), null)
   assert.equal(calls, 0)
 })
+test('makeLlm omits the authorization header when the API key is empty', async () => {
+  const seen: Record<string, string>[] = []
+  const fetchFn = (async (_u: unknown, init?: RequestInit) => {
+    seen.push(init?.headers as Record<string, string>)
+    return new Response(JSON.stringify({ choices: [] }))
+  }) as typeof fetch
+  const call = (apiKey: string) => makeLlm({ baseUrl: 'http://x/v1', apiKey, visionModel: 'v', fetchFn }).readReceipt(Buffer.from('x'), 'image/png', '', ['Luz'])
+  await call('')
+  await call('k')
+  assert.equal('authorization' in seen[0], false)
+  assert.equal(seen[1].authorization, 'Bearer k')
+})

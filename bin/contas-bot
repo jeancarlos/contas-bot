@@ -47,6 +47,7 @@ case "${1:-help}" in
     ;;
   logs) exec docker logs -f --tail 100 contas-bot ;;
   pair)
+    docker compose stop
     setup_status=0
     setup || setup_status=$?
     docker compose up -d

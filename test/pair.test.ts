@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { closeOutcome, emptyDir, renderQr } from '../src/setup/pair.ts'
+import { closeOutcome, emptyDir, nextStep, renderQr } from '../src/setup/pair.ts'
 
 test('renderQr draws a multi-line block QR', async () => {
   const s = await renderQr('2@abc,def,ghi')
@@ -28,4 +28,11 @@ test('emptyDir clears a folder but keeps it (it is a bind mount)', async () => {
   await mkdir(join(dir, 'keys'))
   await emptyDir(dir)
   assert.deepEqual(await readdir(dir), [])
+})
+
+test('restartRequired restarts once; a second one fails', () => {
+  assert.equal(nextStep(false, false, 515), 'restart')
+  assert.equal(nextStep(false, true, 515), 'failed')
+  assert.equal(nextStep(true, true, 515), 'ignore')
+  assert.equal(nextStep(false, false, 401), 'failed')
 })

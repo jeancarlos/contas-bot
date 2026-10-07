@@ -12,6 +12,11 @@ export function closeOutcome(done: boolean, code: number | undefined): 'ignore' 
   return code === DisconnectReason.restartRequired ? 'restart' : 'failed'
 }
 
+export function nextStep(done: boolean, restarted: boolean, code: number | undefined): 'ignore' | 'restart' | 'failed' {
+  const out = closeOutcome(done, code)
+  return out === 'restart' && restarted ? 'failed' : out
+}
+
 export async function emptyDir(dir: string): Promise<void> {
   for (const name of await readdir(dir)) await rm(join(dir, name), { recursive: true, force: true })
 }
@@ -27,6 +32,7 @@ export async function pair(
   return new Promise(resolve => {
     let done = false
     let asked = false
+    let restarted = false
     const start = () => {
       const s = makeWASocket({ auth: state, logger, markOnlineOnConnect: false, syncFullHistory: false })
       const stop = (): void => {
@@ -50,14 +56,17 @@ export async function pair(
             },
             () => {
               stop()
-              resolve(true)
+              resolve(false)
             },
           )
         }
         if (u.connection === 'close') {
           const code = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode
-          const next = closeOutcome(done, code)
-          if (next === 'restart') start()
+          const next = nextStep(done, restarted, code)
+          if (next === 'restart') {
+            restarted = true
+            start()
+          }
           if (next === 'failed') emptyDir(authDir).then(() => resolve(false), () => resolve(false))
         }
       })

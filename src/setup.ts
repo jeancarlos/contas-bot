@@ -174,9 +174,10 @@ async function pairLoop(mode: Pairing, phone: string): Promise<void> {
         waiting()
       },
     })
-    ui.spin?.stop(ok ? tx.paired : tx.pairFailed)
+    ui.spin?.stop(ok ? tx.waiting : tx.pairFailed)
     if (ok) {
       p.outro(tx.paired)
+      setTimeout(() => process.exit(0), 3000).unref()
       return
     }
     if (!interactive || !check(await p.confirm({ message: tx.pairRetry }))) process.exit(1)

@@ -919,3 +919,102 @@ test('tick on a group that never onboarded tries again on the next tick after a 
   await bot.tick()
   assert.equal(store.get()._meta.last_reset, '2026-09')
 })
+
+test('a short payment phrase with an unknown bill gets a not-found with a suggestion', async () => {
+  const { bot, sent, store } = await setup()
+  await bot.onMessage(msg('pago lux'))
+  assert.match(must(sent.at(-1)).text, /não achei "lux", você quis dizer \*Luz\*\?/)
+  assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
+})
+
+test('long chatter starting with a payment word stays unanswered', async () => {
+  const { bot, sent } = await setup()
+  const before = sent.length
+  await bot.onMessage(msg('paguei o mercado hoje de manhã com o cartão'))
+  assert.equal(sent.length, before)
+})
+
+test('a bill literally named like a payment phrase is still paid', async () => {
+  const { bot, store } = await setup({ desc: 'Pago Luz\nÁgua' })
+  await bot.onMessage(msg('pago luz'))
+  assert.ok(store.get().months['2026-09']?.['pago luz'])
+})
+
+test('/pago with an ambiguous prefix suggests every candidate', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago a'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\* ou \*Aluguel\*\?/)
+})
+
+test('/despago with a typo suggests the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/despago aguaa'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\*\?/)
+})
+
+test('/pago alone asks for the bill with an example', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})
+
+test('/pago with only an amount asks for the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})
+
+test('/despago alone asks for the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/despago'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /despago luz')
+})
+
+test('/pago alone with a receipt still reads the receipt', async () => {
+  const { bot, store } = await setup({ verdict: { bill: 'Luz', amount: 80, confidence: 0.9 } })
+  await bot.onMessage(msg('/pago', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 80)
+})
+
+test('a mistyped command suggests the right one', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pgao luz'))
+  assert.equal(must(sent.at(-1)).text, 'não conheço /pgao, você quis dizer /pago? /help mostra todos.')
+})
+
+test('an unrelated unknown command still gets the generic help pointer', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/xyz'))
+  assert.equal(must(sent.at(-1)).text, 'não conheço esse comando. /help mostra todos.')
+})
+
+test('a bill named with a number is payable by that number', async () => {
+  const { bot, store, sent } = await setup({ desc: 'Luz\n101\nApartamento 101' })
+  await bot.onMessage(msg('/pago 101'))
+  await bot.onMessage(msg('/pago apartamento 101'))
+  await bot.onMessage(msg('/pago luz 80,00'))
+  const paid = store.get().months['2026-09']
+  assert.ok(paid['101'])
+  assert.ok(paid['apartamento 101'])
+  assert.equal(paid.luz.amount, 80)
+  assert.ok(!sent.some(s => /faltou a conta/.test(s.text)))
+})
+
+test('/pago with only an amount still asks for the bill', async () => {
+  const { bot, sent } = await setup({ desc: 'Luz\n101\nApartamento 101' })
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.match(must(sent.at(-1)).text, /faltou a conta: \/pago luz 80,00/)
+})
+
+for (const desc of [DESC, 'Luz\nInternet\nCondomínio']) {
+  test('plain payment chatter without a suggestion stays silent', async () => {
+    const { bot, store, sent } = await setup({ desc })
+    for (const text of ['paguei ontem', 'paguei sim', 'pago amanhã', 'paga aí', 'pago yo', 'paid it', 'paguei a internet hoje', 'paguei o condominio ontem', 'paguei luz R$ 80,00']) {
+      const before = sent.length
+      const month = JSON.stringify(store.get().months)
+      await bot.onMessage(msg(text))
+      assert.equal(sent.length, before, text)
+      assert.equal(JSON.stringify(store.get().months), month, text)
+    }
+  })
+}

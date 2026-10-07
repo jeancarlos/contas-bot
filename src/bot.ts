@@ -1,5 +1,5 @@
 import {
-  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, closestBills, paymentAttempt, renderList, monthKey,
+  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, closestBills, plainTextSuggestions, paymentAttempt, renderList, monthKey,
   splitDescription, renderSection, composeDescription, billLine, isGreeting, suggestCommand,
   type Bill,
 } from './bills.ts'
@@ -56,16 +56,18 @@ export function makeBot(deps: BotDeps) {
     return { key, paid: state().months[key] }
   }
   const billNames = () => bills.map(b => b.name)
-  const notFoundText = (q: string) => {
-    const near = closestBills(bills, q).map(b => b.name)
+  const notFoundText = (q: string, suggestions = closestBills(bills, q)) => {
+    const near = suggestions.map(b => b.name)
     return t.notFound(q, billNames().join(', '), near.length ? near : undefined)
   }
   // A bill named exactly like the whole /pago argument ("Apartamento 101") wins over name + amount.
   const wholeName = (arg: string) => bills.find(b => b.key === normalize(arg)) ?? null
 
+  let onboardingListSent = false
   async function postList() {
     const { key, paid } = month()
     const sentKey = await wa.sendText(renderList(key, bills, paid, loc))
+    onboardingListSent = true
     state()._meta.listed = true
     const prev = state()._meta.pinned
     try {
@@ -175,7 +177,7 @@ export function makeBot(deps: BotDeps) {
     switch (c.cmd) {
       case 'pago': {
         const whole = wholeName(c.full)
-        if (!whole && (!c.full.trim() || parseAmount(c.full, loc) !== null)) { await wa.sendText(t.missingBillPago, m.key); return true }
+        if (!whole && (!c.full.trim() || (parseAmount(c.full, loc) !== null && !resolveBill(bills, c.name)))) { await wa.sendText(t.missingBillPago, m.key); return true }
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const pending = pendingFor(m)
@@ -278,10 +280,10 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(t.intro)
       introduced = true
     }
-    await postList()
+    if (!onboardingListSent) await postList()
     // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
     meta.last_reset = monthKey(now())
-    await store.save()
+    try { await store.save() } catch (e) { delete meta.last_reset; throw e }
     log.info({ bills: billNames() }, 'group onboarded')
     return 'onboarded'
   }
@@ -326,7 +328,8 @@ export function makeBot(deps: BotDeps) {
           const bill = matchPlainText(bills, m.text)
           if (bill) return await markPaid(bill, null, m)
           const attempt = paymentAttempt(m.text)
-          if (attempt && closestBills(bills, attempt).length) { await wa.sendText(notFoundText(attempt), m.key); return }
+          const suggestions = attempt ? plainTextSuggestions(bills, attempt) : []
+          if (attempt && suggestions.length) { await wa.sendText(notFoundText(attempt, suggestions), m.key); return }
           if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
         await dispatch()

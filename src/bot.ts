@@ -174,8 +174,8 @@ export function makeBot(deps: BotDeps) {
     if (!c) return false
     switch (c.cmd) {
       case 'pago': {
-        if (!c.full.trim() || parseAmount(c.full, loc) !== null) { await wa.sendText(t.missingBillPago, m.key); return true }
         const whole = wholeName(c.full)
+        if (!whole && (!c.full.trim() || parseAmount(c.full, loc) !== null)) { await wa.sendText(t.missingBillPago, m.key); return true }
         const bill = whole ?? resolveBill(bills, c.name)
         if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const pending = pendingFor(m)
@@ -326,7 +326,7 @@ export function makeBot(deps: BotDeps) {
           const bill = matchPlainText(bills, m.text)
           if (bill) return await markPaid(bill, null, m)
           const attempt = paymentAttempt(m.text)
-          if (attempt) { await wa.sendText(notFoundText(attempt), m.key); return }
+          if (attempt && closestBills(bills, attempt).length) { await wa.sendText(notFoundText(attempt), m.key); return }
           if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
         await dispatch()

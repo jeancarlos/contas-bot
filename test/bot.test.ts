@@ -987,3 +987,34 @@ test('an unrelated unknown command still gets the generic help pointer', async (
   await bot.onMessage(msg('/xyz'))
   assert.equal(must(sent.at(-1)).text, 'não conheço esse comando. /help mostra todos.')
 })
+
+test('a bill named with a number is payable by that number', async () => {
+  const { bot, store, sent } = await setup({ desc: 'Luz\n101\nApartamento 101' })
+  await bot.onMessage(msg('/pago 101'))
+  await bot.onMessage(msg('/pago apartamento 101'))
+  await bot.onMessage(msg('/pago luz 80,00'))
+  const paid = store.get().months['2026-09']
+  assert.ok(paid['101'])
+  assert.ok(paid['apartamento 101'])
+  assert.equal(paid.luz.amount, 80)
+  assert.ok(!sent.some(s => /faltou a conta/.test(s.text)))
+})
+
+test('/pago with only an amount still asks for the bill', async () => {
+  const { bot, sent } = await setup({ desc: 'Luz\n101\nApartamento 101' })
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.match(must(sent.at(-1)).text, /faltou a conta: \/pago luz 80,00/)
+})
+
+for (const desc of [DESC, 'Luz\nInternet\nCondomínio']) {
+  test('plain payment chatter without a suggestion stays silent', async () => {
+    const { bot, store, sent } = await setup({ desc })
+    for (const text of ['paguei ontem', 'paguei sim', 'pago amanhã', 'paga aí', 'pago yo', 'paid it', 'paguei a internet hoje', 'paguei o condominio ontem', 'paguei luz R$ 80,00']) {
+      const before = sent.length
+      const month = JSON.stringify(store.get().months)
+      await bot.onMessage(msg(text))
+      assert.equal(sent.length, before, text)
+      assert.equal(JSON.stringify(store.get().months), month, text)
+    }
+  })
+}

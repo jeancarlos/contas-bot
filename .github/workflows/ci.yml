@@ -19,7 +19,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh
+      - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh install.sh bin/contas-bot test/smoke-install.sh
+      - run: sh test/smoke-install.sh
 
   branch-name:
     if: github.event_name == 'pull_request'

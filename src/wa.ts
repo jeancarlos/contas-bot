@@ -30,6 +30,11 @@ type Handlers = Pick<Cfg, 'onOpen' | 'onJoined' | 'onMessage' | 'onDescription' 
 // bot sat on a dead code forever; a timestamp both throttles and expires.
 const PAIRING_CODE_TTL_MS = 180_000
 let pairingCodeAt = 0
+let idle = false
+
+export function pairingAction(phone: string): 'code' | 'unpaired' {
+  return phone ? 'code' : 'unpaired'
+}
 let reconnects = 0
 // Receipts are buffered whole in memory; anything bigger is not a receipt.
 const MAX_RECEIPT = 16 * 1024 * 1024
@@ -216,6 +221,14 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
       // raced the 428 close WhatsApp sends to unregistered sockets, and the throw
       // out of that floating timer took the process down on every restart. The qr
       // event is the signal that the socket is up and still unregistered.
+      if (u.qr && !state.creds.registered && pairingAction(cfg.phone) === 'unpaired') {
+        if (!idle) {
+          idle = true
+          cfg.log.warn('not paired: run the installer again to pair')
+          await s.end(undefined)
+        }
+        return
+      }
       if (u.qr && !state.creds.registered && Date.now() - pairingCodeAt > PAIRING_CODE_TTL_MS) {
         pairingCodeAt = Date.now()
         try {
@@ -232,13 +245,15 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         await handleOpen(s, cfg, on.onOpen)
       }
       if (u.connection === 'close') {
+        if (idle) return
         const code = (u.lastDisconnect?.error as Boom | undefined)?.output?.statusCode
         if (code === DisconnectReason.loggedOut) {
           // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
           cfg.log.error('logged out: wiping auth, restart pairs again')
           await wipeAuth()
           if (!state.creds.registered) {
-            cfg.log.warn('pairing code expired unused: idle until `docker restart contas-bot`')
+            cfg.log.warn('session ended unpaired: run the installer again, or docker restart contas-bot for a new pairing code')
+            idle = true
             return
           }
           // Back off before the restart: rapid re-pairing gets the number rate-limited

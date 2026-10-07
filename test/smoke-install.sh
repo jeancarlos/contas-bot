@@ -21,7 +21,8 @@ grep -qx 'LLM_BASE_URL=' "$env_file"
 [ -x "$work/bot/contas-bot" ] && [ -L "$HOME/.local/bin/contas-bot" ]
 (cd "$work/bot" && docker compose config -q)
 before=$(cat "$env_file")
-run
+out=$(run)
 [ "$(cat "$env_file")" = "$before" ]
+printf '%s\n' "$out" | grep -qF "rm -rf '$work/bot'"
 "$HOME/.local/bin/contas-bot" status | grep -q 'contas-bot'
 echo "smoke ok"

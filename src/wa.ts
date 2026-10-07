@@ -224,7 +224,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
       if (u.qr && !state.creds.registered && pairingAction(cfg.phone) === 'unpaired') {
         if (!idle) {
           idle = true
-          cfg.log.warn('not paired: run the installer again (or docker restart contas-bot for a new pairing code)')
+          cfg.log.warn('not paired: run the installer again to pair')
           await s.end(undefined)
         }
         return
@@ -252,7 +252,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
           cfg.log.error('logged out: wiping auth, restart pairs again')
           await wipeAuth()
           if (!state.creds.registered) {
-            cfg.log.warn('pairing code expired unused: idle until `docker restart contas-bot`')
+            cfg.log.warn('session ended unpaired: run the installer again, or docker restart contas-bot for a new pairing code')
             idle = true
             return
           }

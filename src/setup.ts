@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts'
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Lang } from './i18n.ts'
 import {
@@ -8,7 +8,7 @@ import {
   type Answers, type Pairing,
 } from './setup/core.ts'
 import { SETUP_TEXT, type SetupText } from './setup/i18n.ts'
-import { pair } from './setup/pair.ts'
+import { pair, qrHtml, renderQrSvg } from './setup/pair.ts'
 
 const DIR = process.env.CONTAS_BOT_SETUP_DIR ?? '/setup'
 const VERSION = process.env.APP_VERSION ?? 'dev'
@@ -177,10 +177,11 @@ async function pairLoop(mode: Pairing, phone: string): Promise<void> {
       ui.spin.start(tx.waiting)
     }
     const ok = await pair(join(DIR, 'auth'), mode, phone, {
-      qr: ascii => {
+      qr: (ascii, raw) => {
         ui.spin?.stop()
         if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[H')
-        p.note(`${ascii}\n${tx.qrSteps}`, frame)
+        p.note(`${ascii}\n${tx.qrSteps}\n${tx.qrFile(process.env.CONTAS_BOT_HOST_DIR ? join(process.env.CONTAS_BOT_HOST_DIR, 'qr.html') : 'qr.html')}`, frame)
+        renderQrSvg(raw).then(svg => writeFile(join(DIR, 'qr.html'), qrHtml(svg))).catch(() => {})
         waiting()
       },
       code: code => {
@@ -190,6 +191,7 @@ async function pairLoop(mode: Pairing, phone: string): Promise<void> {
       },
     })
     ui.spin?.stop(ok ? tx.waiting : tx.pairFailed)
+    await rm(join(DIR, 'qr.html'), { force: true })
     if (ok) {
       p.outro(tx.paired)
       setTimeout(() => process.exit(0), 3000).unref()

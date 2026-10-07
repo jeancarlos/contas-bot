@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normalizePhone, validGroup, defaultCurrency, resolveAi, buildEnv, parseEnv, composeFile, imageTag,
-  paired, detectMode, answersFromEnv, withDefaults, missingAnswers, probeAi, type Answers,
+  paired, detectMode, answersFromEnv, answersFromDotenv, mergeAnswers, keyFor, savedIds, AI_PRESETS, withDefaults, missingAnswers, probeAi, type Answers,
 } from '../src/setup/core.ts'
 
 const base: Answers = {
@@ -96,4 +96,56 @@ test('probeAi is true only for a 2xx /models answer and sends the key', async ()
   assert.equal(await probeAi({ url: 'http://h/v1', key: 'k' }, no), false)
   const down = (async () => { throw new Error('ECONNREFUSED') }) as typeof fetch
   assert.equal(await probeAi({ url: 'http://h/v1', key: '' }, down), false)
+})
+
+test('answersFromDotenv maps the plain fields and ignores invalid ones', () => {
+  const a = answersFromDotenv({ BOT_LANG: 'es', BOT_CURRENCY: 'eur', PAIRING_MODE: 'code', BOT_PHONE: '5511900000000', GROUP_INVITE_LINKS: 'https://chat.whatsapp.com/x', TZ: 'Europe/Madrid', LLM_BASE_URL: '' })
+  assert.deepEqual(a, { lang: 'es', currency: 'EUR', pairing: 'code', phone: '5511900000000', group: 'https://chat.whatsapp.com/x', tz: 'Europe/Madrid', ai: 'none' })
+  const bad = answersFromDotenv({ BOT_LANG: 'fr', BOT_CURRENCY: 'XX', PAIRING_MODE: 'x', BOT_PHONE: '', LLM_BASE_URL: '' })
+  assert.deepEqual(bad, { ai: 'none' })
+})
+test('answersFromDotenv recognises the AI provider from the base URL', () => {
+  assert.equal(answersFromDotenv({ LLM_BASE_URL: AI_PRESETS.gemini.url, LLM_API_KEY: 'k' }).ai, 'gemini')
+  assert.equal(answersFromDotenv({ LLM_BASE_URL: AI_PRESETS.openai.url, LLM_API_KEY: 'k' }).ai, 'openai')
+  assert.equal(answersFromDotenv({ LLM_BASE_URL: AI_PRESETS.openai.url, LLM_API_KEY: 'k' }).llmKey, 'k')
+  const c = answersFromDotenv({ LLM_BASE_URL: 'http://h:1/v1', LLM_VISION_MODEL: 'm', LLM_API_KEY: '' })
+  assert.deepEqual(c, { ai: 'custom', llmUrl: 'http://h:1/v1', visionModel: 'm' })
+})
+test('mergeAnswers: first defined layer wins per key', () => {
+  const m = mergeAnswers({ lang: 'en' }, { lang: 'es', currency: 'EUR', llmKey: '' }, { currency: 'BRL', llmKey: 'k', tz: 'UTC' })
+  assert.deepEqual(m, { lang: 'en', currency: 'EUR', llmKey: '', tz: 'UTC' })
+  assert.deepEqual(mergeAnswers({ lang: undefined }, { lang: 'es' }), { lang: 'es' })
+})
+test('buildEnv -> parseEnv -> answersFromDotenv round-trips every field', () => {
+  const cases: Answers[] = [
+    { ...base, ai: 'gemini', llmKey: 'g' },
+    { ...base, ai: 'openai', llmKey: 'o', pairing: 'code', phone: '5511900000000', group: 'https://chat.whatsapp.com/z' },
+    { ...base, ai: 'custom', llmUrl: 'http://h:1/v1', llmKey: 'c', visionModel: 'vm', lang: 'en', currency: 'USD', tz: 'UTC' },
+    { ...base, ai: 'none', llmKey: '' },
+  ]
+  for (const a of cases) {
+    const back = answersFromDotenv(parseEnv(buildEnv(a, 1000, 1000)))
+    const want: Partial<Answers> = { lang: a.lang, currency: a.currency, pairing: a.pairing, group: a.group, tz: a.tz, ai: a.ai }
+    if (a.phone) want.phone = a.phone
+    if (a.llmKey) want.llmKey = a.llmKey
+    if (a.ai === 'custom') { want.llmUrl = a.llmUrl; want.visionModel = a.visionModel }
+    assert.deepEqual(back, want)
+  }
+})
+
+test('keyFor keeps a key only for the provider it came from', () => {
+  const src = { ai: 'gemini' as const, llmKey: 'k' }
+  assert.equal(keyFor({ ai: 'gemini' }, src), 'k')
+  assert.equal(keyFor({ ai: 'openai' }, src), undefined)
+  assert.equal(keyFor({ ai: 'gemini' }, undefined), undefined)
+  assert.equal(keyFor({ ai: 'gemini' }, { ai: 'gemini' }), undefined)
+  const c = { ai: 'custom' as const, llmUrl: 'http://h:1/v1', llmKey: 'c' }
+  assert.equal(keyFor({ ai: 'custom', llmUrl: 'http://h:1/v1/' }, c), 'c')
+  assert.equal(keyFor({ ai: 'custom', llmUrl: 'http://other/v1' }, c), undefined)
+  assert.equal(keyFor({ ai: 'gemini' }, c), undefined)
+})
+test('savedIds reuses numeric PUID/PGID and falls back otherwise', () => {
+  assert.deepEqual(savedIds({ PUID: '1234', PGID: '99' }, 1000, 1001), [1234, 99])
+  assert.deepEqual(savedIds({ PUID: 'x' }, 1000, 1001), [1000, 1001])
+  assert.deepEqual(savedIds({}, 1000, 1001), [1000, 1001])
 })

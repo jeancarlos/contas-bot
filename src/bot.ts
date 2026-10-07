@@ -1,5 +1,5 @@
 import {
-  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, renderList, monthKey,
+  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, closestBills, paymentAttempt, renderList, monthKey,
   splitDescription, renderSection, composeDescription, billLine, isGreeting,
   type Bill,
 } from './bills.ts'
@@ -56,6 +56,10 @@ export function makeBot(deps: BotDeps) {
     return { key, paid: state().months[key] }
   }
   const billNames = () => bills.map(b => b.name)
+  const notFoundText = (q: string) => {
+    const near = closestBills(bills, q).map(b => b.name)
+    return t.notFound(q, billNames().join(', '), near.length ? near : undefined)
+  }
   // A bill named exactly like the whole /pago argument ("Apartamento 101") wins over name + amount.
   const wholeName = (arg: string) => bills.find(b => b.key === normalize(arg)) ?? null
 
@@ -172,14 +176,14 @@ export function makeBot(deps: BotDeps) {
       case 'pago': {
         const whole = wholeName(c.full)
         const bill = whole ?? resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
+        if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const pending = pendingFor(m)
         await markPaid(bill, whole && c.amount != null ? pending : c.amount ?? pending, m)
         return true
       }
       case 'despago': {
         const bill = resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
+        if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const { paid } = month()
         const removed = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
         delete paid[bill.key]
@@ -209,7 +213,7 @@ export function makeBot(deps: BotDeps) {
     const named = !whole && pago && pago.name && parseAmount(pago.name, loc) === null ? pago.name : null
     const known = whole ?? (named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text))
     // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
-    if (named && !known) { await wa.sendText(t.notFound(named, billNames().join(', ')), m.key); return }
+    if (named && !known) { await wa.sendText(notFoundText(named), m.key); return }
     const media = m.media
     if (!media) throw new Error('receipt flow entered without media')
     let image: Buffer
@@ -315,6 +319,8 @@ export function makeBot(deps: BotDeps) {
           if (await handleCommand(m)) return
           const bill = matchPlainText(bills, m.text)
           if (bill) return await markPaid(bill, null, m)
+          const attempt = paymentAttempt(m.text)
+          if (attempt) { await wa.sendText(notFoundText(attempt), m.key); return }
           if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
         await dispatch()

@@ -24,7 +24,7 @@ function fakeWa(opts: Opts): Wa {
   }
 }
 
-const fakeLlm: Llm = { async interpretCaption() { return null }, async readReceipt() { return null } }
+const fakeLlm: Llm = { enabled: true, async readReceipt() { return null } }
 
 const msg = (id: string, text: string): Incoming => ({
   key: { id, fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net' },

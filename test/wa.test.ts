@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, participantsIncludeSelf, wireGroupEvents, handleOpen } from '../src/wa.ts'
+import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, participantsIncludeSelf, wireGroupEvents, handleOpen, pairingAction } from '../src/wa.ts'
 import { openState, cachedGroupsForCodes } from '../src/state.ts'
 import type { Incoming } from '../src/bot.ts'
 import type { Payment } from '../src/bills.ts'
@@ -488,4 +488,9 @@ test('resolveInviteCodes drops a resolved code, so a reconnect cannot re-add a g
   jids.delete('new@g.us')
   await resolveInviteCodes(s, cfg, codes)
   assert.deepEqual([...jids], [])
+})
+
+test('an unpaired bot without BOT_PHONE never asks for a pairing code', () => {
+  assert.equal(pairingAction(''), 'unpaired')
+  assert.equal(pairingAction('5511900000000'), 'code')
 })

@@ -1,3 +1,4 @@
+import { parseGroupJids } from '../wa.ts'
 import type { Lang } from '../i18n.ts'
 
 export type Ai = 'gemini' | 'openai' | 'custom' | 'none'
@@ -18,7 +19,9 @@ export const AI_PRESETS = {
 export const defaultCurrency = (lang: Lang): string => (lang === 'pt-BR' ? 'BRL' : lang === 'en' ? 'USD' : 'EUR')
 export const validCurrency = (s: string): boolean => /^[A-Za-z]{3}$/.test(s.trim())
 export const validUrl = (s: string): boolean => /^https?:\/\/\S+$/.test(s.trim())
-export const validGroup = (link: string): boolean => link.trim() === '' || /chat\.whatsapp\.com\/\S+/.test(link.trim())
+export function validGroup(raw: string): boolean {
+  try { parseGroupJids(raw); return true } catch { return false }
+}
 
 export function normalizePhone(raw: string): string | null {
   const d = raw.replace(/[\s+().-]/g, '')

@@ -21,9 +21,17 @@ main() {
     "🐳 Docker isn't running, or your user can't use it. Start Docker and run this again." \
     "🐳 Docker no está corriendo, o tu usuario no puede usarlo. Abre Docker y vuelve a ejecutar."
 
+  case "$(docker info -f '{{.SecurityOptions}}' 2>/dev/null)" in *rootless*) say \
+    "⚠️ Docker rootless não é suportado (mapeamento de uid nos volumes). Use o Docker Engine padrão." \
+    "⚠️ Rootless Docker is not supported (bind-mount uid mapping). Use the standard Docker Engine." \
+    "⚠️ Docker rootless no está soportado (mapeo de uid en los volúmenes). Usa el Docker Engine estándar." >&2 ;; esac
   mkdir -p "$DIR"
-  [ "${CONTAS_BOT_NO_START:-}" = 1 ] || [ ! -f "$DIR/docker-compose.yml" ] || (cd "$DIR" && docker compose stop)
   [ -n "${CONTAS_BOT_IMAGE:-}" ] || docker pull -q "$IMAGE" >/dev/null
+  if [ "${CONTAS_BOT_NO_START:-}" != 1 ] && [ -f "$DIR/docker-compose.yml" ]; then
+    status=0
+    trap 'status=$?; (cd "$DIR" && docker compose up -d) >/dev/null 2>&1 || true; exit "$status"' EXIT
+    (cd "$DIR" && docker compose stop)
+  fi
 
   tz=${CONTAS_BOT_TZ:-}
   [ -n "$tz" ] || tz=$(cat /etc/timezone 2>/dev/null || true)
@@ -39,6 +47,7 @@ main() {
     "$@" -i "$IMAGE" node src/setup.ts </dev/null
   fi
 
+  trap - EXIT
   [ "${CONTAS_BOT_NO_START:-}" = 1 ] || (cd "$DIR" && docker compose up -d)
 
   mkdir -p "$HOME/.local/bin"

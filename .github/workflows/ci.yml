@@ -13,11 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run check
       - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh install.sh bin/contas-bot test/smoke-install.sh
       - run: sh test/smoke-install.sh

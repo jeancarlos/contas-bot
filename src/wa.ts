@@ -1,7 +1,7 @@
 import makeWASocket, {
   DisconnectReason, downloadMediaMessage, useMultiFileAuthState, makeCacheableSignalKeyStore,
   jidNormalizedUser,
-  type WAMessage, type WAMessageKey, normalizeMessageContent,
+  type WAMessage, type WAMessageKey, type WAVersion, normalizeMessageContent,
 } from '@whiskeysockets/baileys'
 import { waVersionOnce } from './waVersion.ts'
 import { readdir, rm } from 'node:fs/promises'
@@ -206,16 +206,23 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
   const on = gate(cfg.groups, { onOpen, onJoined, onMessage, onDescription, onRemoved })
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
-  const wa = await waVersionOnce()
-  if (wa.live) cfg.log.info({ version: wa.version.join('.') }, 'announcing current WhatsApp Web version')
-  else cfg.log.warn({ version: wa.version.join('.') }, 'could not fetch the current WhatsApp Web version; using the bundled one')
-  let sock = start()
-
-  function start() {
+  let announced = ''
+  const resolveVersion = async () => {
+    const wa = await waVersionOnce()
+    const v = wa.version.join('.')
+    if (v + wa.live !== announced) {
+      announced = v + wa.live
+      if (wa.live) cfg.log.info({ version: v }, 'announcing current WhatsApp Web version')
+      else cfg.log.warn({ version: v }, 'could not fetch the current WhatsApp Web version; using the bundled one')
+    }
+    return wa.version
+  }
+  let sock = start(await resolveVersion())
+  function start(version: WAVersion) {
     const s = makeWASocket({
       auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, sockLog) },
       logger: sockLog,
-      version: wa.version,
+      version,
       markOnlineOnConnect: false,
       syncFullHistory: false,
     })
@@ -269,7 +276,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         }
         const delay = code === DisconnectReason.restartRequired ? 3000 : Math.min(3000 * 2 ** reconnects++, 300_000)
         cfg.log.warn({ code, delay }, 'connection closed, reconnecting')
-        setTimeout(() => { sock = start() }, delay)
+        setTimeout(() => { resolveVersion().then(v => { sock = start(v) }).catch(err => { cfg.log.fatal({ err }, 'reconnect failed, exiting so the container restarts'); process.exit(1) }) }, delay)
       }
     } catch (e) { cfg.log.error({ err: e }, 'connection.update handler failed') } })
     wireGroupEvents(s.ev, on, self, cfg)

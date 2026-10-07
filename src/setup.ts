@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts'
-import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Lang } from './i18n.ts'
 import {
@@ -142,7 +142,7 @@ async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>
 }
 
 async function main() {
-  process.on('SIGINT', () => process.exit(130))
+  process.on('SIGINT', () => { dropQr().then(() => process.exit(130), () => process.exit(130)) })
   const envText = await read('.env')
   const mode = detectMode(envText !== null, await read('auth/creds.json'))
   const saved = envText ? parseEnv(envText) : {}
@@ -168,9 +168,28 @@ async function main() {
   await pairLoop(env.PAIRING_MODE === 'code' ? 'code' : 'qr', env.BOT_PHONE ?? '')
 }
 
+let qrChain: Promise<unknown> = Promise.resolve()
+let qrOpen = true
+const qrFile = () => join(DIR, 'qr.html')
+function writeQr(html: string) {
+  if (!qrOpen) return
+  qrChain = qrChain.then(async () => {
+    if (!qrOpen) return
+    const tmp = `${qrFile()}.tmp`
+    await writeFile(tmp, html, { mode: 0o600 })
+    await rename(tmp, qrFile())
+  }).catch(() => {})
+}
+async function dropQr() {
+  qrOpen = false
+  await qrChain
+  await rm(qrFile(), { force: true })
+  await rm(`${qrFile()}.tmp`, { force: true })
+}
 async function pairLoop(mode: Pairing, phone: string): Promise<void> {
   const frame = '──── 🤖 contas-bot ────'
   for (;;) {
+    qrOpen = true
     const ui: { spin: ReturnType<typeof p.spinner> | null } = { spin: null }
     const waiting = () => {
       ui.spin = p.spinner()
@@ -181,7 +200,7 @@ async function pairLoop(mode: Pairing, phone: string): Promise<void> {
         ui.spin?.stop()
         if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[H')
         p.note(`${ascii}\n${tx.qrSteps}\n${tx.qrFile(process.env.CONTAS_BOT_HOST_DIR ? join(process.env.CONTAS_BOT_HOST_DIR, 'qr.html') : 'qr.html')}`, frame)
-        renderQrSvg(raw).then(svg => writeFile(join(DIR, 'qr.html'), qrHtml(svg))).catch(() => {})
+        renderQrSvg(raw).then(svg => writeQr(qrHtml(svg))).catch(() => {})
         waiting()
       },
       code: code => {
@@ -191,7 +210,7 @@ async function pairLoop(mode: Pairing, phone: string): Promise<void> {
       },
     })
     ui.spin?.stop(ok ? tx.waiting : tx.pairFailed)
-    await rm(join(DIR, 'qr.html'), { force: true })
+    await dropQr()
     if (ok) {
       p.outro(tx.paired)
       setTimeout(() => process.exit(0), 3000).unref()

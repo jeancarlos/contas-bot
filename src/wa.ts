@@ -3,6 +3,7 @@ import makeWASocket, {
   jidNormalizedUser,
   type WAMessage, type WAMessageKey, normalizeMessageContent,
 } from '@whiskeysockets/baileys'
+import { waVersionOnce } from './waVersion.ts'
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Boom } from '@hapi/boom'
@@ -205,12 +206,16 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
   const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
   const on = gate(cfg.groups, { onOpen, onJoined, onMessage, onDescription, onRemoved })
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
+  const wa = await waVersionOnce()
+  if (wa.live) cfg.log.info({ version: wa.version.join('.') }, 'announcing current WhatsApp Web version')
+  else cfg.log.warn({ version: wa.version.join('.') }, 'could not fetch the current WhatsApp Web version; using the bundled one')
   let sock = start()
 
   function start() {
     const s = makeWASocket({
       auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, sockLog) },
       logger: sockLog,
+      version: wa.version,
       markOnlineOnConnect: false,
       syncFullHistory: false,
     })

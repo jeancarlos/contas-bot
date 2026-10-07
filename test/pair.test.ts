@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { closeOutcome, emptyDir, nextStep, renderQr } from '../src/setup/pair.ts'
+import { closeOutcome, emptyDir, nextStep, qrHtml, renderQr, renderQrSvg } from '../src/setup/pair.ts'
 
 test('renderQr draws a multi-line block QR', async () => {
   const s = await renderQr('2@abc,def,ghi')
@@ -35,4 +35,11 @@ test('restartRequired restarts once; a second one fails', () => {
   assert.equal(nextStep(false, true, 515), 'failed')
   assert.equal(nextStep(true, true, 515), 'ignore')
   assert.equal(nextStep(false, false, 401), 'failed')
+})
+test('renderQrSvg returns an svg', async () => {
+  assert.ok((await renderQrSvg('2@abc,def,ghi')).includes('<svg'))
+})
+test('qrHtml refreshes and embeds the svg on white', () => {
+  const h = qrHtml('<svg></svg>')
+  assert.ok(h.includes('http-equiv="refresh" content="2"') && h.includes('<svg></svg>') && h.includes('#fff'))
 })

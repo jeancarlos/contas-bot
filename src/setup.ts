@@ -8,6 +8,7 @@ import {
   type Answers, type Pairing,
 } from './setup/core.ts'
 import { SETUP_TEXT, type SetupText } from './setup/i18n.ts'
+import { pair } from './setup/pair.ts'
 
 const DIR = process.env.CONTAS_BOT_SETUP_DIR ?? '/setup'
 const VERSION = process.env.APP_VERSION ?? 'dev'
@@ -152,8 +153,34 @@ async function main() {
   await pairLoop(env.PAIRING_MODE === 'code' ? 'code' : 'qr', env.BOT_PHONE ?? '')
 }
 
-async function pairLoop(_mode: Pairing, _phone: string): Promise<void> {
-  p.outro(tx.saved)
+async function pairLoop(mode: Pairing, phone: string): Promise<void> {
+  const frame = '──── 🤖 contas-bot ────'
+  for (;;) {
+    const ui: { spin: ReturnType<typeof p.spinner> | null } = { spin: null }
+    const waiting = () => {
+      ui.spin = p.spinner()
+      ui.spin.start(tx.waiting)
+    }
+    const ok = await pair(join(DIR, 'auth'), mode, phone, {
+      qr: ascii => {
+        ui.spin?.stop()
+        if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[H')
+        p.note(`${ascii}\n${tx.qrSteps}`, frame)
+        waiting()
+      },
+      code: code => {
+        ui.spin?.stop()
+        p.note(`${code.slice(0, 4)}-${code.slice(4)}\n\n${tx.codeSteps}`, frame)
+        waiting()
+      },
+    })
+    ui.spin?.stop(ok ? tx.paired : tx.pairFailed)
+    if (ok) {
+      p.outro(tx.paired)
+      return
+    }
+    if (!interactive || !check(await p.confirm({ message: tx.pairRetry }))) process.exit(1)
+  }
 }
 
 await main()

@@ -10,6 +10,7 @@ export type SetupText = {
   aiChecking: string; aiOk: string; aiFailed: string; aiRetry: string
   group: string; groupInvalid: string
   summary: string; confirm: string; saved: string
+  existingTitle: string; existingAsk: string; keep: string; review: string; keyKept: string
   qrSteps: string; codeSteps: string; waiting: string; paired: string; pairFailed: string; pairRetry: string
   updated: (from: string, to: string) => string
   cancelled: string
@@ -28,6 +29,7 @@ const pt: SetupText = {
   aiChecking: 'Testando a IA…', aiOk: '✅ A IA respondeu', aiFailed: '⚠️ A IA não respondeu com essa chave/URL', aiRetry: 'Corrigir agora?',
   group: 'Link de convite do grupo (opcional, Enter pula)', groupInvalid: 'cole um link chat.whatsapp.com ou deixe vazio',
   summary: 'Confira', confirm: 'Gravar e continuar?', saved: '✅ Configuração gravada',
+  existingTitle: '📋 Configuração atual', existingAsk: 'O que fazer com ela?', keep: 'Manter', review: 'Revisar', keyKept: 'Enter mantém a chave atual',
   qrSteps: '📱 No celular do bot: WhatsApp → Aparelhos conectados → Conectar um aparelho → aponte a câmera para o QR',
   codeSteps: '📱 No celular do bot: WhatsApp → Aparelhos conectados → Conectar um aparelho → NÃO escaneie o QR: toque em "Conectar com número de telefone" e digite o código',
   waiting: 'esperando o celular…', paired: '✅ Conectado! O bot vai subir agora.',
@@ -49,6 +51,7 @@ const en: SetupText = {
   aiChecking: 'Testing the AI…', aiOk: '✅ The AI answered', aiFailed: "⚠️ The AI didn't answer with that key/URL", aiRetry: 'Fix it now?',
   group: 'Group invite link (optional, Enter skips)', groupInvalid: 'paste a chat.whatsapp.com link or leave it empty',
   summary: 'Review', confirm: 'Save and continue?', saved: '✅ Settings saved',
+  existingTitle: '📋 Current settings', existingAsk: 'What to do with them?', keep: 'Keep', review: 'Review', keyKept: 'Enter keeps the current key',
   qrSteps: "📱 On the bot's phone: WhatsApp → Linked devices → Link a device → point the camera at the QR",
   codeSteps: `📱 On the bot's phone: WhatsApp → Linked devices → Link a device → DON'T scan: tap "Link with phone number instead" and type the code`,
   waiting: 'waiting for the phone…', paired: '✅ Connected! Starting the bot now.',
@@ -70,6 +73,7 @@ const es: SetupText = {
   aiChecking: 'Probando la IA…', aiOk: '✅ La IA respondió', aiFailed: '⚠️ La IA no respondió con esa clave/URL', aiRetry: '¿Corregir ahora?',
   group: 'Enlace de invitación del grupo (opcional, Enter salta)', groupInvalid: 'pega un enlace chat.whatsapp.com o déjalo vacío',
   summary: 'Revisa', confirm: '¿Guardar y continuar?', saved: '✅ Configuración guardada',
+  existingTitle: '📋 Configuración actual', existingAsk: '¿Qué hacemos con ella?', keep: 'Mantener', review: 'Revisar', keyKept: 'Enter conserva la clave actual',
   qrSteps: '📱 En el teléfono del bot: WhatsApp → Dispositivos vinculados → Vincular un dispositivo → apunta la cámara al QR',
   codeSteps: '📱 En el teléfono del bot: WhatsApp → Dispositivos vinculados → Vincular un dispositivo → NO escanees: toca "Vincular con el número de teléfono" y escribe el código',
   waiting: 'esperando el teléfono…', paired: '✅ ¡Conectado! El bot arranca ahora.',

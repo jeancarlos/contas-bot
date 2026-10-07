@@ -57,7 +57,7 @@ const onRemoved = (jid: string) => {
 
 wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
-  phone: env('BOT_PHONE'),
+  phone: process.env.BOT_PHONE ?? '',
   groups: groupJids,
   inviteCodes: cached.toResolve,
   log,

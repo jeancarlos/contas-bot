@@ -122,7 +122,7 @@ async function install(): Promise<Answers> {
     a = filled as Answers
   }
   tx = SETUP_TEXT[a.lang]
-  await mkdir(join(DIR, 'auth'), { recursive: true })
+  await ensureAuthDir()
   await mkdir(join(DIR, 'data'), { recursive: true })
   await writeFile(join(DIR, '.env'), buildEnv(a, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000), { mode: 0o600 })
   await chmod(join(DIR, '.env'), 0o600)
@@ -131,7 +131,12 @@ async function install(): Promise<Answers> {
   return a
 }
 
+async function ensureAuthDir() {
+  await mkdir(join(DIR, 'auth'), { recursive: true, mode: 0o700 })
+  await chmod(join(DIR, 'auth'), 0o700)
+}
 async function main() {
+  process.on('SIGINT', () => process.exit(130))
   const envText = await read('.env')
   const mode = detectMode(envText !== null, await read('auth/creds.json'))
   const saved = envText ? parseEnv(envText) : {}
@@ -144,7 +149,7 @@ async function main() {
     return
   }
   if (mode === 'install') await install()
-  else await mkdir(join(DIR, 'auth'), { recursive: true })
+  else await ensureAuthDir()
   if (process.env.CONTAS_BOT_NO_PAIR === '1') {
     p.outro(tx.saved)
     return

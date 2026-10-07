@@ -27,7 +27,7 @@ export function makeLlm(cfg: Cfg): Llm {
     try {
       const res = await fetchFn(`${cfg.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
+        headers: { 'content-type': 'application/json', ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}) },
         body: JSON.stringify({
           model, stream: false, temperature: 0,
           messages: [{ role: 'system', content: system }, { role: 'user', content }],

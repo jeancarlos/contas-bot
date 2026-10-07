@@ -130,6 +130,41 @@ export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
   return a
 }
 
+export function answersFromDotenv(env: Record<string, string>): Partial<Answers> {
+  const a: Partial<Answers> = {}
+  if ((LANGS as string[]).includes(env.BOT_LANG ?? '')) a.lang = env.BOT_LANG as Lang
+  if (env.BOT_CURRENCY && validCurrency(env.BOT_CURRENCY)) a.currency = env.BOT_CURRENCY.toUpperCase()
+  if (env.PAIRING_MODE === 'qr' || env.PAIRING_MODE === 'code') a.pairing = env.PAIRING_MODE
+  if (env.BOT_PHONE) a.phone = env.BOT_PHONE
+  if (env.GROUP_INVITE_LINKS !== undefined) a.group = env.GROUP_INVITE_LINKS
+  if (env.TZ !== undefined) a.tz = env.TZ
+  const url = env.LLM_BASE_URL
+  if (url !== undefined) {
+    if (url === '') a.ai = 'none'
+    else if (url === AI_PRESETS.gemini.url) a.ai = 'gemini'
+    else if (url === AI_PRESETS.openai.url) a.ai = 'openai'
+    else { a.ai = 'custom'; a.llmUrl = url; a.visionModel = env.LLM_VISION_MODEL ?? '' }
+  }
+  if (env.LLM_API_KEY) a.llmKey = env.LLM_API_KEY
+  return a
+}
+export function mergeAnswers(...layers: Partial<Answers>[]): Partial<Answers> {
+  const out: Record<string, unknown> = {}
+  for (const layer of [...layers].reverse()) {
+    for (const [k, val] of Object.entries(layer)) if (val !== undefined) out[k] = val
+  }
+  return out as Partial<Answers>
+}
+const trimUrl = (u: string | undefined): string => (u ?? '').trim().replace(/\/+$/, '')
+export function keyFor(chosen: { ai: Ai; llmUrl?: string }, source: { ai?: Ai; llmUrl?: string; llmKey?: string } | undefined): string | undefined {
+  if (!source?.llmKey || chosen.ai !== source.ai) return undefined
+  if (chosen.ai === 'custom' && trimUrl(chosen.llmUrl) !== trimUrl(source.llmUrl)) return undefined
+  return source.llmKey
+}
+export function savedIds(saved: Record<string, string>, uid: number, gid: number): [number, number] {
+  const id = (v: string | undefined, fallback: number) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : fallback)
+  return [id(saved.PUID, uid), id(saved.PGID, gid)]
+}
 export function withDefaults(a: Partial<Answers>): Partial<Answers> {
   const out: Partial<Answers> = { group: '', tz: 'America/Sao_Paulo', ...a }
   if (out.lang && !out.currency) out.currency = defaultCurrency(out.lang)

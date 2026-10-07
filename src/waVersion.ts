@@ -20,4 +20,7 @@ export async function resolveWaVersion(fetchFn: Fetch = fetchLatestWaWebVersion,
   }
 }
 
-export const waVersionOnce = (): Promise<ResolvedVersion> => (cached ??= resolveWaVersion())
+export const waVersionOnce = (): Promise<ResolvedVersion> => (cached ??= resolveWaVersion().then(r => {
+  if (!r.live) cached = null
+  return r
+}))

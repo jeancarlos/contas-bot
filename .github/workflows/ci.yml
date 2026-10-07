@@ -27,7 +27,12 @@ jobs:
     steps:
       - env:
           HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || {
+            echo "::error::PRs must come from this repository (got: $HEAD_REPO)"
+            exit 1
+          }
           [ "$HEAD" = develop ] || echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
             echo "::error::PRs into develop must come from feature/*, fix/* or chore/* (got: $HEAD)"
             exit 1
@@ -39,7 +44,12 @@ jobs:
     steps:
       - env:
           HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || {
+            echo "::error::PRs must come from this repository (got: $HEAD_REPO)"
+            exit 1
+          }
           [ "$HEAD" = develop ] || {
             echo "::error::Only develop merges into main (got: $HEAD)"
             exit 1

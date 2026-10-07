@@ -8,6 +8,8 @@ case "$branch" in
     ;;
 esac
 cd "$(git rev-parse --show-toplevel)"
+npx --no-install biome lint --write --staged --no-errors-on-unmatched --files-ignore-unknown=true
+git update-index --again
 npm run --silent check
 staged_sh=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(\.sh$|^bin/contas-bot$|^\.githooks/)' || true)
 if [ -n "$staged_sh" ] && command -v shellcheck >/dev/null 2>&1; then

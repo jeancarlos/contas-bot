@@ -919,3 +919,35 @@ test('tick on a group that never onboarded tries again on the next tick after a 
   await bot.tick()
   assert.equal(store.get()._meta.last_reset, '2026-09')
 })
+
+test('a short payment phrase with an unknown bill gets a not-found with a suggestion', async () => {
+  const { bot, sent, store } = await setup()
+  await bot.onMessage(msg('pago lux'))
+  assert.match(must(sent.at(-1)).text, /não achei "lux", você quis dizer \*Luz\*\?/)
+  assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
+})
+
+test('long chatter starting with a payment word stays unanswered', async () => {
+  const { bot, sent } = await setup()
+  const before = sent.length
+  await bot.onMessage(msg('paguei o mercado hoje de manhã com o cartão'))
+  assert.equal(sent.length, before)
+})
+
+test('a bill literally named like a payment phrase is still paid', async () => {
+  const { bot, store } = await setup({ desc: 'Pago Luz\nÁgua' })
+  await bot.onMessage(msg('pago luz'))
+  assert.ok(store.get().months['2026-09']?.['pago luz'])
+})
+
+test('/pago with an ambiguous prefix suggests every candidate', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago a'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\* ou \*Aluguel\*\?/)
+})
+
+test('/despago with a typo suggests the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/despago aguaa'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\*\?/)
+})

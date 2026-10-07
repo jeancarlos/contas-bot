@@ -4,7 +4,7 @@ import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
   splitDescription, renderSection, composeDescription, isGreeting,
-  levenshtein, closestBills, suggestCommand,
+  levenshtein, closestBills, suggestCommand, paymentAttempt,
   type Bill, type Payment,
 } from '../src/bills.ts'
 const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
@@ -459,4 +459,15 @@ test('suggestCommand gives up when nothing is close', () => {
 
 test('an unknown command carries the typed name', () => {
   assert.deepEqual(parseCommand('/pgao luz'), { cmd: 'unknown', raw: '/pgao luz', name: 'pgao' })
+})
+
+test('paymentAttempt returns the bill part of a short payment phrase', () => {
+  assert.equal(paymentAttempt('pago lux'), 'lux')
+  assert.equal(paymentAttempt('Paguei a água'), 'agua')
+})
+
+test('paymentAttempt ignores long chatter and non-payment text', () => {
+  assert.equal(paymentAttempt('paguei o mercado hoje de manhã com o cartão'), null)
+  assert.equal(paymentAttempt('bom dia'), null)
+  assert.equal(paymentAttempt('pago'), null)
 })

@@ -200,11 +200,18 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
   }
 }
 
+const PAY_RE = /^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/
+const MAX_ATTEMPT_WORDS = 5
 export function matchPlainText(bills: Bill[], text: string): Bill | null {
   const n = normalize(text)
   // A bill literally named "Pago Luz" matches before the payment word is stripped.
-  const t = n.replace(/^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/, '')
+  const t = n.replace(PAY_RE, '')
   return bills.find(b => b.key === n) ?? bills.find(b => b.key === t) ?? null
+}
+export function paymentAttempt(text: string): string | null {
+  const n = normalize(text)
+  if (!PAY_RE.test(n) || n.split(' ').length > MAX_ATTEMPT_WORDS) return null
+  return n.replace(PAY_RE, '') || null
 }
 
 export const SECTION_MARK = '🤖 contas-bot'

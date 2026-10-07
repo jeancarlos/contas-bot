@@ -4,6 +4,7 @@ import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
   splitDescription, renderSection, composeDescription, isGreeting,
+  levenshtein, closestBills, suggestCommand, paymentAttempt,
   type Bill, type Payment,
 } from '../src/bills.ts'
 const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
@@ -109,7 +110,7 @@ test('parseCommand', () => {
   assert.deepEqual(parseCommand('/despago Luz'), { cmd: 'despago', name: 'Luz' })
   assert.deepEqual(parseCommand('/lista'), { cmd: 'lista' })
   assert.deepEqual(parseCommand('/ajuda'), { cmd: 'ajuda' })
-  assert.deepEqual(parseCommand('/foo'), { cmd: 'unknown', raw: '/foo' })
+  assert.deepEqual(parseCommand('/foo'), { cmd: 'unknown', raw: '/foo', name: 'foo' })
   assert.equal(parseCommand('oi'), null)
 })
 
@@ -402,4 +403,71 @@ test('renderList does not treat an inherited Object property as a payment', () =
   const bills: Bill[] = [{ name: 'Constructor', key: 'constructor', paused: false }]
   const out = renderList('2026-09', bills, {})
   assert.match(out, /⬜ Constructor/)
+})
+
+test('levenshtein counts single edits', () => {
+  assert.equal(levenshtein('luz', 'luz'), 0)
+  assert.equal(levenshtein('lux', 'luz'), 1)
+  assert.equal(levenshtein('aluguel', 'algel'), 2)
+  assert.equal(levenshtein('', 'abc'), 3)
+})
+
+const B = parseDescription('Luz\nÁgua\nAluguel\nCartão Nu\nTV')
+
+test('closestBills suggests the bill one typo away', () => {
+  assert.deepEqual(closestBills(B, 'lux').map(b => b.name), ['Luz'])
+})
+
+test('closestBills ignores accents and case like exact matching does', () => {
+  assert.deepEqual(closestBills(B, 'AGUAA').map(b => b.name), ['Água'])
+})
+
+test('closestBills lists every bill an ambiguous prefix starts', () => {
+  assert.deepEqual(closestBills(B, 'a').map(b => b.name), ['Água', 'Aluguel'])
+})
+
+test('closestBills suggests nothing when nothing is close', () => {
+  assert.deepEqual(closestBills(B, 'mercado'), [])
+})
+
+test('closestBills does not pull a short bill toward unrelated short words', () => {
+  assert.deepEqual(closestBills(B, 'gas'), [])
+})
+
+test('closestBills suggests nothing on a tie', () => {
+  const tie = parseDescription('Gato\nPato')
+  assert.deepEqual(closestBills(tie, 'rato'), [])
+})
+
+test('closestBills suggests nothing for an empty query', () => {
+  assert.deepEqual(closestBills(B, '  '), [])
+})
+
+test('suggestCommand fixes a swapped-letter command', () => {
+  assert.equal(suggestCommand('pgao'), 'pago')
+  assert.equal(suggestCommand('lsta'), 'lista')
+})
+
+test('suggestCommand knows the English and Spanish aliases too', () => {
+  assert.equal(suggestCommand('hlep'), 'help')
+  assert.equal(suggestCommand('ayda'), 'ayuda')
+})
+
+test('suggestCommand gives up when nothing is close', () => {
+  assert.equal(suggestCommand('xyz'), null)
+})
+
+test('an unknown command carries the typed name', () => {
+  assert.deepEqual(parseCommand('/pgao luz'), { cmd: 'unknown', raw: '/pgao luz', name: 'pgao' })
+})
+
+test('paymentAttempt returns the bill part of a short payment phrase', () => {
+  assert.equal(paymentAttempt('pago lux'), 'lux')
+  assert.equal(paymentAttempt('Paguei a água'), 'agua')
+})
+
+test('paymentAttempt ignores long chatter and non-payment text', () => {
+  assert.equal(paymentAttempt('paguei o mercado hoje de manhã com o cartão'), null)
+  assert.equal(paymentAttempt('bom dia'), null)
+  assert.equal(paymentAttempt('pago'), null)
 })

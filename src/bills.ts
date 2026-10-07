@@ -58,6 +58,32 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
   return prefix.length === 1 ? prefix[0] : null
 }
 
+export function levenshtein(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+export function closestBills(bills: Bill[], query: string): Bill[] {
+  const q = normalize(query)
+  if (!q) return []
+  const prefixed = bills.filter(b => b.key.startsWith(q))
+  if (prefixed.length > 1) return prefixed
+  const near = bills
+    .map(b => ({ b, d: levenshtein(q, b.key) }))
+    .filter(x => x.d <= Math.max(1, Math.floor(x.b.key.length / 3)))
+  if (near.length === 0) return []
+  const best = Math.min(...near.map(x => x.d))
+  const top = near.filter(x => x.d === best)
+  return top.length === 1 ? [top[0].b] : []
+}
+
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
   const symbol = new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).formatToParts(0).find(p => p.type === 'currency')?.value ?? loc.currency
   const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

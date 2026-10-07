@@ -8,7 +8,7 @@ type Cfg = { baseUrl: string; apiKey: string; textModel: string; visionModel: st
 function parseVerdict(raw: string, bills: string[]): Verdict | null {
   const m = /\{[\s\S]*\}/.exec(raw)
   if (!m) return null
-  let o: any
+  let o: Record<string, unknown>
   try { o = JSON.parse(m[0]) } catch { return null }
   const bill = typeof o.bill === 'string' && bills.includes(o.bill) ? o.bill : null
   const cents = typeof o.amount === 'number' && o.amount > 0 && o.amount < 1e12 ? Math.round(o.amount * 100) / 100 : 0
@@ -34,7 +34,7 @@ export function makeLlm(cfg: Cfg): Llm {
         signal: AbortSignal.timeout(45_000),
       })
       if (!res.ok) return null
-      const data: any = await res.json()
+      const data = await res.json() as { choices?: { message?: { content?: string } }[] } | null
       return data?.choices?.[0]?.message?.content ?? null
     } catch {
       return null

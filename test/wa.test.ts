@@ -7,6 +7,8 @@ import type { WAMessage } from '@whiskeysockets/baileys'
 import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, participantsIncludeSelf, wireGroupEvents, handleOpen } from '../src/wa.ts'
 import { openState, cachedGroupsForCodes } from '../src/state.ts'
 import type { Incoming } from '../src/bot.ts'
+import type { Payment } from '../src/bills.ts'
+const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
   const big = 16 * 1024 * 1024 + 1
@@ -15,7 +17,7 @@ test('a receipt over 16 MB is refused before it is downloaded', async () => {
     { documentMessage: { mimetype: 'application/pdf', fileLength: big } },
   ]) {
     const m = toIncoming({ key: { id: 'm1', remoteJid: '123@g.us' }, message } as WAMessage, [])
-    await assert.rejects(m!.media!.download(), /receipt too large/)
+    await assert.rejects(must(must(m).media).download(), /receipt too large/)
   }
 })
 
@@ -76,7 +78,7 @@ test('parseGroupJids strips a #fragment and rejects a link with no path segment 
   }
 })
 
-test('gate passes through jids on the allowlist and swallows the rest', () => {
+test('gate passes through jids on the allowlist and swallows the rest', async () => {
   const seen: string[] = []
   const spy = {
     onOpen: (jids: string[]) => { seen.push(`open:${jids.join('|')}`) },
@@ -95,8 +97,8 @@ test('gate passes through jids on the allowlist and swallows the rest', () => {
   g.onMessage('mine@g.us', m)
   g.onDescription('theirs@g.us', 'x')
   g.onDescription('mine@g.us', 'y')
-  g.onRemoved('theirs@g.us')
-  g.onRemoved('mine@g.us')
+  await g.onRemoved('theirs@g.us')
+  await g.onRemoved('mine@g.us')
 
   assert.deepEqual(seen, ['open:mine@g.us', 'joined:mine@g.us', 'msg:mine@g.us', 'desc:mine@g.us:y', 'removed:mine@g.us'])
 
@@ -106,7 +108,7 @@ test('gate passes through jids on the allowlist and swallows the rest', () => {
   shut.onJoined('mine@g.us')
   shut.onMessage('mine@g.us', m)
   shut.onDescription('mine@g.us', 'y')
-  shut.onRemoved('mine@g.us')
+  await shut.onRemoved('mine@g.us')
   assert.deepEqual(seen, ['open:'])
 })
 
@@ -285,7 +287,7 @@ test('participantsIncludeSelf is false when the participants are somebody else',
   assert.equal(participantsIncludeSelf(me, []), false)
 })
 
-test('a remove event naming the bot fires onRemoved through gate only for an allowlisted group', () => {
+test('a remove event naming the bot fires onRemoved through gate only for an allowlisted group', async () => {
   const seen: string[] = []
   const g = gate(parseGroupJids('mine@g.us').jids, {
     onOpen() {}, onJoined() {}, onMessage() {}, onDescription() {},
@@ -294,13 +296,13 @@ test('a remove event naming the bot fires onRemoved through gate only for an all
   const me = ['bot@s.whatsapp.net']
   const removedByBot = [{ id: 'bot@s.whatsapp.net' }]
 
-  if (participantsIncludeSelf(me, removedByBot)) g.onRemoved('mine@g.us')
-  if (participantsIncludeSelf(me, removedByBot)) g.onRemoved('theirs@g.us')
+  if (participantsIncludeSelf(me, removedByBot)) await g.onRemoved('mine@g.us')
+  if (participantsIncludeSelf(me, removedByBot)) await g.onRemoved('theirs@g.us')
 
   assert.deepEqual(seen, ['mine@g.us'])
 })
 
-test('a remove event naming somebody else never reaches onRemoved', () => {
+test('a remove event naming somebody else never reaches onRemoved', async () => {
   const seen: string[] = []
   const g = gate(parseGroupJids('mine@g.us').jids, {
     onOpen() {}, onJoined() {}, onMessage() {}, onDescription() {},
@@ -309,7 +311,7 @@ test('a remove event naming somebody else never reaches onRemoved', () => {
   const me = ['bot@s.whatsapp.net']
   const removedByGabi = [{ id: 'gabi@s.whatsapp.net' }]
 
-  if (participantsIncludeSelf(me, removedByGabi)) g.onRemoved('mine@g.us')
+  if (participantsIncludeSelf(me, removedByGabi)) await g.onRemoved('mine@g.us')
 
   assert.deepEqual(seen, [])
 })
@@ -319,7 +321,7 @@ test('removal drops the jid from the allowlist, clears _meta.invite on disk, and
   const store = await openState(path)
   store.forGroup('mine@g.us').get()._meta.invite = 'AbCdEf123'
   store.forGroup('mine@g.us').get()._meta.bills = ['luz']
-  store.forGroup('mine@g.us').get().months['2026-09'] = { luz: { name: 'Luz' } } as any
+  store.forGroup('mine@g.us').get().months['2026-09'] = { luz: { name: 'Luz' } } as unknown as Record<string, Payment>
   await store.forGroup('mine@g.us').save()
 
   const { jids: groupJids } = parseGroupJids('mine@g.us')
@@ -346,10 +348,10 @@ test('removal drops the jid from the allowlist, clears _meta.invite on disk, and
 })
 
 function fakeEmitter() {
-  const handlers = new Map<string, (arg: any) => void>()
+  const handlers = new Map<string, (arg: unknown) => void>()
   return {
-    on: (event: string, handler: (arg: any) => void) => { handlers.set(event, handler) },
-    fire: (event: string, arg: any) => handlers.get(event)!(arg),
+    on: (event: string, handler: (arg: unknown) => void) => { handlers.set(event, handler) },
+    fire: (event: string, arg: unknown) => must(handlers.get(event))(arg),
   }
 }
 
@@ -450,7 +452,7 @@ test('handleOpen logs every fetched group, resolves invite codes, and calls onOp
   assert.deepEqual(resolved, ['AbCdEf123'])
   assert.deepEqual([...cfg.groups], ['mine@g.us', 'new@g.us'])
   assert.deepEqual(opened, [['mine@g.us', 'new@g.us']])
-  const groupLogs = infos.filter((o: any) => o && typeof o === 'object' && 'mine' in o)
+  const groupLogs = infos.filter((o: unknown) => o && typeof o === 'object' && 'mine' in o)
   assert.deepEqual(groupLogs, [
     { jid: 'mine@g.us', subject: 'Mine', mine: true },
     { jid: 'new@g.us', subject: 'New', mine: true },

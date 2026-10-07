@@ -1,0 +1,45 @@
+name: ci
+on:
+  push:
+    branches: [develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh
+
+  branch-name:
+    if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HEAD: ${{ github.head_ref }}
+        run: |
+          echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
+            echo "::error::PRs into develop must come from feature/*, fix/* or chore/* (got: $HEAD)"
+            exit 1
+          }
+
+  source-is-develop:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HEAD: ${{ github.head_ref }}
+        run: |
+          [ "$HEAD" = develop ] || {
+            echo "::error::Only develop merges into main (got: $HEAD)"
+            exit 1
+          }

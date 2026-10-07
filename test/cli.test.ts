@@ -71,3 +71,13 @@ test('unknown subcommand exits 2 and prints usage to stderr', async () => {
   assert.equal(r.status, 2)
   assert.match(r.stderr, /usage/)
 })
+
+test('nonexistent CONTAS_BOT_TTY path shows hint without error leak', async () => {
+  const dir = await install('1.2.0')
+  const r = spawnSync('sh', [join(dir, 'contas-bot'), 'update'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CONTAS_BOT_API: await release('v1.10.0'), CONTAS_BOT_TTY: '/nonexistent/tty' } })
+  assert.equal(r.status, 0)
+  assert.match(r.stdout, /no terminal to confirm/)
+  assert.doesNotMatch(r.stderr, /tty/)
+  assert.doesNotMatch(r.stderr, /inexistente/)
+  assert.doesNotMatch(r.stderr, /No such file/)
+})

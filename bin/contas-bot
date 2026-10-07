@@ -26,7 +26,7 @@ case "${1:-help}" in
     fi
     say "🆕 v$cur → v$new" "🆕 v$cur → v$new" "🆕 v$cur → v$new"
     printf '%s ' "$(say 'Atualizar agora? [s/N]' 'Update now? [y/N]' '¿Actualizar ahora? [s/N]')"
-    ans=$( { head -n 1; } <"${CONTAS_BOT_TTY:-/dev/tty}" 2>/dev/null || true)
+    ans=$( { head -n 1; } 2>/dev/null <"${CONTAS_BOT_TTY:-/dev/tty}" || true)
     if [ -z "$ans" ]; then
       say "sem terminal para confirmar: rode contas-bot update num terminal" "no terminal to confirm: run contas-bot update in a terminal" "sin terminal para confirmar: ejecuta contas-bot update en un terminal"
       exit 0

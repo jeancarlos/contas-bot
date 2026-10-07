@@ -14,39 +14,39 @@ function fakeFetch(body: unknown, status = 200) {
   return { fn, calls }
 }
 
-const llmWith = (fetchFn: typeof fetch) => makeLlm({ baseUrl: 'http://x/v1', apiKey: 'k', textModel: 't', visionModel: 'v', fetchFn })
+const llmWith = (fetchFn: typeof fetch) => makeLlm({ baseUrl: 'http://x/v1', apiKey: 'k', visionModel: 'v', fetchFn })
 
 function reply(content: string) {
   return { choices: [{ message: { content } }] }
 }
 
-test('interpretCaption sends stream:false and validates the bill', async () => {
+test('readReceipt sends stream:false and validates the bill', async () => {
   const { fn, calls } = fakeFetch(reply('{"bill":"Cartão Nu","amount":6237.6,"confidence":0.95}'))
   const llm = llmWith(fn)
-  const v = await llm.interpretCaption('fatura nu set', bills)
+  const v = await llm.readReceipt(Buffer.from('x'), 'image/png', '', bills)
   assert.deepEqual(v, { bill: 'Cartão Nu', amount: 6237.6, confidence: 0.95 })
   assert.equal(calls[0].stream, false)
-  assert.equal(calls[0].model, 't')
+  assert.equal(calls[0].model, 'v')
 })
 
 test('unknown bill from the model becomes null', async () => {
   const { fn } = fakeFetch(reply('{"bill":"Netflix","amount":10,"confidence":0.99}'))
   const llm = llmWith(fn)
-  assert.deepEqual(await llm.interpretCaption('netflix', bills), { bill: null, amount: 10, confidence: 0.99 })
+  assert.deepEqual(await llm.readReceipt(Buffer.from('x'), 'image/png', '', bills), { bill: null, amount: 10, confidence: 0.99 })
 })
 
 test('tolerates code fences and returns null on garbage or http error', async () => {
   const fenced = fakeFetch(reply('```json\n{"bill":"Luz","amount":null,"confidence":0.8}\n```'))
   const llm1 = llmWith(fenced.fn)
-  assert.equal((await llm1.interpretCaption('luz', bills))?.bill, 'Luz')
+  assert.equal((await llm1.readReceipt(Buffer.from('x'), 'image/png', '', bills))?.bill, 'Luz')
 
   const garbage = fakeFetch(reply('sorry, I cannot'))
   const llm2 = llmWith(garbage.fn)
-  assert.equal(await llm2.interpretCaption('luz', bills), null)
+  assert.equal(await llm2.readReceipt(Buffer.from('x'), 'image/png', '', bills), null)
 
   const down = fakeFetch({}, 502)
   const llm3 = llmWith(down.fn)
-  assert.equal(await llm3.interpretCaption('luz', bills), null)
+  assert.equal(await llm3.readReceipt(Buffer.from('x'), 'image/png', '', bills), null)
 })
 
 test('readReceipt sends the image as a data URI to the vision model', async () => {
@@ -63,40 +63,61 @@ test('readReceipt sends the image as a data URI to the vision model', async () =
 test('non-positive amounts become null', async () => {
   const { fn } = fakeFetch(reply('{"bill":"Luz","amount":-5,"confidence":0.9}'))
   const llm = llmWith(fn)
-  const v = await llm.interpretCaption('luz', bills)
+  const v = await llm.readReceipt(Buffer.from('x'), 'image/png', '', bills)
   assert.equal(v?.amount, null)
 })
 
 test('the system prompt asks for the configured currency', async () => {
   const { fn, calls } = fakeFetch(reply('{"bill":"Luz","amount":10,"confidence":0.9}'))
-  const llm = makeLlm({ baseUrl: 'http://x/v1', apiKey: 'k', textModel: 't', visionModel: 'v', currency: 'EUR', fetchFn: fn })
-  await llm.interpretCaption('luz', bills)
+  const llm = makeLlm({ baseUrl: 'http://x/v1', apiKey: 'k', visionModel: 'v', currency: 'EUR', fetchFn: fn })
+  await llm.readReceipt(Buffer.from('x'), 'image/png', '', bills)
   assert.match(calls[0].messages[0].content, /EUR/)
   assert.doesNotMatch(calls[0].messages[0].content, /Brazilian/)
 })
 
 test('a network error, a missing choice or a junk field degrades instead of throwing', async () => {
   const offline = (async () => { throw new TypeError('fetch failed') }) as typeof fetch
-  assert.equal(await llmWith(offline).interpretCaption('luz', bills), null)
-  assert.equal(await llmWith(fakeFetch({ choices: [] }).fn).interpretCaption('luz', bills), null)
+  assert.equal(await llmWith(offline).readReceipt(Buffer.from('x'), 'image/png', '', bills), null)
+  assert.equal(await llmWith(fakeFetch({ choices: [] }).fn).readReceipt(Buffer.from('x'), 'image/png', '', bills), null)
   const junk = fakeFetch(reply('{"bill":"Luz","amount":"231,45","confidence":7}'))
-  assert.deepEqual(await llmWith(junk.fn).interpretCaption('luz', bills), { bill: 'Luz', amount: null, confidence: 1 })
+  assert.deepEqual(await llmWith(junk.fn).readReceipt(Buffer.from('x'), 'image/png', '', bills), { bill: 'Luz', amount: null, confidence: 1 })
 })
 
 test('absurd amounts become null', async () => {
   const { fn } = fakeFetch(reply('{"bill":"Luz","amount":1e12,"confidence":0.9}'))
-  const v = await llmWith(fn).interpretCaption('luz', bills)
+  const v = await llmWith(fn).readReceipt(Buffer.from('x'), 'image/png', '', bills)
   assert.equal(v?.amount, null)
 })
 
 test('sub-cent amounts from the model are quantized to null', async () => {
   const { fn } = fakeFetch(reply('{"bill":"Luz","amount":0.004,"confidence":0.9}'))
-  const v = await llmWith(fn).interpretCaption('luz', bills)
+  const v = await llmWith(fn).readReceipt(Buffer.from('x'), 'image/png', '', bills)
   assert.equal(v?.amount, null)
 })
 
 test('the model amount is quantized to cents', async () => {
   const { fn } = fakeFetch(reply('{"bill":"Luz","amount":231.456,"confidence":0.9}'))
-  const v = await llmWith(fn).interpretCaption('luz', bills)
+  const v = await llmWith(fn).readReceipt(Buffer.from('x'), 'image/png', '', bills)
   assert.equal(v?.amount, 231.46)
+})
+
+test('makeLlm without a base URL is disabled and never calls fetch', async () => {
+  let calls = 0
+  const fetchFn = (async () => { calls++; throw new Error('network') }) as typeof fetch
+  const llm = makeLlm({ baseUrl: '', apiKey: '', visionModel: '', fetchFn })
+  assert.equal(llm.enabled, false)
+  assert.equal(await llm.readReceipt(Buffer.from('x'), 'image/png', '', ['Luz']), null)
+  assert.equal(calls, 0)
+})
+test('makeLlm omits the authorization header when the API key is empty', async () => {
+  const seen: Record<string, string>[] = []
+  const fetchFn = (async (_u: unknown, init?: RequestInit) => {
+    seen.push(init?.headers as Record<string, string>)
+    return new Response(JSON.stringify({ choices: [] }))
+  }) as typeof fetch
+  const call = (apiKey: string) => makeLlm({ baseUrl: 'http://x/v1', apiKey, visionModel: 'v', fetchFn }).readReceipt(Buffer.from('x'), 'image/png', '', ['Luz'])
+  await call('')
+  await call('k')
+  assert.equal('authorization' in seen[0], false)
+  assert.equal(seen[1].authorization, 'Bearer k')
 })

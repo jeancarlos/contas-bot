@@ -17,12 +17,12 @@ const locale = makeLocale(env('BOT_LANG', 'pt-BR'), env('BOT_CURRENCY', 'BRL'))
 log.info({ lang: locale.lang, currency: locale.currency }, 'locale')
 const groups = await openState(env('STATE_FILE', 'data/state.json'), log)
 const llm = makeLlm({
-  baseUrl: env('LLM_BASE_URL'),
-  apiKey: env('LLM_API_KEY'),
-  textModel: env('LLM_TEXT_MODEL', 'cx/gpt-5.4-mini'),
+  baseUrl: process.env.LLM_BASE_URL ?? '',
+  apiKey: process.env.LLM_API_KEY ?? '',
   visionModel: env('LLM_VISION_MODEL', 'cx/gpt-5.5'),
   currency: locale.currency,
 })
+if (!llm.enabled) log.warn('no LLM_BASE_URL: receipts are only paid when their caption names the bill')
 
 const { jids: groupJids, inviteCodes } = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
 if (groupJids.size === 0 && inviteCodes.length === 0) log.warn('serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_INVITE_LINKS and restart')
@@ -57,7 +57,7 @@ const onRemoved = (jid: string) => {
 
 wa = await connectWa({
   authDir: env('AUTH_DIR', 'auth'),
-  phone: env('BOT_PHONE'),
+  phone: process.env.BOT_PHONE ?? '',
   groups: groupJids,
   inviteCodes: cached.toResolve,
   log,

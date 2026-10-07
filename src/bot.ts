@@ -1,6 +1,6 @@
 import {
-  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, renderList, monthKey,
-  splitDescription, renderSection, composeDescription, billLine, isGreeting,
+  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, closestBills, plainTextSuggestions, paymentAttempt, renderList, monthKey,
+  splitDescription, renderSection, composeDescription, billLine, isGreeting, suggestCommand,
   type Bill,
 } from './bills.ts'
 import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
@@ -56,12 +56,18 @@ export function makeBot(deps: BotDeps) {
     return { key, paid: state().months[key] }
   }
   const billNames = () => bills.map(b => b.name)
+  const notFoundText = (q: string, suggestions = closestBills(bills, q)) => {
+    const near = suggestions.map(b => b.name)
+    return t.notFound(q, billNames().join(', '), near.length ? near : undefined)
+  }
   // A bill named exactly like the whole /pago argument ("Apartamento 101") wins over name + amount.
   const wholeName = (arg: string) => bills.find(b => b.key === normalize(arg)) ?? null
 
+  let onboardingListSent = false
   async function postList() {
     const { key, paid } = month()
     const sentKey = await wa.sendText(renderList(key, bills, paid, loc))
+    onboardingListSent = true
     state()._meta.listed = true
     const prev = state()._meta.pinned
     try {
@@ -171,15 +177,17 @@ export function makeBot(deps: BotDeps) {
     switch (c.cmd) {
       case 'pago': {
         const whole = wholeName(c.full)
+        if (!whole && (!c.full.trim() || (parseAmount(c.full, loc) !== null && !resolveBill(bills, c.name)))) { await wa.sendText(t.missingBillPago, m.key); return true }
         const bill = whole ?? resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
+        if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const pending = pendingFor(m)
         await markPaid(bill, whole && c.amount != null ? pending : c.amount ?? pending, m)
         return true
       }
       case 'despago': {
+        if (!c.name.trim()) { await wa.sendText(t.missingBillDespago, m.key); return true }
         const bill = resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(t.notFound(c.name, billNames().join(', ')), m.key); return true }
+        if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
         const { paid } = month()
         const removed = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
         delete paid[bill.key]
@@ -196,7 +204,11 @@ export function makeBot(deps: BotDeps) {
       }
       case 'lista': await postList(); return true
       case 'ajuda': await wa.sendText(t.help, m.key); return true
-      case 'unknown': await wa.sendText(t.unknownCmd, m.key); return true
+      case 'unknown': {
+        const s = suggestCommand(c.name)
+        await wa.sendText(s ? t.unknownCmdSuggest(c.name, s) : t.unknownCmd, m.key)
+        return true
+      }
     }
   }
 
@@ -209,7 +221,14 @@ export function makeBot(deps: BotDeps) {
     const named = !whole && pago && pago.name && parseAmount(pago.name, loc) === null ? pago.name : null
     const known = whole ?? (named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text))
     // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
-    if (named && !known) { await wa.sendText(t.notFound(named, billNames().join(', ')), m.key); return }
+    if (named && !known) { await wa.sendText(notFoundText(named), m.key); return }
+    const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
+    if (!llm.enabled) {
+      if (known) { await markPaid(known, typed, m); return }
+      if (typed != null) pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed, at: now().getTime() }
+      await wa.sendText(t.askNoAi, m.key)
+      return
+    }
     const media = m.media
     if (!media) throw new Error('receipt flow entered without media')
     let image: Buffer
@@ -226,7 +245,6 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(t.downloadFailed, m.key)
       return
     }
-    const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
     if (known) {
@@ -268,10 +286,10 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(t.intro)
       introduced = true
     }
-    await postList()
+    if (!onboardingListSent) await postList()
     // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
     meta.last_reset = monthKey(now())
-    await store.save()
+    try { await store.save() } catch (e) { delete meta.last_reset; throw e }
     log.info({ bills: billNames() }, 'group onboarded')
     return 'onboarded'
   }
@@ -315,6 +333,9 @@ export function makeBot(deps: BotDeps) {
           if (await handleCommand(m)) return
           const bill = matchPlainText(bills, m.text)
           if (bill) return await markPaid(bill, null, m)
+          const attempt = paymentAttempt(m.text)
+          const suggestions = attempt ? plainTextSuggestions(bills, attempt) : []
+          if (attempt && suggestions.length) { await wa.sendText(notFoundText(attempt, suggestions), m.key); return }
           if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
         }
         await dispatch()

@@ -14,6 +14,7 @@ export type Catalog = {
   help: string
   ask: string
   noLlmAmount: string
+  askNoAi: string
   saveFailed: string
   downloadFailed: string
   unknownCmd: string
@@ -63,6 +64,7 @@ const ptBR: Catalog = {
   ].join('\n'),
   ask: 'esse comprovante é de qual conta? responde /pago <nome>',
   noLlmAmount: 'sem valor (LLM indisponível)',
+  askNoAi: 'não leio comprovante sem legenda: manda de novo com a legenda /pago <conta> <valor>',
   saveFailed: 'não consegui salvar, tenta de novo',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
@@ -112,6 +114,7 @@ const en: Catalog = {
   ].join('\n'),
   ask: 'which bill is this receipt for? reply /paid <name>',
   noLlmAmount: 'no amount (LLM unavailable)',
+  askNoAi: "I can't read a receipt without a caption: send it again captioned /paid <bill> <amount>",
   saveFailed: "couldn't save, try again",
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
@@ -161,6 +164,7 @@ const es: Catalog = {
   ].join('\n'),
   ask: '¿de qué cuenta es este comprobante? responde /pagado <nombre>',
   noLlmAmount: 'sin monto (LLM no disponible)',
+  askNoAi: 'no leo comprobantes sin leyenda: mándalo de nuevo con la leyenda /pagado <cuenta> <monto>',
   saveFailed: 'no pude guardar, intenta de nuevo',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',

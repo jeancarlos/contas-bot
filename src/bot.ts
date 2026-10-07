@@ -222,6 +222,13 @@ export function makeBot(deps: BotDeps) {
     const known = whole ?? (named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text))
     // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
     if (named && !known) { await wa.sendText(notFoundText(named), m.key); return }
+    const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
+    if (!llm.enabled) {
+      if (known) { await markPaid(known, typed, m); return }
+      if (typed != null) pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed, at: now().getTime() }
+      await wa.sendText(t.askNoAi, m.key)
+      return
+    }
     const media = m.media
     if (!media) throw new Error('receipt flow entered without media')
     let image: Buffer
@@ -238,7 +245,6 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(t.downloadFailed, m.key)
       return
     }
-    const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
     const verdict = await llm.readReceipt(image, mime, m.text, billNames())
     const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
     if (known) {

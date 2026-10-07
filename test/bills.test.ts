@@ -4,6 +4,7 @@ import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
   splitDescription, renderSection, composeDescription, isGreeting,
+  levenshtein, closestBills,
   type Bill, type Payment,
 } from '../src/bills.ts'
 const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
@@ -402,4 +403,42 @@ test('renderList does not treat an inherited Object property as a payment', () =
   const bills: Bill[] = [{ name: 'Constructor', key: 'constructor', paused: false }]
   const out = renderList('2026-09', bills, {})
   assert.match(out, /⬜ Constructor/)
+})
+
+test('levenshtein counts single edits', () => {
+  assert.equal(levenshtein('luz', 'luz'), 0)
+  assert.equal(levenshtein('lux', 'luz'), 1)
+  assert.equal(levenshtein('aluguel', 'algel'), 2)
+  assert.equal(levenshtein('', 'abc'), 3)
+})
+
+const B = parseDescription('Luz\nÁgua\nAluguel\nCartão Nu\nTV')
+
+test('closestBills suggests the bill one typo away', () => {
+  assert.deepEqual(closestBills(B, 'lux').map(b => b.name), ['Luz'])
+})
+
+test('closestBills ignores accents and case like exact matching does', () => {
+  assert.deepEqual(closestBills(B, 'AGUAA').map(b => b.name), ['Água'])
+})
+
+test('closestBills lists every bill an ambiguous prefix starts', () => {
+  assert.deepEqual(closestBills(B, 'a').map(b => b.name), ['Água', 'Aluguel'])
+})
+
+test('closestBills suggests nothing when nothing is close', () => {
+  assert.deepEqual(closestBills(B, 'mercado'), [])
+})
+
+test('closestBills does not pull a short bill toward unrelated short words', () => {
+  assert.deepEqual(closestBills(B, 'gas'), [])
+})
+
+test('closestBills suggests nothing on a tie', () => {
+  const tie = parseDescription('Gato\nPato')
+  assert.deepEqual(closestBills(tie, 'rato'), [])
+})
+
+test('closestBills suggests nothing for an empty query', () => {
+  assert.deepEqual(closestBills(B, '  '), [])
 })

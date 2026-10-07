@@ -59,7 +59,7 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
 }
 
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
-  const symbol = new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).formatToParts(0).find(p => p.type === 'currency')!.value
+  const symbol = new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).formatToParts(0).find(p => p.type === 'currency')?.value ?? loc.currency
   const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // Only the configured currency's own code or symbol is stripped from the ends ("R$ 10", "BRL 10"); spaces may
   // group thousands. Any other text, or a foreign currency, stays and is never an amount ("US$ 10" under BRL).
@@ -76,7 +76,7 @@ export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | n
     const intPart = t.slice(0, last)
     const decPart = t.slice(last + 1)
     if (!new RegExp(`^\\d{1,3}(?:\\${groupSep}\\d{3})*$`).test(intPart) || !/^\d{1,2}$/.test(decPart)) return null
-    num = intPart.replace(new RegExp(`\\${groupSep}`, 'g'), '') + '.' + decPart
+    num = `${intPart.replace(new RegExp(`\\${groupSep}`, 'g'), '')}.${decPart}`
   } else if (last < 0) {
     num = t
   } else {

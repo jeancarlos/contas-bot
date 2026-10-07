@@ -8,6 +8,7 @@ import { openState, type StateStore } from '../src/state.ts'
 import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
 import { makeLocale, DEFAULT_LOCALE, type Locale } from '../src/i18n.ts'
 import type { Llm, Verdict } from '../src/llm.ts'
+const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
 
 const G = '123@g.us'
 const DESC = 'Luz\nÁgua\nAluguel\nCartão Nu\nMãe Carme (pausado)'
@@ -93,13 +94,14 @@ test('a plain-text repayment keeps the previously typed amount', async () => {
 test('a bill named constructor is paid and unpaid like any other bill', async () => {
   const { bot, store, sent } = await setup({ desc: 'constructor\nLuz' })
   await bot.onMessage(msg('/lista'))
-  assert.match(sent.at(-1)!.text, /⬜ constructor/)
+  assert.match(must(sent.at(-1)).text, /⬜ constructor/)
   await bot.onMessage(msg('/pago constructor 10'))
-  assert.equal(store.get().months['2026-09']['constructor'].amount, 10)
+  const key = 'constructor'
+  assert.equal(store.get().months['2026-09'][key].amount, 10)
   await bot.onMessage(msg('/despago constructor'))
   assert.equal(Object.hasOwn(store.get().months['2026-09'], 'constructor'), false)
   await bot.onMessage(msg('/lista'))
-  assert.match(sent.at(-1)!.text, /⬜ constructor/)
+  assert.match(must(sent.at(-1)).text, /⬜ constructor/)
 })
 
 test('second post pins the new list, then unpins the previous one', async () => {
@@ -122,11 +124,11 @@ test('/despago removes the payment, /lista reposts, /ajuda helps', async () => {
   await bot.onMessage(msg('/pago luz'))
   await bot.onMessage(msg('/despago luz'))
   assert.equal(store.get().months['2026-09'].luz, undefined)
-  assert.match(sent.at(-1)!.text, /⬜ Luz/)
+  assert.match(must(sent.at(-1)).text, /⬜ Luz/)
   await bot.onMessage(msg('/lista'))
-  assert.match(sent.at(-1)!.text, /📋 \*Contas — Setembro\/2026\*/)
+  assert.match(must(sent.at(-1)).text, /📋 \*Contas — Setembro\/2026\*/)
   await bot.onMessage(msg('/ajuda'))
-  assert.ok(sent.at(-1)!.text.startsWith('🤖 *Comandos do contas-bot*'))
+  assert.ok(must(sent.at(-1)).text.startsWith('🤖 *Comandos do contas-bot*'))
 })
 
 test('plain chat is ignored, plain bill name is a payment', async () => {
@@ -288,7 +290,7 @@ test('two distinct messages carrying identical text both apply', async () => {
 test('the handled id list stays capped at 50, keeping the newest', async () => {
   const { bot, store } = await setup()
   for (let i = 0; i < 55; i++) await bot.onMessage(msg('/lista'))
-  const handled = store.get()._meta.handled!
+  const handled = must(store.get()._meta.handled)
   assert.equal(handled.length, 50)
   assert.deepEqual(handled, Array.from({ length: 50 }, (_, i) => `m${i + 6}`))
 })
@@ -353,7 +355,7 @@ test('an empty description is rebuilt from _meta.bills', async () => {
 
 test('a section emptied by a member stays empty instead of being restored', async () => {
   const { bot, store, edit } = await setup()
-  const emptied = composeDescription('', [])!
+  const emptied = must(composeDescription('', []))
   edit(emptied)
   await bot.onDescription(emptied)
   assert.equal(bot.bills().length, 0)
@@ -385,7 +387,7 @@ test('onDescription republishes the list', async () => {
   const { bot, sent, edit } = await setup()
   edit('──── 🤖 contas-bot ────\nLuz\nNetflix')
   await bot.onDescription('──── 🤖 contas-bot ────\nLuz\nNetflix')
-  assert.match(sent.at(-1)!.text, /Netflix/)
+  assert.match(must(sent.at(-1)).text, /Netflix/)
 })
 
 test('a failed pin keeps the previous pinned key', async () => {
@@ -418,7 +420,7 @@ test('a failed reaction still saves the payment and updates the list', async () 
   wa.react = async () => { throw new Error('disconnected') }
   await bot.onMessage(msg('/pago luz 231,45'))
   assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
-  assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 231,45/)
+  assert.match(must(sent.at(-1)).text, /✅ Luz — R\$ 231,45/)
   assert.deepEqual(pins, ['pin:s1'])
 })
 
@@ -426,7 +428,7 @@ test('a failed save while marking paid warns the group instead of going silent',
   const { bot, store, sent } = await setup()
   store.save = async () => { throw new Error('disk full') }
   await bot.onMessage(msg('/pago luz 231,45'))
-  assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
+  assert.equal(must(sent.at(-1)).text, 'não consegui salvar, tenta de novo')
   assert.equal(Object.hasOwn(store.get().months['2026-09'], 'luz'), false)
 })
 
@@ -435,7 +437,7 @@ test('a failed save on /despago warns the group instead of going silent', async 
   await bot.onMessage(msg('/pago luz 231,45'))
   store.save = async () => { throw new Error('disk full') }
   await bot.onMessage(msg('/despago luz', { key: { id: 'm2', fromMe: false, remoteJid: G } }))
-  assert.equal(sent.at(-1)!.text, 'não consegui salvar, tenta de novo')
+  assert.equal(must(sent.at(-1)).text, 'não consegui salvar, tenta de novo')
   assert.equal(store.get().months['2026-09'].luz.amount, 231.45)
 })
 
@@ -451,7 +453,7 @@ test('a failed "updated" notice still saves the payment and posts the list', asy
   await bot.onMessage(msg('/pago luz 300'))
   assert.equal(store.get().months['2026-09'].luz.amount, 300)
   assert.equal(sent.length, posts + 1)
-  assert.match(sent.at(-1)!.text, /✅ Luz — R\$ 300,00/)
+  assert.match(must(sent.at(-1)).text, /✅ Luz — R\$ 300,00/)
 })
 
 test('a receipt that cannot be read asks to resend and stores nothing', async () => {
@@ -481,7 +483,7 @@ test('join onboards a new group that has an owner: description, intro, list, pin
 test('onboarding with a lost state.json keeps an existing bill section instead of the demo', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G) // fresh: no last_reset
-  const existing = composeDescription('Grupo da casa', parseDescription('Luz\nGás'))!
+  const existing = must(composeDescription('Grupo da casa', parseDescription('Luz\nGás')))
   const w = fakeWa(existing)
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   assert.equal(await bot.join(), 'onboarded')
@@ -499,7 +501,7 @@ test('an en bot onboards in English and understands /paid and /revert', async ()
   await bot.onMessage(msg('/revert water'))
   assert.equal(store.get().months['2026-09'].water, undefined)
   await bot.onMessage(msg('/nope'))
-  assert.equal(sent.at(-1)!.text, "I don't know that command. /help lists them all.")
+  assert.equal(must(sent.at(-1)).text, "I don't know that command. /help lists them all.")
 })
 
 test('switching BOT_LANG rewrites the section once and keeps payments', async () => {
@@ -508,7 +510,7 @@ test('switching BOT_LANG rewrites the section once and keeps payments', async ()
   const EN = makeLocale('en', 'USD')
   const bot = makeBot({ wa, llm: fakeLlm(null).llm, store, locale: EN, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
-  const last = descs.at(-1)!
+  const last = must(descs.at(-1))
   assert.ok(last.includes('Bills (edit this list):'), last)
   assert.ok(last.includes('Mãe Carme (paused)'), last)
   assert.equal(store.get().months['2026-09'].luz.amount, 10)
@@ -523,7 +525,7 @@ test('a section deleted by a member is restored even though the rebuilt text mat
   edit(placeholderOnly)
   await bot.onDescription(placeholderOnly)
   assert.equal(descs.length, 2)
-  assert.ok(descs.at(-1)!.includes('🤖 contas-bot'))
+  assert.ok(descs.at(-1)?.includes('🤖 contas-bot'))
 })
 
 test('join migrates a legacy group: description becomes the section, no intro', async () => {
@@ -543,7 +545,7 @@ test('join republishes the list when the bills changed while the bot was offline
   store.get()._meta.section = true
   store.get()._meta.pinned = { id: 's0', fromMe: true, remoteJid: G }
   store.get()._meta.listed = true
-  const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
+  const desc = must(composeDescription('', parseDescription('Luz\nÁgua')))
   const w = fakeWa(desc)
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
@@ -557,7 +559,7 @@ test('join republishes on offline changes even when every pin has failed (admin-
   store.get()._meta.bills = ['Luz']
   store.get()._meta.section = true
   store.get()._meta.listed = true
-  const desc = composeDescription('', parseDescription('Luz\nÁgua'))!
+  const desc = must(composeDescription('', parseDescription('Luz\nÁgua')))
   const w = fakeWa(desc)
   w.wa.pin = async () => { throw new Error('not admin') }
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
@@ -572,8 +574,8 @@ test('text typed below the section moves up into the group text; bills unchanged
   edit(edited)
   const posts = sent.length
   await bot.onDescription(edited)
-  assert.ok(descs.at(-1)!.startsWith('Pix: chave 123\n\n──── 🤖 contas-bot ────'))
-  assert.ok(!descs.at(-1)!.includes(DEFAULT_LOCALE.t.descPlaceholder))
+  assert.ok(descs.at(-1)?.startsWith('Pix: chave 123\n\n──── 🤖 contas-bot ────'))
+  assert.equal(descs.at(-1)?.includes(DEFAULT_LOCALE.t.descPlaceholder), false)
   assert.equal(sent.length, posts)
   assert.equal(bot.bills().length, 5)
 })
@@ -583,7 +585,7 @@ test('a member note below the section survives even if it starts with a slash', 
   const edited = `${descs[0]}\n/assembleia sábado às 10h`
   edit(edited)
   await bot.onDescription(edited)
-  assert.ok(descs.at(-1)!.includes('/assembleia sábado às 10h'))
+  assert.ok(descs.at(-1)?.includes('/assembleia sábado às 10h'))
 })
 
 test('a description edit inside the section reposts the list; the echo of our own write does nothing', async () => {
@@ -591,7 +593,7 @@ test('a description edit inside the section reposts the list; the echo of our ow
   const edited = descs[0].replace('Aluguel', 'Aluguel\nNetflix')
   edit(edited)
   await bot.onDescription(edited)
-  assert.match(sent.at(-1)!.text, /Netflix/)
+  assert.match(must(sent.at(-1)).text, /Netflix/)
   const posts = sent.length
   await bot.onDescription(edited) // same text again, as WhatsApp echoes our state
   assert.equal(sent.length, posts)
@@ -618,7 +620,7 @@ test('an unreadable description on an update event changes nothing', async () =>
 
 test('a description over the limit is not written and the group is asked once to shorten its text', async () => {
   const { bot, sent, descs, edit } = await setup()
-  const long = 'x'.repeat(2100) + '\n' + descs[0].replace('Aluguel', 'Aluguel\nNetflix')
+  const long = `${'x'.repeat(2100)}\n${descs[0].replace('Aluguel', 'Aluguel\nNetflix')}`
   edit(long)
   await bot.onDescription(long)
   await bot.onDescription(long)
@@ -632,7 +634,7 @@ test('a deleted section is put back below the remaining text', async () => {
   const { bot, descs, edit } = await setup()
   edit('Só a descrição do grupo')
   await bot.onDescription('Só a descrição do grupo')
-  assert.ok(descs.at(-1)!.startsWith('Só a descrição do grupo\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz'))
+  assert.ok(descs.at(-1)?.startsWith('Só a descrição do grupo\n\n──── 🤖 contas-bot ────\nContas (edite esta lista):\nLuz'))
 })
 
 test('a refused description write warns once and keeps the bills', async () => {
@@ -689,11 +691,11 @@ test('restart before join does not repost the list and still handles a queued pa
   store.get()._meta.last_reset = '2026-08'
   store.get()._meta.bills = bills.map(b => billLine(b))
   store.get()._meta.section = true
-  const w = fakeWa(composeDescription('', bills)!)
+  const w = fakeWa(must(composeDescription('', bills)))
   const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   // No bot.join(): this simulates onOpen's groups.update/messages.upsert reaching a freshly
   // built bot before its join() call has run.
-  await bot.onDescription(composeDescription('', bills)!)
+  await bot.onDescription(must(composeDescription('', bills)))
   assert.equal(w.sent.length, 0)
   await bot.onMessage(msg('pago luz'))
   assert.ok(store.get().months['2026-09'].luz)
@@ -900,7 +902,7 @@ test('tick retries an onboarding that failed, without repeating the intro', asyn
   await bot.tick()
   assert.equal(store.get()._meta.last_reset, '2026-09')
   assert.equal(w.sent.filter(s => s.text === DEFAULT_LOCALE.t.intro).length, 1)
-  assert.match(w.sent.at(-1)!.text, /^📋/)
+  assert.match(must(w.sent.at(-1)).text, /^📋/)
 })
 
 test('tick on a group that never onboarded tries again on the next tick after a failure', async () => {

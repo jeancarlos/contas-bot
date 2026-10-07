@@ -3,6 +3,7 @@ on:
   push:
     branches: [develop]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -21,19 +22,19 @@ jobs:
       - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh
 
   branch-name:
-    if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - env:
           HEAD: ${{ github.head_ref }}
         run: |
-          echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
+          [ "$HEAD" = develop ] || echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
             echo "::error::PRs into develop must come from feature/*, fix/* or chore/* (got: $HEAD)"
             exit 1
           }
 
   source-is-develop:
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - env:

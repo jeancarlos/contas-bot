@@ -17,6 +17,15 @@ test('normalizePhone accepts the ways people type a number', () => {
   assert.equal(normalizePhone('55 49 abc'), null)
 })
 
+test('validGroup accepts jids, lists and links like the bot', () => {
+  assert.ok(validGroup('120363-111@g.us'))
+  assert.ok(validGroup('120363111'))
+  assert.ok(validGroup('1203631@g.us, 5551-22@g.us'))
+  assert.ok(validGroup('https://chat.whatsapp.com/AbC123, 1203631@g.us'))
+  assert.ok(!validGroup('1203631@g.us, junk'))
+  assert.ok(!validGroup('hello'))
+  assert.ok(!validGroup('120@s.whatsapp.net'))
+})
 test('validGroup accepts empty or an invite link only', () => {
   assert.ok(validGroup(''))
   assert.ok(validGroup('https://chat.whatsapp.com/AbC123'))

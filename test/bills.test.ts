@@ -4,7 +4,7 @@ import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
   splitDescription, renderSection, composeDescription, isGreeting,
-  levenshtein, closestBills, suggestCommand, paymentAttempt,
+  levenshtein, closestBills, plainTextSuggestions, suggestCommand, paymentAttempt,
   type Bill, type Payment,
 } from '../src/bills.ts'
 const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
@@ -470,4 +470,11 @@ test('paymentAttempt ignores long chatter and non-payment text', () => {
   assert.equal(paymentAttempt('paguei o mercado hoje de manhã com o cartão'), null)
   assert.equal(paymentAttempt('bom dia'), null)
   assert.equal(paymentAttempt('pago'), null)
+})
+test('plainTextSuggestions ignores short and chatty attempts', () => {
+  const bills = parseDescription('TIM\nTV\nÁgua\nAluguel')
+  for (const a of ['sim', 'tbm', 'tb', 'a', 'al']) assert.deepEqual(plainTextSuggestions(bills, a), [])
+  const real = parseDescription('Luz\nÁgua\nAluguel')
+  assert.deepEqual(plainTextSuggestions(real, 'lux').map(b => b.name), ['Luz'])
+  assert.deepEqual(plainTextSuggestions(real, 'aluguell').map(b => b.name), ['Aluguel'])
 })

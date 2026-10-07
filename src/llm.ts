@@ -1,9 +1,9 @@
 export type Verdict = { bill: string | null; amount: number | null; confidence: number }
 export type Llm = {
-  interpretCaption(text: string, bills: string[]): Promise<Verdict | null>
+  enabled: boolean
   readReceipt(image: Buffer, mime: string, caption: string, bills: string[]): Promise<Verdict | null>
 }
-type Cfg = { baseUrl: string; apiKey: string; textModel: string; visionModel: string; currency?: string; fetchFn?: typeof fetch }
+type Cfg = { baseUrl: string; apiKey: string; visionModel: string; currency?: string; fetchFn?: typeof fetch }
 
 function parseVerdict(raw: string, bills: string[]): Verdict | null {
   const m = /\{[\s\S]*\}/.exec(raw)
@@ -18,6 +18,7 @@ function parseVerdict(raw: string, bills: string[]): Verdict | null {
 }
 
 export function makeLlm(cfg: Cfg): Llm {
+  if (!cfg.baseUrl) return { enabled: false, readReceipt: async () => null }
   const fetchFn = cfg.fetchFn ?? fetch
   const system = `You classify household bill payments. Answer ONLY a JSON object:
 {"bill": <one exact name from the list or null>, "amount": <number in ${cfg.currency ?? 'BRL'} or null>, "confidence": <0..1>}
@@ -42,10 +43,7 @@ export function makeLlm(cfg: Cfg): Llm {
   }
   const listText = (bills: string[]) => `Bills: ${JSON.stringify(bills)}`
   return {
-    async interpretCaption(text, bills) {
-      const raw = await chat(cfg.textModel, `${listText(bills)}\nMessage: ${JSON.stringify(text)}`)
-      return raw == null ? null : parseVerdict(raw, bills)
-    },
+    enabled: true,
     async readReceipt(image, mime, caption, bills) {
       const raw = await chat(cfg.visionModel, [
         { type: 'text', text: `${listText(bills)}\nCaption: ${JSON.stringify(caption)}` },

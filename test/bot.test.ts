@@ -35,20 +35,20 @@ function fakeWa(desc = DESC) {
 function fakeLlm(verdict: Verdict | null) {
   const calls: string[] = []
   const llm: Llm = {
-    async interpretCaption(text) { calls.push(`caption:${text}`); return verdict },
+    enabled: true,
     async readReceipt(_img, _mime, caption) { calls.push(`receipt:${caption}`); return verdict },
   }
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale; llm?: Llm } = {}) {
   seq = 0
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
   const w = fakeWa(opts.desc)
   const l = fakeLlm(opts.verdict ?? null)
-  const bot = makeBot({ wa: w.wa, llm: l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
+  const bot = makeBot({ wa: w.wa, llm: opts.llm ?? l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
   await bot.join()
   return { bot, store, ...w, llmCalls: l.calls, llm: l.llm }
 }
@@ -1057,4 +1057,26 @@ test('plain-text typos still suggest the bill', async () => {
   assert.match(must(sent.at(-1)).text, /você quis dizer \*Luz\*\?/)
   await bot.onMessage(msg('paguei aluguell'))
   assert.match(must(sent.at(-1)).text, /você quis dizer \*Aluguel\*\?/)
+})
+
+const NO_AI: Llm = { enabled: false, async readReceipt() { throw new Error('must not read without AI') } }
+const untouchable = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('must not download without AI') } }
+
+test('without AI a captioned receipt is paid with the typed amount and never downloaded', async () => {
+  const { bot, store } = await setup({ llm: NO_AI })
+  await bot.onMessage(msg('/pago luz 80,00', { media: untouchable }))
+  assert.equal(store.get().months['2026-09']?.luz?.amount, 80)
+})
+
+test('without AI a receipt named only by caption text is paid without an amount and without a warning', async () => {
+  const { bot, store, sent } = await setup({ llm: NO_AI })
+  await bot.onMessage(msg('luz', { media: untouchable }))
+  assert.equal(store.get().months['2026-09']?.luz?.amount, null)
+  assert.ok(!sent.some(s => s.text === DEFAULT_LOCALE.t.noLlmAmount))
+})
+
+test('without AI an uncaptioned receipt asks to resend with a caption', async () => {
+  const { bot, sent } = await setup({ llm: NO_AI })
+  await bot.onMessage(msg('', { media: untouchable }))
+  assert.equal(sent.at(-1)?.text, DEFAULT_LOCALE.t.askNoAi)
 })

@@ -70,6 +70,11 @@ export function levenshtein(a: string, b: string): number {
   return prev[b.length]
 }
 
+export function plainTextSuggestions(bills: Bill[], attempt: string): Bill[] {
+  const q = normalize(attempt)
+  if (q.length < 3) return []
+  return closestBills(bills, attempt).filter(b => b.key[0] === q[0] && (b.key.length > 4 || b.key.slice(0, 2) === q.slice(0, 2)))
+}
 export function closestBills(bills: Bill[], query: string): Bill[] {
   const q = normalize(query)
   if (!q) return []

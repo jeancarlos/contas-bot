@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+branch=$(git symbolic-ref --short -q HEAD || true)
+case "$branch" in
+  main|develop)
+    echo "commit direto em $branch não é permitido: crie uma branch feature/, fix/ ou chore/ a partir do develop" >&2
+    exit 1
+    ;;
+esac
+cd "$(git rev-parse --show-toplevel)"
+npm run --silent check
+staged_sh=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(\.sh$|^bin/contas-bot$|^\.githooks/)' || true)
+if [ -n "$staged_sh" ] && command -v shellcheck >/dev/null 2>&1; then
+  # shellcheck disable=SC2086
+  shellcheck $staged_sh
+fi

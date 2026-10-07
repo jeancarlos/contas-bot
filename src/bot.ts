@@ -24,7 +24,7 @@ export type Wa = {
   getDescription(): Promise<string>
   setDescription(text: string): Promise<void>
 }
-type Log = { info(o: any, m?: string): void; warn(o: any, m?: string): void; error(o: any, m?: string): void }
+type Log = { info(o: unknown, m?: string): void; warn(o: unknown, m?: string): void; error(o: unknown, m?: string): void }
 export type BotDeps = {
   wa: Wa
   llm: Llm
@@ -210,7 +210,8 @@ export function makeBot(deps: BotDeps) {
     const known = whole ?? (named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text))
     // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
     if (named && !known) { await wa.sendText(t.notFound(named, billNames().join(', ')), m.key); return }
-    const media = m.media!
+    const media = m.media
+    if (!media) throw new Error('receipt flow entered without media')
     let image: Buffer
     let mime = media.mime
     try {
@@ -236,7 +237,7 @@ export function makeBot(deps: BotDeps) {
     }
     const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
     if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed ?? inferred, at: now().getTime() }; await wa.sendText(t.ask, m.key); return }
-    await markPaid(bill, typed ?? verdict!.amount, m)
+    await markPaid(bill, typed ?? inferred, m)
   }
 
   async function joinNow(): Promise<'onboarded' | 'active'> {

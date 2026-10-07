@@ -4,10 +4,11 @@ import { makeLlm } from '../src/llm.ts'
 
 const bills = ['Luz', 'Cartão Nu', 'Aluguel']
 
+type Call = { stream: boolean; model: string; messages: { content: string }[] }
 function fakeFetch(body: unknown, status = 200) {
-  const calls: any[] = []
-  const fn = (async (_url: any, init: any) => {
-    calls.push(JSON.parse(init.body))
+  const calls: Call[] = []
+  const fn = (async (_url: unknown, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body)))
     return new Response(JSON.stringify(body), { status })
   }) as typeof fetch
   return { fn, calls }
@@ -54,7 +55,7 @@ test('readReceipt sends the image as a data URI to the vision model', async () =
   const v = await llm.readReceipt(Buffer.from('png'), 'image/png', '', bills)
   assert.equal(v?.amount, 231.45)
   assert.equal(calls[0].model, 'v')
-  const parts = calls[0].messages[1].content
+  const parts = calls[0].messages[1].content as unknown as { type: string; image_url: { url: string } }[]
   assert.equal(parts[1].type, 'image_url')
   assert.match(parts[1].image_url.url, /^data:image\/png;base64,/)
 })

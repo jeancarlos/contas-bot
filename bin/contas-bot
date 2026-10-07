@@ -1,2 +1,48 @@
 #!/bin/sh
-echo "contas-bot"
+set -eu
+REPO=jeancarlos/contas-bot
+API=${CONTAS_BOT_API:-https://api.github.com/repos/$REPO/releases/latest}
+DIR=$(dirname "$(readlink -f "$0")")
+cd "$DIR"
+lang=$(sed -n 's/^BOT_LANG=//p' .env 2>/dev/null | head -n 1)
+
+say() { case "$lang" in en) printf '%s\n' "$2" ;; es) printf '%s\n' "$3" ;; *) printf '%s\n' "$1" ;; esac; }
+image() { sed -n 's/^ *image: *//p' docker-compose.yml | head -n 1; }
+installed() { image | sed -n 's/^[^ ]*:\([0-9][^ ]*\)$/\1/p'; }
+latest() { curl -fsSL "$API" | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -n 1; }
+newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" = "$2" ]; }
+setup() { docker run --rm -it --user "$(id -u):$(id -g)" -v "$DIR:/setup" "$(image)" node src/setup.ts </dev/tty; }
+
+case "${1:-help}" in
+  update)
+    cur=$(installed)
+    new=$(latest 2>/dev/null || true)
+    if [ -z "$new" ]; then
+      say "❌ não consegui consultar a versão mais nova (sem internet?)" "❌ couldn't check for the newest version (offline?)" "❌ no pude consultar la versión más nueva (¿sin internet?)" >&2
+      exit 1
+    fi
+    if ! newer "$cur" "$new"; then
+      say "✅ já está na v$cur" "✅ already on v$cur" "✅ ya está en v$cur"
+      exit 0
+    fi
+    say "🆕 v$cur → v$new" "🆕 v$cur → v$new" "🆕 v$cur → v$new"
+    printf '%s ' "$(say 'Atualizar agora? [s/N]' 'Update now? [y/N]' '¿Actualizar ahora? [s/N]')"
+    ans=$(head -n 1 </dev/tty 2>/dev/null || true)
+    case "$ans" in s|S|y|Y|sim|yes|si|sí) ;; *) exit 0 ;; esac
+    curl -fsSL "https://github.com/$REPO/releases/download/v$new/install.sh" | CONTAS_BOT_DIR="$DIR" sh
+    ;;
+  status)
+    state=$(docker inspect -f '{{.State.Status}}' contas-bot 2>/dev/null || echo "—")
+    if grep -q '"me"' auth/creds.json 2>/dev/null; then pairedv=✅; else pairedv=❌; fi
+    groups=$(grep -o '"[0-9-]*@g\.us"' data/state.json 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    say "🤖 contas-bot v$(installed) · container: $state · pareado: $pairedv · grupos: $groups" \
+        "🤖 contas-bot v$(installed) · container: $state · paired: $pairedv · groups: $groups" \
+        "🤖 contas-bot v$(installed) · contenedor: $state · vinculado: $pairedv · grupos: $groups"
+    ;;
+  logs) exec docker logs -f --tail 100 contas-bot ;;
+  pair) docker compose stop && setup && docker compose up -d ;;
+  restart) docker compose restart ;;
+  *)
+    say "uso: contas-bot update | status | logs | pair | restart" "usage: contas-bot update | status | logs | pair | restart" "uso: contas-bot update | status | logs | pair | restart"
+    ;;
+esac

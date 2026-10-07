@@ -1018,3 +1018,43 @@ for (const desc of [DESC, 'Luz\nInternet\nCondomínio']) {
     }
   })
 }
+test('a failing save never re-posts the list on retried onboarding ticks', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const real = (await openState(join(dir, 'state.json'))).forGroup(G)
+  let failing = true
+  const store: StateStore = { get: real.get, async save() { if (failing) throw new Error('ENOSPC'); return real.save() } }
+  const w = fakeWa('Grupo')
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await assert.rejects(bot.join())
+  for (let i = 0; i < 5; i++) await assert.rejects(bot.tick())
+  assert.equal(w.sent.filter(s => s.text.startsWith('📋')).length, 1)
+  assert.equal(store.get()._meta.last_reset, undefined)
+  failing = false
+  await bot.tick()
+  assert.equal(store.get()._meta.last_reset, '2026-09')
+  assert.equal(w.sent.filter(s => s.text.startsWith('📋')).length, 1)
+})
+test('/pago with a numeric bill name and an amount pays that bill', async () => {
+  const { bot, store, sent } = await setup({ desc: 'Luz\n101' })
+  await bot.onMessage(msg('/pago 101 80'))
+  assert.equal(store.get().months['2026-09']['101'].amount, 80)
+  await bot.onMessage(msg('/pago 101'))
+  assert.ok(store.get().months['2026-09']['101'])
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+  await bot.onMessage(msg('/pago luz 80,00'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 80)
+})
+test('plain-text phrases never suggest a short bill name by accident', async () => {
+  const { bot, sent } = await setup({ desc: 'TIM\nTV\nÁgua\nAluguel' })
+  const before = sent.length
+  for (const t of ['paguei sim', 'pago sim', 'paguei tbm', 'paguei tb', 'paguei a', 'paguei al']) await bot.onMessage(msg(t))
+  assert.equal(sent.length, before)
+})
+test('plain-text typos still suggest the bill', async () => {
+  const { bot, sent } = await setup({ desc: 'Luz\nÁgua\nAluguel' })
+  await bot.onMessage(msg('pago lux'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Luz\*\?/)
+  await bot.onMessage(msg('paguei aluguell'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Aluguel\*\?/)
+})

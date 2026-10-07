@@ -7,7 +7,7 @@ export type Command =
   | { cmd: 'despago'; name: string }
   | { cmd: 'lista' }
   | { cmd: 'ajuda' }
-  | { cmd: 'unknown'; raw: string }
+  | { cmd: 'unknown'; raw: string; name: string }
 
 function validTimeZone(tz: string): boolean {
   try {
@@ -56,6 +56,37 @@ export function resolveBill(bills: Bill[], query: string): Bill | null {
   if (exact) return exact
   const prefix = bills.filter(b => b.key.startsWith(q))
   return prefix.length === 1 ? prefix[0] : null
+}
+
+export function levenshtein(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+export function plainTextSuggestions(bills: Bill[], attempt: string): Bill[] {
+  const q = normalize(attempt)
+  if (q.length < 3) return []
+  return closestBills(bills, attempt).filter(b => b.key[0] === q[0] && (b.key.length > 4 || b.key.slice(0, 2) === q.slice(0, 2)))
+}
+export function closestBills(bills: Bill[], query: string): Bill[] {
+  const q = normalize(query)
+  if (!q) return []
+  const prefixed = bills.filter(b => b.key.startsWith(q))
+  if (prefixed.length > 1) return prefixed
+  const near = bills
+    .map(b => ({ b, d: levenshtein(q, b.key) }))
+    .filter(x => x.d <= Math.max(1, Math.floor(x.b.key.length / 3)))
+  if (near.length === 0) return []
+  const best = Math.min(...near.map(x => x.d))
+  const top = near.filter(x => x.d === best)
+  return top.length === 1 ? [top[0].b] : []
 }
 
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
@@ -132,15 +163,32 @@ export function renderList(key: string, bills: Bill[], paid: Record<string, Paym
   return lines.join('\n')
 }
 
+export const COMMANDS = {
+  pago: ['pago', 'paid', 'pagado'],
+  despago: ['despago', 'despagado', 'unpaid', 'reverter', 'revert', 'revertir'],
+  lista: ['lista', 'list'],
+  ajuda: ['ajuda', 'help', 'ayuda'],
+} as const
+type CommandName = keyof typeof COMMANDS
+const commandOf = (alias: string): CommandName | undefined =>
+  (Object.keys(COMMANDS) as CommandName[]).find(c => (COMMANDS[c] as readonly string[]).includes(alias))
+
+export function suggestCommand(typed: string): string | null {
+  const t = typed.toLowerCase()
+  const scored = (Object.values(COMMANDS) as readonly (readonly string[])[]).flat().map(a => ({ a, d: levenshtein(t, a) }))
+  const best = Math.min(...scored.map(x => x.d))
+  if (best > 2) return null
+  const top = scored.filter(x => x.d === best)
+  return new Set(top.map(x => commandOf(x.a))).size === 1 ? top[0].a : null
+}
+
 export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Command | null {
   const t = text.trim()
   if (!t.startsWith('/')) return null
   const [cmd, ...rest] = t.slice(1).split(/\s+/)
   const arg = rest.join(' ')
-  switch (cmd.toLowerCase()) {
-    case 'pago':
-    case 'paid':
-    case 'pagado': {
+  switch (commandOf(cmd.toLowerCase())) {
+    case 'pago': {
       // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €", "luz BRL 10".
       // The optional prefix/suffix is restricted to currency tokens (a symbol, optionally led by
       // up to 3 letters as in "R$"/"US$", or the configured currency code like "BRL") so a
@@ -150,26 +198,25 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
       // `full` lets the caller prefer a bill literally named "Apartamento 101" over "Apartamento" + 101.
       return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount, full: arg }
     }
-    case 'despago':
-    case 'despagado':
-    case 'unpaid':
-    case 'reverter':
-    case 'revert':
-    case 'revertir': return { cmd: 'despago', name: arg }
-    case 'lista':
-    case 'list': return { cmd: 'lista' }
-    case 'ajuda':
-    case 'help':
-    case 'ayuda': return { cmd: 'ajuda' }
-    default: return { cmd: 'unknown', raw: t }
+    case 'despago': return { cmd: 'despago', name: arg }
+    case 'lista': return { cmd: 'lista' }
+    case 'ajuda': return { cmd: 'ajuda' }
+    default: return { cmd: 'unknown', raw: t, name: cmd }
   }
 }
 
+const PAY_RE = /^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/
+const MAX_ATTEMPT_WORDS = 5
 export function matchPlainText(bills: Bill[], text: string): Bill | null {
   const n = normalize(text)
   // A bill literally named "Pago Luz" matches before the payment word is stripped.
-  const t = n.replace(/^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/, '')
+  const t = n.replace(PAY_RE, '')
   return bills.find(b => b.key === n) ?? bills.find(b => b.key === t) ?? null
+}
+export function paymentAttempt(text: string): string | null {
+  const n = normalize(text)
+  if (!PAY_RE.test(n) || n.split(' ').length > MAX_ATTEMPT_WORDS) return null
+  return n.replace(PAY_RE, '') || null
 }
 
 export const SECTION_MARK = '🤖 contas-bot'

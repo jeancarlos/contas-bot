@@ -35,20 +35,20 @@ function fakeWa(desc = DESC) {
 function fakeLlm(verdict: Verdict | null) {
   const calls: string[] = []
   const llm: Llm = {
-    async interpretCaption(text) { calls.push(`caption:${text}`); return verdict },
+    enabled: true,
     async readReceipt(_img, _mime, caption) { calls.push(`receipt:${caption}`); return verdict },
   }
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale; llm?: Llm } = {}) {
   seq = 0
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
   const w = fakeWa(opts.desc)
   const l = fakeLlm(opts.verdict ?? null)
-  const bot = makeBot({ wa: w.wa, llm: l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
+  const bot = makeBot({ wa: w.wa, llm: opts.llm ?? l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
   await bot.join()
   return { bot, store, ...w, llmCalls: l.calls, llm: l.llm }
 }
@@ -918,4 +918,165 @@ test('tick on a group that never onboarded tries again on the next tick after a 
   down = false
   await bot.tick()
   assert.equal(store.get()._meta.last_reset, '2026-09')
+})
+
+test('a short payment phrase with an unknown bill gets a not-found with a suggestion', async () => {
+  const { bot, sent, store } = await setup()
+  await bot.onMessage(msg('pago lux'))
+  assert.match(must(sent.at(-1)).text, /não achei "lux", você quis dizer \*Luz\*\?/)
+  assert.deepEqual(store.get().months['2026-09'] ?? {}, {})
+})
+
+test('long chatter starting with a payment word stays unanswered', async () => {
+  const { bot, sent } = await setup()
+  const before = sent.length
+  await bot.onMessage(msg('paguei o mercado hoje de manhã com o cartão'))
+  assert.equal(sent.length, before)
+})
+
+test('a bill literally named like a payment phrase is still paid', async () => {
+  const { bot, store } = await setup({ desc: 'Pago Luz\nÁgua' })
+  await bot.onMessage(msg('pago luz'))
+  assert.ok(store.get().months['2026-09']?.['pago luz'])
+})
+
+test('/pago with an ambiguous prefix suggests every candidate', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago a'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\* ou \*Aluguel\*\?/)
+})
+
+test('/despago with a typo suggests the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/despago aguaa'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Água\*\?/)
+})
+
+test('/pago alone asks for the bill with an example', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})
+
+test('/pago with only an amount asks for the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})
+
+test('/despago alone asks for the bill', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/despago'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /despago luz')
+})
+
+test('/pago alone with a receipt still reads the receipt', async () => {
+  const { bot, store } = await setup({ verdict: { bill: 'Luz', amount: 80, confidence: 0.9 } })
+  await bot.onMessage(msg('/pago', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
+  assert.equal(store.get().months['2026-09'].luz.amount, 80)
+})
+
+test('a mistyped command suggests the right one', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/pgao luz'))
+  assert.equal(must(sent.at(-1)).text, 'não conheço /pgao, você quis dizer /pago? /help mostra todos.')
+})
+
+test('an unrelated unknown command still gets the generic help pointer', async () => {
+  const { bot, sent } = await setup()
+  await bot.onMessage(msg('/xyz'))
+  assert.equal(must(sent.at(-1)).text, 'não conheço esse comando. /help mostra todos.')
+})
+
+test('a bill named with a number is payable by that number', async () => {
+  const { bot, store, sent } = await setup({ desc: 'Luz\n101\nApartamento 101' })
+  await bot.onMessage(msg('/pago 101'))
+  await bot.onMessage(msg('/pago apartamento 101'))
+  await bot.onMessage(msg('/pago luz 80,00'))
+  const paid = store.get().months['2026-09']
+  assert.ok(paid['101'])
+  assert.ok(paid['apartamento 101'])
+  assert.equal(paid.luz.amount, 80)
+  assert.ok(!sent.some(s => /faltou a conta/.test(s.text)))
+})
+
+test('/pago with only an amount still asks for the bill', async () => {
+  const { bot, sent } = await setup({ desc: 'Luz\n101\nApartamento 101' })
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.match(must(sent.at(-1)).text, /faltou a conta: \/pago luz 80,00/)
+})
+
+for (const desc of [DESC, 'Luz\nInternet\nCondomínio']) {
+  test('plain payment chatter without a suggestion stays silent', async () => {
+    const { bot, store, sent } = await setup({ desc })
+    for (const text of ['paguei ontem', 'paguei sim', 'pago amanhã', 'paga aí', 'pago yo', 'paid it', 'paguei a internet hoje', 'paguei o condominio ontem', 'paguei luz R$ 80,00']) {
+      const before = sent.length
+      const month = JSON.stringify(store.get().months)
+      await bot.onMessage(msg(text))
+      assert.equal(sent.length, before, text)
+      assert.equal(JSON.stringify(store.get().months), month, text)
+    }
+  })
+}
+test('a failing save never re-posts the list on retried onboarding ticks', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const real = (await openState(join(dir, 'state.json'))).forGroup(G)
+  let failing = true
+  const store: StateStore = { get: real.get, async save() { if (failing) throw new Error('ENOSPC'); return real.save() } }
+  const w = fakeWa('Grupo')
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  await assert.rejects(bot.join())
+  for (let i = 0; i < 5; i++) await assert.rejects(bot.tick())
+  assert.equal(w.sent.filter(s => s.text.startsWith('📋')).length, 1)
+  assert.equal(store.get()._meta.last_reset, undefined)
+  failing = false
+  await bot.tick()
+  assert.equal(store.get()._meta.last_reset, '2026-09')
+  assert.equal(w.sent.filter(s => s.text.startsWith('📋')).length, 1)
+})
+test('/pago with a numeric bill name and an amount pays that bill', async () => {
+  const { bot, store, sent } = await setup({ desc: 'Luz\n101' })
+  await bot.onMessage(msg('/pago 101 80'))
+  assert.equal(store.get().months['2026-09']['101'].amount, 80)
+  await bot.onMessage(msg('/pago 101'))
+  assert.ok(store.get().months['2026-09']['101'])
+  await bot.onMessage(msg('/pago 150,00'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+  await bot.onMessage(msg('/pago luz 80,00'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 80)
+})
+test('plain-text phrases never suggest a short bill name by accident', async () => {
+  const { bot, sent } = await setup({ desc: 'TIM\nTV\nÁgua\nAluguel' })
+  const before = sent.length
+  for (const t of ['paguei sim', 'pago sim', 'paguei tbm', 'paguei tb', 'paguei a', 'paguei al']) await bot.onMessage(msg(t))
+  assert.equal(sent.length, before)
+})
+test('plain-text typos still suggest the bill', async () => {
+  const { bot, sent } = await setup({ desc: 'Luz\nÁgua\nAluguel' })
+  await bot.onMessage(msg('pago lux'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Luz\*\?/)
+  await bot.onMessage(msg('paguei aluguell'))
+  assert.match(must(sent.at(-1)).text, /você quis dizer \*Aluguel\*\?/)
+})
+
+const NO_AI: Llm = { enabled: false, async readReceipt() { throw new Error('must not read without AI') } }
+const untouchable = { mime: 'image/png', download: async (): Promise<Buffer> => { throw new Error('must not download without AI') } }
+
+test('without AI a captioned receipt is paid with the typed amount and never downloaded', async () => {
+  const { bot, store } = await setup({ llm: NO_AI })
+  await bot.onMessage(msg('/pago luz 80,00', { media: untouchable }))
+  assert.equal(store.get().months['2026-09']?.luz?.amount, 80)
+})
+
+test('without AI a receipt named only by caption text is paid without an amount and without a warning', async () => {
+  const { bot, store, sent } = await setup({ llm: NO_AI })
+  await bot.onMessage(msg('luz', { media: untouchable }))
+  assert.equal(store.get().months['2026-09']?.luz?.amount, null)
+  assert.ok(!sent.some(s => s.text === DEFAULT_LOCALE.t.noLlmAmount))
+})
+
+test('without AI an uncaptioned receipt asks to resend with a caption', async () => {
+  const { bot, sent } = await setup({ llm: NO_AI })
+  await bot.onMessage(msg('', { media: untouchable }))
+  assert.equal(sent.at(-1)?.text, DEFAULT_LOCALE.t.askNoAi)
 })

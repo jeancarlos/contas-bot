@@ -14,13 +14,17 @@ export type Catalog = {
   help: string
   ask: string
   noLlmAmount: string
+  askNoAi: string
   saveFailed: string
   downloadFailed: string
   unknownCmd: string
+  unknownCmdSuggest: (typed: string, cmd: string) => string
+  missingBillPago: string
+  missingBillDespago: string
   descDenied: string
   descTooLong: string
   updated: string
-  notFound: (q: string, names: string) => string
+  notFound: (q: string, names: string, suggest?: string[]) => string
 }
 
 export type Locale = { lang: Lang; currency: string; decimal: ',' | '.'; t: Catalog }
@@ -60,13 +64,19 @@ const ptBR: Catalog = {
   ].join('\n'),
   ask: 'esse comprovante é de qual conta? responde /pago <nome>',
   noLlmAmount: 'sem valor (LLM indisponível)',
+  askNoAi: 'não leio comprovante sem legenda: manda de novo com a legenda /pago <conta> <valor>',
   saveFailed: 'não consegui salvar, tenta de novo',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
+  unknownCmdSuggest: (typed, cmd) => `não conheço /${typed}, você quis dizer /${cmd}? /help mostra todos.`,
+  missingBillPago: 'faltou a conta: /pago luz 80,00',
+  missingBillDespago: 'faltou a conta: /despago luz',
   descDenied: 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos',
   descTooLong: 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot',
   updated: 'atualizado',
-  notFound: (q, names) => `não achei "${q}". Contas: ${names}`,
+  notFound: (q, names, suggest) => suggest?.length
+    ? `não achei "${q}", você quis dizer ${suggest.map(n => `*${n}*`).join(' ou ')}? Contas: ${names}`
+    : `não achei "${q}". Contas: ${names}`,
 }
 
 const en: Catalog = {
@@ -104,13 +114,19 @@ const en: Catalog = {
   ].join('\n'),
   ask: 'which bill is this receipt for? reply /paid <name>',
   noLlmAmount: 'no amount (LLM unavailable)',
+  askNoAi: "I can't read a receipt without a caption: send it again captioned /paid <bill> <amount>",
   saveFailed: "couldn't save, try again",
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
+  unknownCmdSuggest: (typed, cmd) => `I don't know /${typed}, did you mean /${cmd}? /help lists them all.`,
+  missingBillPago: 'missing the bill: /paid power 80.00',
+  missingBillDespago: 'missing the bill: /unpaid power',
   descDenied: "I can't edit the description: make me an admin or let everyone edit group info",
   descTooLong: "the group description is over WhatsApp's limit: shorten the text above the bot's list",
   updated: 'updated',
-  notFound: (q, names) => `couldn't find "${q}". Bills: ${names}`,
+  notFound: (q, names, suggest) => suggest?.length
+    ? `couldn't find "${q}", did you mean ${suggest.map(n => `*${n}*`).join(' or ')}? Bills: ${names}`
+    : `couldn't find "${q}". Bills: ${names}`,
 }
 
 const es: Catalog = {
@@ -148,13 +164,19 @@ const es: Catalog = {
   ].join('\n'),
   ask: '¿de qué cuenta es este comprobante? responde /pagado <nombre>',
   noLlmAmount: 'sin monto (LLM no disponible)',
+  askNoAi: 'no leo comprobantes sin leyenda: mándalo de nuevo con la leyenda /pagado <cuenta> <monto>',
   saveFailed: 'no pude guardar, intenta de nuevo',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',
+  unknownCmdSuggest: (typed, cmd) => `no conozco /${typed}, ¿quisiste decir /${cmd}? /ayuda los muestra todos.`,
+  missingBillPago: 'falta la cuenta: /pagado luz 80,00',
+  missingBillDespago: 'falta la cuenta: /despagado luz',
   descDenied: 'no puedo editar la descripción: hazme admin o permite que todos editen la info del grupo',
   descTooLong: 'la descripción del grupo pasó el límite de WhatsApp: acorta el texto sobre la lista del bot',
   updated: 'actualizado',
-  notFound: (q, names) => `no encontré "${q}". Cuentas: ${names}`,
+  notFound: (q, names, suggest) => suggest?.length
+    ? `no encontré "${q}", ¿quisiste decir ${suggest.map(n => `*${n}*`).join(' o ')}? Cuentas: ${names}`
+    : `no encontré "${q}". Cuentas: ${names}`,
 }
 
 export const CATALOGS: Record<Lang, Catalog> = { 'pt-BR': ptBR, en, es }

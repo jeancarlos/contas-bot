@@ -3,6 +3,7 @@ on:
   push:
     branches: [develop]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -18,27 +19,38 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh
+      - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh install.sh bin/contas-bot test/smoke-install.sh
+      - run: sh test/smoke-install.sh
 
   branch-name:
-    if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - env:
           HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || {
+            echo "::error::PRs must come from this repository (got: $HEAD_REPO)"
+            exit 1
+          }
+          [ "$HEAD" = develop ] || echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
             echo "::error::PRs into develop must come from feature/*, fix/* or chore/* (got: $HEAD)"
             exit 1
           }
 
   source-is-develop:
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - env:
           HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || {
+            echo "::error::PRs must come from this repository (got: $HEAD_REPO)"
+            exit 1
+          }
           [ "$HEAD" = develop ] || {
             echo "::error::Only develop merges into main (got: $HEAD)"
             exit 1

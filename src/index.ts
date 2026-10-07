@@ -35,7 +35,8 @@ let wa: Awaited<ReturnType<typeof connectWa>> | undefined
 function botFor(jid: string) {
   let bot = bots.get(jid)
   if (!bot) {
-    bot = makeBot({ wa: wa!.forGroup(jid), llm, store: groups.forGroup(jid), log: log.child({ group: jid }), pdfToPng, locale })
+    if (!wa) throw new Error('WhatsApp is not connected yet')
+    bot = makeBot({ wa: wa.forGroup(jid), llm, store: groups.forGroup(jid), log: log.child({ group: jid }), pdfToPng, locale })
     bots.set(jid, bot)
   }
   return bot

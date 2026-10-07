@@ -6,6 +6,7 @@ import {
   splitDescription, renderSection, composeDescription, isGreeting,
   type Bill, type Payment,
 } from '../src/bills.ts'
+const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
 import { makeLocale, DEFAULT_LOCALE } from '../src/i18n.ts'
 
 const desc = `# Contas do mês
@@ -154,21 +155,21 @@ test('renderSection is the canonical text and parses back to the same bills', ()
     '──────────────',
     '/pago <conta> [valor] · /lista · /help',
   ].join('\n'))
-  assert.deepEqual(parseDescription(splitDescription(renderSection(bills)).section!), bills)
+  assert.deepEqual(parseDescription(splitDescription(renderSection(bills)).section ?? ''), bills)
 })
 
 test('composeDescription keeps the original text above and is idempotent', () => {
   const bills = parseDescription('Luz\nÁgua')
-  const once = composeDescription('Grupo da casa 🏠  \n', bills)!
+  const once = must(composeDescription('Grupo da casa 🏠  \n', bills))
   assert.ok(once.startsWith('Grupo da casa 🏠\n\n──── 🤖 contas-bot ────\n'))
   const { original, section } = splitDescription(once)
-  assert.equal(composeDescription(original, parseDescription(section!)), once)
+  assert.equal(composeDescription(original, parseDescription(section ?? '')), once)
 })
 
 test('composeDescription marks an empty group text with the placeholder, in any language', () => {
   const bills = parseDescription('Luz\nÁgua')
   const ph = DEFAULT_LOCALE.t.descPlaceholder
-  const d = composeDescription('', bills)!
+  const d = must(composeDescription('', bills))
   assert.equal(d, `${ph}\n\n${renderSection(bills)}`)
   // idempotent: the placeholder read back is still "no group text"
   assert.equal(composeDescription(splitDescription(d).original, bills), d)
@@ -176,7 +177,7 @@ test('composeDescription marks an empty group text with the placeholder, in any 
   const en = makeLocale('en', 'USD')
   assert.equal(composeDescription(splitDescription(d).original, bills, en), `${en.t.descPlaceholder}\n\n${renderSection(bills, en)}`)
   // WhatsApp dropping emoji variation selectors or retyped spacing still reads as the placeholder
-  assert.equal(composeDescription(ph.replace(/\uFE0F/g, '').replace(/ /g, '  ') + '\n', bills), d)
+  assert.equal(composeDescription(`${ph.replace(/\uFE0F/g, '').replace(/ /g, '  ')}\n`, bills), d)
 })
 
 test('composeDescription drops the placeholder lines once the group writes its own text', () => {
@@ -188,7 +189,7 @@ test('composeDescription drops the placeholder lines once the group writes its o
 
 test('composeDescription drops the placeholder before the help line when over 2048 characters', () => {
   const bills = parseDescription(Array.from({ length: 200 }, (_, i) => `Conta ${i}`).join('\n'))
-  const d = composeDescription('', bills)!
+  const d = must(composeDescription('', bills))
   assert.ok(d.length <= 2048, String(d.length))
   assert.ok(d.startsWith('──── 🤖 contas-bot ────'))
   assert.ok(d.includes('/help'), 'the help line outlives the placeholder')
@@ -199,22 +200,22 @@ test('splitDescription moves text typed below the section up into the group text
   const d = `Grupo\n\n${renderSection(bills)}\nPix: chave 123\n\n/pago luz`
   const { original, section } = splitDescription(d)
   assert.equal(original, 'Grupo\n\nPix: chave 123\n\n/pago luz')
-  assert.deepEqual(parseDescription(section!), bills)
+  assert.deepEqual(parseDescription(section ?? ''), bills)
   assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n/pago luz\n\n${renderSection(bills)}`)
   // below an untouched placeholder, the rescued text replaces it
   const withPh = `${composeDescription('', bills)}\nPix: chave 123`
   assert.equal(composeDescription(splitDescription(withPh).original, bills), `Pix: chave 123\n\n${renderSection(bills)}`)
   // a duplicated section pasted below is dropped, not lifted above where the next read would parse it as bills
   const twice = `${composeDescription('Grupo', bills)}\nPix: chave 123\n${renderSection(parseDescription('Água'))}`
-  const once = composeDescription(splitDescription(twice).original, parseDescription(splitDescription(twice).section!), DEFAULT_LOCALE)!
+  const once = must(composeDescription(splitDescription(twice).original, parseDescription(splitDescription(twice).section ?? ''), DEFAULT_LOCALE))
   assert.equal(once, `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
-  assert.deepEqual(parseDescription(splitDescription(once).section!), bills)
+  assert.deepEqual(parseDescription(splitDescription(once).section ?? ''), bills)
   // divider deleted: the help line ends the list, so a note after it is still rescued, not read as a bill
-  const noDivider = `${composeDescription('Grupo', bills)!.replace('\n──────────────', '')}\nPix: chave 123`
-  assert.deepEqual(parseDescription(splitDescription(noDivider).section!), bills)
+  const noDivider = `${must(composeDescription('Grupo', bills)).replace('\n──────────────', '')}\nPix: chave 123`
+  assert.deepEqual(parseDescription(splitDescription(noDivider).section ?? ''), bills)
   assert.equal(splitDescription(noDivider).original, 'Grupo\n\nPix: chave 123')
   // nothing typed below: the group text is exactly what sits above the header
-  assert.equal(splitDescription(composeDescription('Grupo', bills)!).original, 'Grupo\n')
+  assert.equal(splitDescription(must(composeDescription('Grupo', bills))).original, 'Grupo\n')
   const ownDivider = `Grupo\n\n${renderSection(bills)}\n-----\nPix: chave 123`
   assert.equal(splitDescription(ownDivider).original, 'Grupo\n\n-----\nPix: chave 123')
   assert.equal(composeDescription(splitDescription(ownDivider).original, bills), `Grupo\n\n-----\nPix: chave 123\n\n${renderSection(bills)}`)
@@ -223,15 +224,15 @@ test('splitDescription moves text typed below the section up into the group text
 test('composeDescription drops the help line first when over 2048 characters', () => {
   const bills = parseDescription('Luz\nÁgua')
   const long = 'x'.repeat(2048 - renderSection(bills).length)
-  const d = composeDescription(long, bills)!
+  const d = must(composeDescription(long, bills))
   assert.ok(d.length <= 2048)
   assert.ok(!d.includes('/help'))
-  assert.deepEqual(parseDescription(splitDescription(d).section!), bills)
+  assert.deepEqual(parseDescription(splitDescription(d).section ?? ''), bills)
 })
 
 test('composeDescription returns null instead of cutting the group text or the list', () => {
   const bills = parseDescription('Luz\nÁgua')
-  for (const original of ['y'.repeat(2100), 'a'.repeat(1990) + '\n' + 'b'.repeat(100)]) {
+  for (const original of ['y'.repeat(2100), `${'a'.repeat(1990)}\n${'b'.repeat(100)}`]) {
     assert.equal(composeDescription(original, bills), null)
   }
 })

@@ -35,16 +35,23 @@ if HOME="$fresh" CONTAS_BOT_IMAGE=$img CONTAS_BOT_DIR="$fresh/bot" CONTAS_BOT_LA
 fi
 [ ! -e "$fresh/.local/bin/contas-bot" ]
 [ "$(count)" = "$before_ps" ]
+cleanup() { docker rm -f contas-bot-smoke >/dev/null 2>&1 || true; }
+trap cleanup EXIT
 boot() {
-  docker rm -f contas-bot-smoke >/dev/null 2>&1 || true
+  cleanup
   docker run -d --name contas-bot-smoke --network none --user "$(id -u):$(id -g)" --env-file "$1/.env" \
     -e AUTH_DIR=/app/auth -e STATE_FILE=/app/data/state.json \
     -v "$1/auth:/app/auth" -v "$1/data:/app/data" "$img" >/dev/null
-  sleep 10
-  out=$(docker logs contas-bot-smoke 2>&1)
-  docker rm -f contas-bot-smoke >/dev/null
-  printf '%s\n' "$out" | grep -qF 'contas-bot ready'
-  if printf '%s\n' "$out" | grep -qF 'missing env'; then return 1; fi
+  n=0
+  while [ "$n" -lt 20 ]; do
+    out=$(docker logs contas-bot-smoke 2>&1)
+    case "$out" in *'contas-bot ready'*) break ;; esac
+    n=$((n + 1))
+    sleep 1
+  done
+  cleanup
+  case "$out" in *'contas-bot ready'*) ;; *) printf '%s\n' "$out" >&2; return 1 ;; esac
+  case "$out" in *'missing env'*) printf '%s\n' "$out" >&2; return 1 ;; esac
 }
 boot "$work/bot"
 custom="$work/custom"
@@ -58,12 +65,13 @@ cat >"$fakebin/docker" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$FAKE_LOG"
 case "$1 $2" in
-  "compose version"|"info -f"|"compose stop"|"compose up") exit 0 ;;
+  "compose up") [ "$FAKE_UPFAIL" = 1 ] && exit 1; exit 0 ;;
+  "compose version"|"info -f"|"compose stop") exit 0 ;;
 esac
 case "$1" in
   info) exit 0 ;;
   pull) [ "$FAKE_FAIL" = pull ] && exit 1; exit 0 ;;
-  run) exit 1 ;;
+  run) exit 7 ;;
 esac
 exit 0
 EOF
@@ -71,7 +79,7 @@ chmod +x "$fakebin/docker"
 touch "$work/rb/docker-compose.yml"
 fake() {
   : >"$work/fake.log"
-  PATH="$fakebin:$PATH" FAKE_LOG="$work/fake.log" FAKE_FAIL=$1 CONTAS_BOT_DIR="$work/rb" CONTAS_BOT_LANG=pt-BR CONTAS_BOT_AI=none sh install.sh </dev/null >/dev/null 2>&1 && return 1
+  PATH="$fakebin:$PATH" FAKE_LOG="$work/fake.log" FAKE_FAIL=$1 FAKE_UPFAIL=${2:-0} CONTAS_BOT_DIR="$work/rb" CONTAS_BOT_LANG=pt-BR CONTAS_BOT_AI=none sh install.sh </dev/null >/dev/null 2>&1 && return 1
   return 0
 }
 fake pull
@@ -80,4 +88,7 @@ fake run
 stop_at=$(grep -n 'compose stop' "$work/fake.log" | head -n 1 | cut -d: -f1)
 up_at=$(grep -n 'compose up' "$work/fake.log" | tail -n 1 | cut -d: -f1)
 [ -n "$stop_at" ] && [ -n "$up_at" ] && [ "$up_at" -gt "$stop_at" ]
+rc=0
+PATH="$fakebin:$PATH" FAKE_LOG="$work/fake.log" FAKE_FAIL=run FAKE_UPFAIL=1 CONTAS_BOT_DIR="$work/rb" CONTAS_BOT_LANG=pt-BR CONTAS_BOT_AI=none sh install.sh </dev/null >/dev/null 2>&1 || rc=$?
+[ "$rc" = 7 ]
 echo "smoke ok"

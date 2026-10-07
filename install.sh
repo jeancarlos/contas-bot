@@ -30,7 +30,7 @@ CONTAS_BOT_TZ=${tz:-America/Sao_Paulo}
 export CONTAS_BOT_TZ
 
 set -- docker run --rm --user "$(id -u):$(id -g)" -v "$DIR:/setup"
-for v in $(env | sed -n 's/^\(CONTAS_BOT_[A-Z_]*\)=.*/\1/p'); do set -- "$@" -e "$v"; done
+for v in $(env | sed -n 's/^\(CONTAS_BOT_[A-Z0-9_]*\)=.*/\1/p'); do set -- "$@" -e "$v"; done
 if [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then
   "$@" -it "$IMAGE" node src/setup.ts </dev/tty
 else
@@ -47,6 +47,6 @@ case ":$PATH:" in
          "➕ To use the contas-bot command, add to your shell: export PATH=\"\$HOME/.local/bin:\$PATH\"" \
          "➕ Para usar el comando contas-bot, agrega a tu shell: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
 esac
-say "📜 contas-bot logs · 🆕 contas-bot update · 🗑️ cd $DIR && docker compose down && rm -rf $DIR" \
-    "📜 contas-bot logs · 🆕 contas-bot update · 🗑️ cd $DIR && docker compose down && rm -rf $DIR" \
-    "📜 contas-bot logs · 🆕 contas-bot update · 🗑️ cd $DIR && docker compose down && rm -rf $DIR"
+say "📜 contas-bot logs · 🆕 contas-bot update · 🗑️ cd '$DIR' && docker compose down && rm -rf '$DIR'" \
+    "📜 contas-bot logs · 🆕 contas-bot update · 🗑️ cd '$DIR' && docker compose down && rm -rf '$DIR'" \
+    "📜 contas-bot logs · 🆕 contas-bot update · 🗑️ cd '$DIR' && docker compose down && rm -rf '$DIR'"

@@ -172,6 +172,7 @@ let qrChain: Promise<unknown> = Promise.resolve()
 let qrOpen = true
 const qrFile = () => join(DIR, 'qr.html')
 function writeQr(html: string) {
+  if (!qrOpen) return
   qrChain = qrChain.then(async () => {
     if (!qrOpen) return
     const tmp = `${qrFile()}.tmp`

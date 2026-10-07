@@ -22,13 +22,14 @@ main() {
     "🐳 Docker no está corriendo, o tu usuario no puede usarlo. Abre Docker y vuelve a ejecutar."
 
   case "$(docker info -f '{{.SecurityOptions}}' 2>/dev/null)" in *rootless*) say \
-    "⚠️ Docker rootless e podman-docker não são suportados (mapeamento de uid nos volumes). Use o Docker Engine padrão." \
-    "⚠️ Rootless Docker and podman-docker are not supported (bind-mount uid mapping). Use the standard Docker Engine." \
-    "⚠️ Docker rootless y podman-docker no están soportados (mapeo de uid en los volúmenes). Usa el Docker Engine estándar." >&2 ;; esac
+    "⚠️ Docker rootless não é suportado (mapeamento de uid nos volumes). Use o Docker Engine padrão." \
+    "⚠️ Rootless Docker is not supported (bind-mount uid mapping). Use the standard Docker Engine." \
+    "⚠️ Docker rootless no está soportado (mapeo de uid en los volúmenes). Usa el Docker Engine estándar." >&2 ;; esac
   mkdir -p "$DIR"
   [ -n "${CONTAS_BOT_IMAGE:-}" ] || docker pull -q "$IMAGE" >/dev/null
   if [ "${CONTAS_BOT_NO_START:-}" != 1 ] && [ -f "$DIR/docker-compose.yml" ]; then
-    trap '(cd "$DIR" && docker compose up -d) >/dev/null 2>&1' EXIT
+    status=0
+    trap 'status=$?; (cd "$DIR" && docker compose up -d) >/dev/null 2>&1 || true; exit "$status"' EXIT
     (cd "$DIR" && docker compose stop)
   fi
 

@@ -5,6 +5,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys'
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Boom } from '@hapi/boom'
 import type { Logger } from 'pino'
 import type { Incoming, MsgKey, Wa } from './bot.ts'
 
@@ -34,7 +35,7 @@ let reconnects = 0
 const MAX_RECEIPT = 16 * 1024 * 1024
 
 function inviteCode(link: string): string {
-  const code = link.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop()!
+  const code = link.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop() ?? ''
   if (code.toLowerCase() === 'chat.whatsapp.com') throw new Error(`GROUP_INVITE_LINKS: not a group jid or invite link: ${link}`)
   return code
 }
@@ -89,7 +90,7 @@ export function logJoinedGroup(cfg: { groups: Set<string>; log: Pick<Logger, 'in
 }
 
 export function participantsIncludeSelf(me: string[], participants: { id?: string; phoneNumber?: string; lid?: string }[]): boolean {
-  const isMe = (j?: string) => Boolean(j) && me.includes(jidNormalizedUser(j!))
+  const isMe = (j?: string) => !!j && me.includes(jidNormalizedUser(j))
   return participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))
 }
 
@@ -100,7 +101,7 @@ export function gate(groups: Set<string>, cfg: Handlers): Handlers {
     onJoined: jid => { if (mine(jid)) cfg.onJoined(jid) },
     onMessage: (jid, m) => { if (mine(jid)) cfg.onMessage(jid, m) },
     onDescription: (jid, desc) => { if (mine(jid)) cfg.onDescription(jid, desc) },
-    onRemoved: jid => { if (mine(jid)) cfg.onRemoved(jid) },
+    onRemoved: async jid => { if (mine(jid)) await cfg.onRemoved(jid) },
   }
 }
 
@@ -113,7 +114,7 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   }
   const sender = msg.pushName || key.participant || 'alguém'
   const ctx = c.extendedTextMessage?.contextInfo ?? c.imageMessage?.contextInfo ?? c.documentMessage?.contextInfo
-  const isSelf = (j?: string | null) => Boolean(j) && self.includes(jidNormalizedUser(j!))
+  const isSelf = (j?: string | null) => !!j && self.includes(jidNormalizedUser(j))
   const mentionsBot = (ctx?.mentionedJid ?? []).some(isSelf)
   const repliesToBot = isSelf(ctx?.participant)
   const raw = c.conversation ?? c.extendedTextMessage?.text ?? c.imageMessage?.caption ?? c.documentMessage?.caption ?? ''
@@ -130,8 +131,9 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
   return { key, sender, text, media, mentionsBot, repliesToBot }
 }
 
+type Listener = { bivariant(arg: unknown): void }['bivariant']
 export function wireGroupEvents(
-  ev: { on(event: string, handler: (arg: any) => void): void },
+  ev: { on(event: string, handler: Listener): void },
   on: Pick<Handlers, 'onJoined' | 'onMessage' | 'onDescription' | 'onRemoved'>,
   self: () => string[],
   cfg: { groups: Set<string>; log: Pick<Logger, 'info'> },
@@ -157,7 +159,7 @@ export function wireGroupEvents(
       on.onJoined(id)
     }
     if (action === 'remove' && isSelf) {
-      on.onRemoved(id)
+      await on.onRemoved(id)
     }
   })
   ev.on('groups.upsert', (groups: { id: string; subject?: string }[]) => { for (const g of groups) { logJoinedGroup(cfg, g.id, g.subject); on.onJoined(g.id) } })
@@ -186,7 +188,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         await rm(join(cfg.authDir, name), { recursive: true, force: true })
       }
       const left = await readdir(cfg.authDir)
-      if (left.length) throw new Error('still present after wipe: ' + left.join(', '))
+      if (left.length) throw new Error(`still present after wipe: ${left.join(', ')}`)
     } catch (err) {
       // Exiting on a half-wiped dir reloads the same dead session and loops
       // silently, so say so loudly instead of pretending the wipe worked.
@@ -230,7 +232,7 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         await handleOpen(s, cfg, on.onOpen)
       }
       if (u.connection === 'close') {
-        const code = (u.lastDisconnect?.error as any)?.output?.statusCode
+        const code = (u.lastDisconnect?.error as Boom | undefined)?.output?.statusCode
         if (code === DisconnectReason.loggedOut) {
           // Stale credentials would 401 forever; wipe them so the restart pairs from scratch.
           cfg.log.error('logged out: wiping auth, restart pairs again')
@@ -262,7 +264,9 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
         async sendText(text, quoted) {
           const opts = quoted ? { quoted: { key: toKey(quoted), message: {} } } : {}
           const sent = await sock.sendMessage(jid, { text }, opts)
-          return { id: sent!.key.id!, fromMe: true, remoteJid: jid }
+          const id = sent?.key.id
+          if (!id) throw new Error('sendMessage returned no message id')
+          return { id, fromMe: true, remoteJid: jid }
         },
         async react(key, emoji) { await sock.sendMessage(jid, { react: { text: emoji, key: toKey(key) } }) },
         async pin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 1, time: 2592000 }) },

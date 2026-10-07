@@ -4,7 +4,7 @@ import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
   monthKey, monthTitle, renderList, parseCommand, matchPlainText,
   splitDescription, renderSection, composeDescription, isGreeting,
-  levenshtein, closestBills,
+  levenshtein, closestBills, suggestCommand,
   type Bill, type Payment,
 } from '../src/bills.ts'
 const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
@@ -110,7 +110,7 @@ test('parseCommand', () => {
   assert.deepEqual(parseCommand('/despago Luz'), { cmd: 'despago', name: 'Luz' })
   assert.deepEqual(parseCommand('/lista'), { cmd: 'lista' })
   assert.deepEqual(parseCommand('/ajuda'), { cmd: 'ajuda' })
-  assert.deepEqual(parseCommand('/foo'), { cmd: 'unknown', raw: '/foo' })
+  assert.deepEqual(parseCommand('/foo'), { cmd: 'unknown', raw: '/foo', name: 'foo' })
   assert.equal(parseCommand('oi'), null)
 })
 
@@ -441,4 +441,22 @@ test('closestBills suggests nothing on a tie', () => {
 
 test('closestBills suggests nothing for an empty query', () => {
   assert.deepEqual(closestBills(B, '  '), [])
+})
+
+test('suggestCommand fixes a swapped-letter command', () => {
+  assert.equal(suggestCommand('pgao'), 'pago')
+  assert.equal(suggestCommand('lsta'), 'lista')
+})
+
+test('suggestCommand knows the English and Spanish aliases too', () => {
+  assert.equal(suggestCommand('hlep'), 'help')
+  assert.equal(suggestCommand('ayda'), 'ayuda')
+})
+
+test('suggestCommand gives up when nothing is close', () => {
+  assert.equal(suggestCommand('xyz'), null)
+})
+
+test('an unknown command carries the typed name', () => {
+  assert.deepEqual(parseCommand('/pgao luz'), { cmd: 'unknown', raw: '/pgao luz', name: 'pgao' })
 })

@@ -155,6 +155,16 @@ export function mergeAnswers(...layers: Partial<Answers>[]): Partial<Answers> {
   }
   return out as Partial<Answers>
 }
+const trimUrl = (u: string | undefined): string => (u ?? '').trim().replace(/\/+$/, '')
+export function keyFor(chosen: { ai: Ai; llmUrl?: string }, source: { ai?: Ai; llmUrl?: string; llmKey?: string } | undefined): string | undefined {
+  if (!source?.llmKey || chosen.ai !== source.ai) return undefined
+  if (chosen.ai === 'custom' && trimUrl(chosen.llmUrl) !== trimUrl(source.llmUrl)) return undefined
+  return source.llmKey
+}
+export function savedIds(saved: Record<string, string>, uid: number, gid: number): [number, number] {
+  const id = (v: string | undefined, fallback: number) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : fallback)
+  return [id(saved.PUID, uid), id(saved.PGID, gid)]
+}
 export function withDefaults(a: Partial<Answers>): Partial<Answers> {
   const out: Partial<Answers> = { group: '', tz: 'America/Sao_Paulo', ...a }
   if (out.lang && !out.currency) out.currency = defaultCurrency(out.lang)

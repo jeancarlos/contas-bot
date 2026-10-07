@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normalizePhone, validGroup, defaultCurrency, resolveAi, buildEnv, parseEnv, composeFile, imageTag,
-  paired, detectMode, answersFromEnv, answersFromDotenv, mergeAnswers, AI_PRESETS, withDefaults, missingAnswers, probeAi, type Answers,
+  paired, detectMode, answersFromEnv, answersFromDotenv, mergeAnswers, keyFor, savedIds, AI_PRESETS, withDefaults, missingAnswers, probeAi, type Answers,
 } from '../src/setup/core.ts'
 
 const base: Answers = {
@@ -131,4 +131,21 @@ test('buildEnv -> parseEnv -> answersFromDotenv round-trips every field', () => 
     if (a.ai === 'custom') { want.llmUrl = a.llmUrl; want.visionModel = a.visionModel }
     assert.deepEqual(back, want)
   }
+})
+
+test('keyFor keeps a key only for the provider it came from', () => {
+  const src = { ai: 'gemini' as const, llmKey: 'k' }
+  assert.equal(keyFor({ ai: 'gemini' }, src), 'k')
+  assert.equal(keyFor({ ai: 'openai' }, src), undefined)
+  assert.equal(keyFor({ ai: 'gemini' }, undefined), undefined)
+  assert.equal(keyFor({ ai: 'gemini' }, { ai: 'gemini' }), undefined)
+  const c = { ai: 'custom' as const, llmUrl: 'http://h:1/v1', llmKey: 'c' }
+  assert.equal(keyFor({ ai: 'custom', llmUrl: 'http://h:1/v1/' }, c), 'c')
+  assert.equal(keyFor({ ai: 'custom', llmUrl: 'http://other/v1' }, c), undefined)
+  assert.equal(keyFor({ ai: 'gemini' }, c), undefined)
+})
+test('savedIds reuses numeric PUID/PGID and falls back otherwise', () => {
+  assert.deepEqual(savedIds({ PUID: '1234', PGID: '99' }, 1000, 1001), [1234, 99])
+  assert.deepEqual(savedIds({ PUID: 'x' }, 1000, 1001), [1000, 1001])
+  assert.deepEqual(savedIds({}, 1000, 1001), [1000, 1001])
 })

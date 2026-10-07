@@ -3,7 +3,7 @@ import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Lang } from './i18n.ts'
 import {
-  AI_PRESETS, LANGS, answersFromDotenv, answersFromEnv, buildEnv, composeFile, defaultCurrency, detectMode, imageTag, mergeAnswers, missingAnswers,
+  AI_PRESETS, LANGS, answersFromDotenv, answersFromEnv, buildEnv, composeFile, defaultCurrency, detectMode, imageTag, keyFor, mergeAnswers, savedIds, missingAnswers,
   normalizePhone, parseEnv, probeAi, resolveAi, validCurrency, validGroup, validUrl, withDefaults,
   type Answers, type Pairing,
 } from './setup/core.ts'
@@ -33,16 +33,17 @@ async function writeRuntime() {
   await chmod(join(DIR, 'contas-bot'), 0o755)
 }
 
-function describe(a: { lang: string; currency: string; pairing: string; phone: string; ai: Answers['ai']; model: string; hasKey: boolean; group: string; tz: string }): string {
+function describe(a: { lang?: string; currency?: string; pairing?: string; phone?: string; ai?: Answers['ai']; model?: string; hasKey: boolean; group?: string; tz?: string }): string {
+  const pairing = a.pairing === 'code' ? `${tx.pairingCode}${a.phone ? `: +${a.phone}` : ''}` : a.pairing === 'qr' ? tx.pairingQr : '—'
   return [
-    `${a.lang} · ${a.currency} · ${a.pairing === 'code' ? `${tx.pairingCode}: +${a.phone}` : tx.pairingQr}`,
-    a.ai === 'none' ? tx.aiNone : `${a.ai} · ${a.model} · ${a.hasKey ? '••••' : '—'}`,
+    `${a.lang ?? '—'} · ${a.currency ?? '—'} · ${pairing}`,
+    a.ai === 'none' ? tx.aiNone : `${a.ai ?? '—'} · ${a.model || '—'} · ${a.hasKey ? '••••' : '—'}`,
     a.group || '—',
-    a.tz,
+    a.tz ?? '—',
   ].join('\n')
 }
 
-async function ask(pre: Partial<Answers>): Promise<Answers> {
+async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<Answers> {
   const a: Partial<Answers> = { ...pre }
   a.lang = check(await p.select<Lang>({
     message: 'Idioma · Language', initialValue: a.lang,
@@ -72,7 +73,7 @@ async function ask(pre: Partial<Answers>): Promise<Answers> {
       { value: 'none', label: tx.aiNone, hint: tx.aiNoneHint },
     ],
   }))
-  let current = a.llmKey || undefined
+  const explicit = a.llmKey || undefined
   a.llmKey = undefined
   while (a.ai !== 'none') {
     if (a.ai === 'custom') {
@@ -80,7 +81,7 @@ async function ask(pre: Partial<Answers>): Promise<Answers> {
       a.visionModel = check(await p.text({ message: tx.aiModel, initialValue: a.visionModel, validate: v => (v?.trim() ? undefined : tx.required) })).trim()
     }
     const preset = a.ai === 'custom' ? '' : AI_PRESETS[a.ai].keyUrl
-    const kept = current
+    const kept = explicit ?? keyFor({ ai: a.ai, llmUrl: a.llmUrl }, source)
     const typed = check(await p.password({
       message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
       validate: v => (preset && !kept && !v?.trim() ? tx.required : undefined),
@@ -91,7 +92,6 @@ async function ask(pre: Partial<Answers>): Promise<Answers> {
     const ok = await probeAi(resolveAi({ ai: a.ai, llmUrl: a.llmUrl ?? '', llmKey: a.llmKey, visionModel: a.visionModel ?? '' }))
     s.stop(ok ? tx.aiOk : tx.aiFailed)
     if (ok || !check(await p.confirm({ message: tx.aiRetry }))) break
-    current = undefined
   }
   a.group = check(await p.text({ message: tx.group, initialValue: a.group, validate: v => (validGroup(v ?? '') ? undefined : tx.groupInvalid) })).trim()
   const full = withDefaults(a) as Answers
@@ -104,10 +104,10 @@ async function ask(pre: Partial<Answers>): Promise<Answers> {
   return full
 }
 
-async function install(pre: Partial<Answers>, touchAuth = true): Promise<Answers> {
+async function install(pre: Partial<Answers>, o: { touchAuth?: boolean; source?: Partial<Answers>; saved?: Record<string, string> } = {}): Promise<Answers> {
   let a: Answers
   if (interactive) {
-    a = await ask(pre)
+    a = await ask(pre, o.source)
   } else {
     const filled = withDefaults(pre)
     const missing = missingAnswers(filled)
@@ -118,9 +118,9 @@ async function install(pre: Partial<Answers>, touchAuth = true): Promise<Answers
     a = filled as Answers
   }
   tx = SETUP_TEXT[a.lang]
-  if (touchAuth) await ensureAuthDir()
+  if (o.touchAuth !== false) await ensureAuthDir()
   await mkdir(join(DIR, 'data'), { recursive: true })
-  await writeFile(join(DIR, '.env'), buildEnv(a, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000), { mode: 0o600 })
+  await writeFile(join(DIR, '.env'), buildEnv(a, ...savedIds(o.saved ?? {}, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000)), { mode: 0o600 })
   await chmod(join(DIR, '.env'), 0o600)
   await writeRuntime()
   p.log.success(tx.saved)
@@ -132,8 +132,7 @@ async function ensureAuthDir() {
   await chmod(join(DIR, 'auth'), 0o700)
 }
 async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>): Promise<boolean> {
-  const full = withDefaults({ ...d, llmKey: saved.LLM_API_KEY }) as Answers
-  p.note(describe({ ...full, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }), tx.existingTitle)
+  p.note(describe({ ...d, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }), tx.existingTitle)
   return (
     check(await p.select<'keep' | 'review'>({
       message: tx.existingAsk,
@@ -151,15 +150,15 @@ async function main() {
   p.intro(tx.title(VERSION))
   const fromDotenv = answersFromDotenv(saved)
   const review = interactive && mode !== 'install' && (await reviewExisting(saved, fromDotenv))
-  const prefill = interactive ? mergeAnswers(answersFromEnv(process.env), fromDotenv) : answersFromEnv(process.env)
+  const prefill = interactive ? mergeAnswers(answersFromEnv(process.env), { ...fromDotenv, llmKey: undefined }) : answersFromEnv(process.env)
   if (mode === 'update') {
     const from = imageTag((await read('docker-compose.yml')) ?? '') ?? '?'
-    if (review) await install(prefill, false)
+    if (review) await install(prefill, { touchAuth: false, source: fromDotenv, saved })
     else await writeRuntime()
     p.outro(tx.updated(from, VERSION))
     return
   }
-  if (mode === 'install' || review) await install(prefill)
+  if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved })
   else await ensureAuthDir()
   if (process.env.CONTAS_BOT_NO_PAIR === '1') {
     p.outro(tx.saved)

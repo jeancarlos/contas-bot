@@ -31,7 +31,7 @@ main() {
   CONTAS_BOT_TZ=${tz:-America/Sao_Paulo}
   export CONTAS_BOT_TZ
 
-  set -- docker run --rm --user "$(id -u):$(id -g)" -v "$DIR:/setup"
+  set -- docker run --rm --user "$(id -u):$(id -g)" -v "$DIR:/setup" -e "CONTAS_BOT_HOST_DIR=$DIR"
   for v in $(env | sed -n 's/^\(CONTAS_BOT_[A-Z0-9_]*\)=.*/\1/p'); do set -- "$@" -e "$v"; done
   if [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then
     "$@" -it "$IMAGE" node src/setup.ts </dev/tty

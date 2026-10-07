@@ -11,7 +11,7 @@ export type SetupText = {
   group: string; groupInvalid: string
   summary: string; confirm: string; saved: string
   existingTitle: string; existingAsk: string; keep: string; review: string; keyKept: string
-  qrSteps: string; codeSteps: string; waiting: string; paired: string; pairFailed: string; pairRetry: string
+  qrSteps: string; qrFile: (where: string) => string; codeSteps: string; waiting: string; paired: string; pairFailed: string; pairRetry: string
   updated: (from: string, to: string) => string
   cancelled: string
   missing: (keys: string) => string
@@ -27,9 +27,10 @@ const pt: SetupText = {
   aiKey: where => (where ? `Chave da API (pegue em ${where})` : 'Chave da API (Enter se não tiver)'),
   aiUrl: 'URL base compatível com OpenAI', aiUrlInvalid: 'comece com http:// ou https://', aiModel: 'Modelo que lê imagens', required: 'obrigatório',
   aiChecking: 'Testando a IA…', aiOk: '✅ A IA respondeu', aiFailed: '⚠️ A IA não respondeu com essa chave/URL', aiRetry: 'Corrigir agora?',
-  group: 'Link de convite do grupo (opcional, Enter pula)', groupInvalid: 'cole um link chat.whatsapp.com ou deixe vazio',
+  group: 'Link(s) ou id(s) do grupo (opcional, Enter pula)', groupInvalid: 'cole links chat.whatsapp.com e/ou ids de grupo (123-456@g.us) separados por vírgula, ou deixe vazio',
   summary: 'Confira', confirm: 'Gravar e continuar?', saved: '✅ Configuração gravada',
   existingTitle: '📋 Configuração atual', existingAsk: 'O que fazer com ela?', keep: 'Manter', review: 'Revisar', keyKept: 'Enter mantém a chave atual',
+  qrFile: w => `🖼️ Se a câmera não ler o QR do terminal, abra ${w} no navegador`,
   qrSteps: '📱 No celular do bot: WhatsApp → Aparelhos conectados → Conectar um aparelho → aponte a câmera para o QR',
   codeSteps: '📱 No celular do bot: WhatsApp → Aparelhos conectados → Conectar um aparelho → NÃO escaneie o QR: toque em "Conectar com número de telefone" e digite o código',
   waiting: 'esperando o celular…', paired: '✅ Conectado! O bot vai subir agora.',
@@ -49,9 +50,10 @@ const en: SetupText = {
   aiKey: where => (where ? `API key (get one at ${where})` : 'API key (Enter if none)'),
   aiUrl: 'OpenAI-compatible base URL', aiUrlInvalid: 'start with http:// or https://', aiModel: 'Model that reads images', required: 'required',
   aiChecking: 'Testing the AI…', aiOk: '✅ The AI answered', aiFailed: "⚠️ The AI didn't answer with that key/URL", aiRetry: 'Fix it now?',
-  group: 'Group invite link (optional, Enter skips)', groupInvalid: 'paste a chat.whatsapp.com link or leave it empty',
+  group: 'Group invite link(s) or id(s) (optional, Enter skips)', groupInvalid: 'paste chat.whatsapp.com links and/or group ids (123-456@g.us) separated by commas, or leave it empty',
   summary: 'Review', confirm: 'Save and continue?', saved: '✅ Settings saved',
   existingTitle: '📋 Current settings', existingAsk: 'What to do with them?', keep: 'Keep', review: 'Review', keyKept: 'Enter keeps the current key',
+  qrFile: w => `🖼️ If the camera cannot read the terminal QR, open ${w} in a browser`,
   qrSteps: "📱 On the bot's phone: WhatsApp → Linked devices → Link a device → point the camera at the QR",
   codeSteps: `📱 On the bot's phone: WhatsApp → Linked devices → Link a device → DON'T scan: tap "Link with phone number instead" and type the code`,
   waiting: 'waiting for the phone…', paired: '✅ Connected! Starting the bot now.',
@@ -71,9 +73,10 @@ const es: SetupText = {
   aiKey: where => (where ? `Clave de la API (consíguela en ${where})` : 'Clave de la API (Enter si no tienes)'),
   aiUrl: 'URL base compatible con OpenAI', aiUrlInvalid: 'empieza con http:// o https://', aiModel: 'Modelo que lee imágenes', required: 'obligatorio',
   aiChecking: 'Probando la IA…', aiOk: '✅ La IA respondió', aiFailed: '⚠️ La IA no respondió con esa clave/URL', aiRetry: '¿Corregir ahora?',
-  group: 'Enlace de invitación del grupo (opcional, Enter salta)', groupInvalid: 'pega un enlace chat.whatsapp.com o déjalo vacío',
+  group: 'Enlace(s) o id(s) del grupo (opcional, Enter salta)', groupInvalid: 'pega enlaces chat.whatsapp.com y/o ids de grupo (123-456@g.us) separados por comas, o déjalo vacío',
   summary: 'Revisa', confirm: '¿Guardar y continuar?', saved: '✅ Configuración guardada',
   existingTitle: '📋 Configuración actual', existingAsk: '¿Qué hacemos con ella?', keep: 'Mantener', review: 'Revisar', keyKept: 'Enter conserva la clave actual',
+  qrFile: w => `🖼️ Si la cámara no lee el QR de la terminal, abre ${w} en un navegador`,
   qrSteps: '📱 En el teléfono del bot: WhatsApp → Dispositivos vinculados → Vincular un dispositivo → apunta la cámara al QR',
   codeSteps: '📱 En el teléfono del bot: WhatsApp → Dispositivos vinculados → Vincular un dispositivo → NO escanees: toca "Vincular con el número de teléfono" y escribe el código',
   waiting: 'esperando el teléfono…', paired: '✅ ¡Conectado! El bot arranca ahora.',

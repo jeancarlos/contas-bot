@@ -13,10 +13,10 @@ contas-bot takes that job. Add it to the group and it keeps the list for you: it
 ```
 Gabi:  [photo of the Pix receipt] luz
 Bot:   ✅
-Bot:   📋 *Contas — Setembro/2026*
+Bot:   📋 *Contas - Setembro/2026*
 
-       ✅ Luz — R$ 231,45
-       ✅ Cartão Nu — R$ 6.237,60
+       ✅ Luz - R$ 231,45
+       ✅ Cartão Nu - R$ 6.237,60
        ⬜ Água
        ⬜ Aluguel
        ⏸️ Academia
@@ -72,6 +72,61 @@ Design choices worth a look:
 
 The logic is covered by the built-in `node:test` runner against fake WhatsApp and LLM doubles: parsing, matching, rendering, the state file, and the full handler flow.
 
+## Install
+
+You need Docker:
+
+- **Linux:** Docker Engine with the compose plugin (https://docs.docker.com/engine/install/).
+- **macOS:** Docker Desktop (https://docs.docker.com/desktop/).
+- **Windows:** Docker Desktop with WSL 2; run the command below inside your WSL terminal.
+
+Then paste this into a terminal:
+
+```sh
+curl -fsSL https://github.com/jeancarlos/contas-bot/releases/latest/download/install.sh | sh
+```
+
+The installer asks a few questions and then connects the bot's WhatsApp right there on the screen:
+
+1. Language (Português, English, Español) and currency.
+2. How to connect WhatsApp: a QR code on the screen (recommended) or an 8-letter code.
+3. Which AI reads the receipts: Google Gemini (free key from https://aistudio.google.com/apikey), OpenAI, your own OpenAI-compatible endpoint, or no AI at all.
+4. The group's invite link (optional - you can add the bot to a group later).
+
+On the bot's phone, open WhatsApp → Linked devices → Link a device and point the camera at the QR. If you chose the code, don't scan anything: tap "Link with phone number instead" and type the code shown.
+
+Everything lives in `~/contas-bot` (set `CONTAS_BOT_DIR` before the command to use another folder). Nothing needs root.
+
+### Without AI
+
+Pick "No AI" in the installer. Receipts are then paid only when their caption names the bill (`luz`, `/pago luz 80,00`); a receipt without a caption gets a reply asking to send it again with one. Text commands work the same.
+
+### Day to day
+
+The installer adds a `contas-bot` command (in `~/.local/bin`):
+
+| Command | What it does |
+|---|---|
+| `contas-bot status` | version, whether it's running and paired, how many groups |
+| `contas-bot logs` | follow the bot's log |
+| `contas-bot update` | checks for a newer release and updates after you confirm |
+| `contas-bot pair` | reconnects WhatsApp when the session was lost |
+| `contas-bot restart` | restarts the bot |
+
+Updating is the same one-line command, or `contas-bot update`; your settings and the WhatsApp session are kept.
+
+To move the bot to a different WhatsApp number, stop it, delete `~/contas-bot/auth`, and run `contas-bot pair`.
+
+### Uninstall
+
+```sh
+cd ~/contas-bot && docker compose down && rm -rf ~/contas-bot ~/.local/bin/contas-bot
+```
+
+### Unattended install
+
+Every question can come from an environment variable, which skips the prompts: `CONTAS_BOT_LANG`, `CONTAS_BOT_CURRENCY`, `CONTAS_BOT_PAIRING` (`qr`/`code`), `CONTAS_BOT_PHONE`, `CONTAS_BOT_AI` (`gemini`/`openai`/`custom`/`none`), `CONTAS_BOT_LLM_KEY`, `CONTAS_BOT_LLM_URL`, `CONTAS_BOT_VISION_MODEL`, `CONTAS_BOT_GROUP`, `CONTAS_BOT_TZ`.
+
 ## Run your own
 
 You need a spare WhatsApp number for the bot (a cheap prepaid SIM works) and any OpenAI-compatible endpoint with a vision model.
@@ -87,7 +142,7 @@ docker compose logs -f
 | Variable | Meaning |
 |---|---|
 | `BOT_PHONE` | the bot's number, digits with country code; used once to pair |
-| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves — a `chat.whatsapp.com` invite link or a jid, mixed freely; a link is resolved to its jid at boot (no need to join first) and the jid is remembered, so a later revoked or failing link only logs a warning and the group keeps working off the cached jid; removing the link from this variable is still what turns a group off; being removed from the group itself turns it off immediately too, and the only way back is this variable still naming the group at a later start; optional, empty serves no group; anywhere else it's completely inert |
+| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves - a `chat.whatsapp.com` invite link or a jid, mixed freely; a link is resolved to its jid at boot (no need to join first) and the jid is remembered, so a later revoked or failing link only logs a warning and the group keeps working off the cached jid; removing the link from this variable is still what turns a group off; being removed from the group itself turns it off immediately too, and the only way back is this variable still naming the group at a later start; optional, empty serves no group; anywhere else it's completely inert |
 | `BOT_LANG` | language the bot writes in: `pt-BR` (default), `en` or `es` |
 | `BOT_CURRENCY` | currency for amounts and totals, an ISO 4217 code: `BRL` (default), `USD`, `EUR`, `MXN`… |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint |
@@ -98,12 +153,12 @@ docker compose logs -f
 You can set up a group before the bot ever joins it, using its invite link:
 1. Create the group and copy its invite link (Group info → Invite via link).
 2. Put that link in `GROUP_INVITE_LINKS` in `.env`.
-3. Start the bot (`docker compose up -d`). On first start the log prints `PAIRING CODE` with 8 characters — on the bot's phone, go to WhatsApp → Linked devices → Link a device → Link with phone number instead, and type it. Once it connects, the log resolves the link and prints the group's real `jid`. That jid is remembered on disk, so the group keeps being served across restarts even if the link is later revoked or fails to resolve — a failure there only logs a warning, it never deauthorizes the group. Swapping the resolved jid into `GROUP_INVITE_LINKS` is still fine and stops the boot-time resolution attempt, but it's no longer required for the group to keep working. Removing the link (or jid) from `GROUP_INVITE_LINKS` is what actually turns the group off.
+3. Start the bot (`docker compose up -d`). On first start the log prints `PAIRING CODE` with 8 characters - on the bot's phone, go to WhatsApp → Linked devices → Link a device → Link with phone number instead, and type it. Once it connects, the log resolves the link and prints the group's real `jid`. That jid is remembered on disk, so the group keeps being served across restarts even if the link is later revoked or fails to resolve - a failure there only logs a warning, it never deauthorizes the group. Swapping the resolved jid into `GROUP_INVITE_LINKS` is still fine and stops the boot-time resolution attempt, but it's no longer required for the group to keep working. Removing the link (or jid) from `GROUP_INVITE_LINKS` is what actually turns the group off.
 4. Add the bot to the group. It's already allowed in, so it onboards itself right away.
 
-No link handy? Fall back to the old dance: start the bot with `GROUP_INVITE_LINKS` empty — it boots and serves no group, that's expected — then add the bot to the group. The moment it's added, the log prints a line carrying the real `jid`. Copy that into `GROUP_INVITE_LINKS` in `.env` and restart (`docker compose up -d`). Only then does the bot actually answer in it.
+No link handy? Fall back to the old dance: start the bot with `GROUP_INVITE_LINKS` empty - it boots and serves no group, that's expected - then add the bot to the group. The moment it's added, the log prints a line carrying the real `jid`. Copy that into `GROUP_INVITE_LINKS` in `.env` and restart (`docker compose up -d`). Only then does the bot actually answer in it.
 
-Being removed from a group turns the bot off for that group immediately, on the spot — no restart needed. That revocation only drops the cached invite pairing; the group's bill history is untouched. The only way back in is `GROUP_INVITE_LINKS` still naming the group (jid or link) at the next start — being re-added to the group on its own does not restore it.
+Being removed from a group turns the bot off for that group immediately, on the spot - no restart needed. That revocation only drops the cached invite pairing; the group's bill history is untouched. The only way back in is `GROUP_INVITE_LINKS` still naming the group (jid or link) at the next start - being re-added to the group on its own does not restore it.
 
 For development:
 

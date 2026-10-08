@@ -1,14 +1,14 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-  "files": { "includes": ["src/**", "test/**"] },
-  "formatter": { "enabled": false },
-  "assist": { "enabled": false },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true,
-      "nursery": { "noFloatingPromises": "error" },
-      "suspicious": { "noConsole": "error" }
-    }
-  }
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+	"files": { "includes": ["src/**", "test/**"] },
+	"formatter": { "enabled": false },
+	"assist": { "enabled": false },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"nursery": { "noFloatingPromises": "error" },
+			"suspicious": { "noConsole": "error" }
+		}
+	}
 }

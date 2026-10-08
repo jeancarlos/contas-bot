@@ -15,9 +15,27 @@ test('valid feat passes', () => {
   assert.deepEqual(lintCommitMessage(ok), [])
 })
 
-test('empty or too long trailer fails', () => {
-  assert.ok(lintCommitMessage(ok.replace('o bot anuncia versões novas no grupo', '')).length > 0)
-  assert.ok(lintCommitMessage(ok.replace('o bot anuncia versões novas no grupo', 'x'.repeat(73))).length > 0)
+test('empty trailer fails', () => {
+  const e = lintCommitMessage(ok.replace('o bot anuncia versões novas no grupo', ''))
+  assert.equal(e.length, 1)
+  assert.match(e[0], /Changelog-pt-BR/)
+})
+
+test('too-long trailer fails', () => {
+  const e = lintCommitMessage(ok.replace('o bot anuncia versões novas no grupo', 'x'.repeat(73)))
+  assert.equal(e.length, 1)
+  assert.match(e[0], /Changelog-pt-BR/)
+})
+
+test('fix with scope passes, breaking feat with scope too', () => {
+  assert.deepEqual(lintCommitMessage(ok.replace('feat:', 'fix(bot):')), [])
+  assert.deepEqual(lintCommitMessage(ok.replace('feat:', 'feat(x)!:')), [])
+  assert.equal(lintCommitMessage('fix(bot): x\n').length, 2)
+})
+
+test('comment lines are ignored', () => {
+  assert.deepEqual(lintCommitMessage(`${ok}# Changelog-pt-BR: ignored\n# please enter a message\n`), [])
+  assert.equal(lintCommitMessage('feat: x\n\n# Changelog-pt-BR: a\n# Changelog-es: b\n').length, 2)
 })
 
 test('subject over 72 chars after the prefix fails', () => {

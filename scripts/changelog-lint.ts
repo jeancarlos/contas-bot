@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const FREE = /^(chore|ci|test|docs|refactor|style|build|perf)(\(.+\))?!?:/
 const LOGGED = /^(feat|fix)(\(.+\))?!?:\s*(.*)$/
@@ -33,8 +35,13 @@ export function lintCommitMessage(msg: string): string[] {
   return errors
 }
 
-if (import.meta.main) {
-  const errors = lintCommitMessage(readFileSync(process.argv[2] ?? '', 'utf8'))
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const file = process.argv[2]
+  if (!file) {
+    process.stderr.write('usage: changelog-lint.ts <commit-message-file>\n')
+    process.exit(2)
+  }
+  const errors = lintCommitMessage(readFileSync(file, 'utf8'))
   if (errors.length) {
     process.stderr.write(`${errors.join('\n')}\n\nexample:\n  feat: bot announces new versions in the group\n\n  Changelog-pt-BR: o bot anuncia versões novas no grupo\n  Changelog-es: el bot anuncia versiones nuevas en el grupo\n`)
     process.exit(1)

@@ -21,7 +21,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
-      - run: shellcheck .githooks/pre-commit scripts/install-hooks.sh install.sh bin/contas-bot test/smoke-install.sh
+      - run: shellcheck .githooks/pre-commit .githooks/commit-msg scripts/install-hooks.sh install.sh bin/contas-bot test/smoke-install.sh
       - run: sh test/smoke-install.sh
 
   branch-name:

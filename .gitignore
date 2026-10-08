@@ -5,3 +5,5 @@ data/
 *.log
 docker-compose.override.yml
 .superpowers/
+CHANGELOG.json
+dist/

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { basename, dirname, join as pathJoin, resolve } from 'node:path'
 import pino from 'pino'
 import { connectWa, parseGroupJids } from './wa.ts'
 import { makeBot } from './bot.ts'
@@ -5,6 +7,7 @@ import { makeLlm } from './llm.ts'
 import { openState, cachedGroupsForCodes } from './state.ts'
 import { pdfToPng } from './pdf.ts'
 import { makeLocale } from './i18n.ts'
+import type { Release } from './announce.ts'
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name] || fallback
@@ -15,7 +18,35 @@ function env(name: string, fallback?: string): string {
 const log = pino({ level: process.env.LOG_LEVEL || 'info' })
 const locale = makeLocale(env('BOT_LANG', 'pt-BR'), env('BOT_CURRENCY', 'BRL'))
 log.info({ lang: locale.lang, currency: locale.currency }, 'locale')
-const groups = await openState(env('STATE_FILE', 'data/state.json'), log)
+const stateFile = env('STATE_FILE', 'data/state.json')
+const groups = await openState(stateFile, log)
+const MAX_GIF = 5 * 1024 * 1024
+const version = process.env.APP_VERSION || 'dev'
+async function loadReleases(): Promise<Release[]> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(new URL('../CHANGELOG.json', import.meta.url), 'utf8'))
+    return Array.isArray(parsed) ? (parsed as Release[]) : []
+  } catch { return [] }
+}
+async function loadGif(): Promise<Buffer | null> {
+  const src = process.env.ANNOUNCE_GIF || ''
+  if (!src) return null
+  try {
+    if (src.startsWith('https://')) {
+      const res = await fetch(src, { signal: AbortSignal.timeout(15_000) })
+      if (!res.ok) throw new Error(`gif fetch ${res.status}`)
+      if (Number(res.headers.get('content-length')) > MAX_GIF) throw new Error('gif too large')
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.length > MAX_GIF) throw new Error('gif too large')
+      return buf
+    }
+    return await readFile(pathJoin(dirname(resolve(stateFile)), basename(src)))
+  } catch (e) {
+    log.warn({ err: e }, 'announcement gif unavailable')
+    return null
+  }
+}
+const announce = process.env.ANNOUNCE_UPDATES === 'false' ? undefined : { version, releases: await loadReleases(), gif: loadGif }
 const llm = makeLlm({
   baseUrl: process.env.LLM_BASE_URL || '',
   apiKey: process.env.LLM_API_KEY || '',
@@ -36,7 +67,7 @@ function botFor(jid: string) {
   let bot = bots.get(jid)
   if (!bot) {
     if (!wa) throw new Error('WhatsApp is not connected yet')
-    bot = makeBot({ wa: wa.forGroup(jid), llm, store: groups.forGroup(jid), log: log.child({ group: jid }), pdfToPng, locale })
+    bot = makeBot({ wa: wa.forGroup(jid), llm, store: groups.forGroup(jid), log: log.child({ group: jid }), pdfToPng, locale, announce })
     bots.set(jid, bot)
   }
   return bot

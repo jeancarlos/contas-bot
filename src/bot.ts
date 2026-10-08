@@ -4,6 +4,7 @@ import {
   type Bill,
 } from './bills.ts'
 import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
+import { announcementText, isSemver, pendingReleases, type Release } from './announce.ts'
 import type { StateStore } from './state.ts'
 import type { Llm } from './llm.ts'
 
@@ -18,6 +19,7 @@ export type Incoming = {
 }
 export type Wa = {
   sendText(text: string, quoted?: MsgKey): Promise<MsgKey>
+  sendVideo(video: Buffer, caption: string): Promise<MsgKey>
   react(key: MsgKey, emoji: string): Promise<void>
   pin(key: MsgKey): Promise<void>
   unpin(key: MsgKey): Promise<void>
@@ -33,6 +35,7 @@ export type BotDeps = {
   log?: Log
   pdfToPng?: (pdf: Buffer) => Promise<Buffer>
   locale?: Locale
+  announce?: { version: string; releases: Release[]; gif(): Promise<Buffer | null> }
 }
 
 const CONFIDENCE = 0.7
@@ -258,6 +261,30 @@ export function makeBot(deps: BotDeps) {
     await markPaid(bill, typed ?? inferred, m)
   }
 
+  async function maybeAnnounce() {
+    const a = deps.announce
+    if (!a || !isSemver(a.version)) return
+    const meta = state()._meta
+    if (meta.announced_version === a.version) return
+    try {
+      const text = announcementText(pendingReleases(a.releases, a.version, meta.announced_version), loc.lang, a.version, t.moreChanges)
+      if (text !== null) {
+        const gif = await a.gif().catch(() => null)
+        try {
+          if (gif) await wa.sendVideo(gif, text)
+          else await wa.sendText(text)
+        } catch (e) {
+          if (!gif) throw e
+          log.warn({ err: e }, 'gif announcement failed, sending text')
+          await wa.sendText(text)
+        }
+      }
+      meta.announced_version = a.version
+      await store.save()
+    } catch (e) {
+      log.warn({ err: e }, 'release announcement failed')
+    }
+  }
   async function joinNow(): Promise<'onboarded' | 'active'> {
     const meta = state()._meta
     if (active()) {
@@ -266,11 +293,13 @@ export function makeBot(deps: BotDeps) {
         // Rewriting from an unread description would wipe the group's own text: load and wait.
         log.warn({ err: e }, 'description unreadable, using saved bills')
         bills = parseDescription((meta.bills ?? []).join('\n'))
+        await maybeAnnounce()
         return 'active'
       }
       const changed = await reconcile(desc)
       if (meta.listed && changed) await postList()
       log.info({ bills: billNames() }, 'bills loaded')
+      await maybeAnnounce()
       return 'active'
     }
     const desc = await wa.getDescription()
@@ -289,6 +318,7 @@ export function makeBot(deps: BotDeps) {
     if (!onboardingListSent) await postList()
     // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
     meta.last_reset = monthKey(now())
+    if (deps.announce && isSemver(deps.announce.version)) meta.announced_version = deps.announce.version
     try { await store.save() } catch (e) { delete meta.last_reset; throw e }
     log.info({ bills: billNames() }, 'group onboarded')
     return 'onboarded'

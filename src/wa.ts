@@ -295,6 +295,12 @@ export async function connectWa({ onOpen, onJoined, onMessage, onDescription, on
           if (!id) throw new Error('sendMessage returned no message id')
           return { id, fromMe: true, remoteJid: jid }
         },
+        async sendVideo(video, caption) {
+          const sent = await sock.sendMessage(jid, { video, gifPlayback: true, caption })
+          const id = sent?.key.id
+          if (!id) throw new Error('sendMessage returned no message id')
+          return { id, fromMe: true, remoteJid: jid }
+        },
         async react(key, emoji) { await sock.sendMessage(jid, { react: { text: emoji, key: toKey(key) } }) },
         async pin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 1, time: 2592000 }) },
         async unpin(key) { await sock.sendMessage(jid, { pin: toKey(key), type: 2 }) },

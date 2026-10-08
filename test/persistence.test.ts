@@ -16,6 +16,7 @@ function fakeWa(opts: Opts): Wa {
   let n = 0
   return {
     async sendText() { return { id: `s${++n}`, fromMe: true, remoteJid: G } },
+    async sendVideo() { return { id: `v${++n}`, fromMe: true, remoteJid: G } },
     async react() {},
     async pin() { if (opts.pinFails) throw new Error('pinning is admin-only') },
     async unpin() {},

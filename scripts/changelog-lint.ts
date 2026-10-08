@@ -7,7 +7,7 @@ const LOGGED = /^(feat|fix)(\(.+\))?!?:\s*(.*)$/
 const MAX = 72
 export const TRAILERS = ['Changelog-pt-BR', 'Changelog-es'] as const
 
-const clean = (msg: string) => msg.split('\n').filter(l => !l.startsWith('#')).join('\n').trim()
+const clean = (msg: string) => msg.split(/\r?\n/).filter(l => !l.startsWith('#')).join('\n').trim()
 
 export function parseTrailers(msg: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -25,7 +25,11 @@ export function lintCommitMessage(msg: string): string[] {
   const m = LOGGED.exec(subject)
   if (!m) return []
   const errors: string[] = []
+  if (m[3].trim() === '') errors.push('subject is empty')
   if (m[3].length > MAX) errors.push(`subject is ${m[3].length} chars after the prefix (max ${MAX})`)
+  const lines = text.split('\n')
+  const folded = lines.some((l, i) => i > 0 && /^[ \t]+\S/.test(l) && /^Changelog-(pt-BR|es):/.test(lines[i - 1]))
+  if (folded) errors.push('trailer must fit on one line')
   const t = parseTrailers(text)
   for (const name of TRAILERS) {
     const v = t[name]

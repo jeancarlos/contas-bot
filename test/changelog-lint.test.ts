@@ -51,3 +51,16 @@ test('free types, merges and fixups pass without trailers', () => {
 test('parseTrailers reads the trailer block', () => {
   assert.deepEqual(parseTrailers(ok), { 'Changelog-pt-BR': 'o bot anuncia versões novas no grupo', 'Changelog-es': 'el bot anuncia versiones nuevas en el grupo' })
 })
+test('CRLF messages are linted like LF ones', () => {
+  assert.equal(lintCommitMessage('feat: x\r\n').length, 2)
+  assert.deepEqual(lintCommitMessage(ok.replace(/\n/g, '\r\n')), [])
+})
+test('an empty feat or fix subject fails', () => {
+  assert.match(lintCommitMessage('feat:\n\nChangelog-pt-BR: a\nChangelog-es: b\n').join('\n'), /subject is empty/)
+  assert.match(lintCommitMessage('fix(scope):   \n\nChangelog-pt-BR: a\nChangelog-es: b\n').join('\n'), /subject is empty/)
+})
+test('a trailer with an indented continuation line fails', () => {
+  const e = lintCommitMessage('feat: x\n\nChangelog-pt-BR: a\n  more\nChangelog-es: b\n')
+  assert.match(e.join('\n'), /trailer must fit on one line/)
+  assert.match(lintCommitMessage('feat: x\n\nChangelog-pt-BR: a\nChangelog-es: b\n\tmore\n').join('\n'), /trailer must fit on one line/)
+})

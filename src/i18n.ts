@@ -24,6 +24,7 @@ export type Catalog = {
   descDenied: string
   descTooLong: string
   updated: string
+  moreChanges: (n: number) => string
   notFound: (q: string, names: string, suggest?: string[]) => string
 }
 
@@ -74,6 +75,7 @@ const ptBR: Catalog = {
   descDenied: 'não consigo editar a descrição: me torna admin ou libera "editar dados do grupo" pra todos',
   descTooLong: 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot',
   updated: 'atualizado',
+  moreChanges: n => `…e mais ${n}`,
   notFound: (q, names, suggest) => suggest?.length
     ? `não achei "${q}", você quis dizer ${suggest.map(n => `*${n}*`).join(' ou ')}? Contas: ${names}`
     : `não achei "${q}". Contas: ${names}`,
@@ -124,6 +126,7 @@ const en: Catalog = {
   descDenied: "I can't edit the description: make me an admin or let everyone edit group info",
   descTooLong: "the group description is over WhatsApp's limit: shorten the text above the bot's list",
   updated: 'updated',
+  moreChanges: n => `…and ${n} more`,
   notFound: (q, names, suggest) => suggest?.length
     ? `couldn't find "${q}", did you mean ${suggest.map(n => `*${n}*`).join(' or ')}? Bills: ${names}`
     : `couldn't find "${q}". Bills: ${names}`,
@@ -174,6 +177,7 @@ const es: Catalog = {
   descDenied: 'no puedo editar la descripción: hazme admin o permite que todos editen la info del grupo',
   descTooLong: 'la descripción del grupo pasó el límite de WhatsApp: acorta el texto sobre la lista del bot',
   updated: 'actualizado',
+  moreChanges: n => `…y ${n} más`,
   notFound: (q, names, suggest) => suggest?.length
     ? `no encontré "${q}", ¿quisiste decir ${suggest.map(n => `*${n}*`).join(' o ')}? Cuentas: ${names}`
     : `no encontré "${q}". Cuentas: ${names}`,

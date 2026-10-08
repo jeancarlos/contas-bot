@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim
 ARG APP_VERSION=dev
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json CHANGELOG.jso[n] ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY src ./src
 COPY bin ./bin

@@ -63,4 +63,5 @@ jobs:
           notes="--notes-file dist/notes.md"
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease; notes=--generate-notes ;; esac
           gh release create "$GITHUB_REF_NAME" dist/install.sh $notes --verify-tag $pre \
-            || gh release upload "$GITHUB_REF_NAME" dist/install.sh --clobber
+            || { gh release upload "$GITHUB_REF_NAME" dist/install.sh --clobber \
+              && case "$GITHUB_REF_NAME" in *-*) ;; *) gh release edit "$GITHUB_REF_NAME" --notes-file dist/notes.md ;; esac; }

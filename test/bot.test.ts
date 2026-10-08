@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { makeBot, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
+import type { Release } from '../src/announce.ts'
+import { makeBot, type BotDeps, type Incoming, type MsgKey, type Wa } from '../src/bot.ts'
 import { openState, type StateStore } from '../src/state.ts'
 import { parseDescription, composeDescription, billLine } from '../src/bills.ts'
 import { makeLocale, DEFAULT_LOCALE, type Locale } from '../src/i18n.ts'
@@ -19,8 +20,11 @@ function fakeWa(desc = DESC) {
   const reactions: { key: MsgKey; emoji: string }[] = []
   const pins: string[] = []
   const descs: string[] = []
+  const videos: { caption: string; bytes: Buffer }[] = []
+  const fail = { video: false, text: false }
   const wa: Wa = {
-    async sendText(text, quoted) { sent.push({ text, quoted }); return { id: `s${++n}`, fromMe: true, remoteJid: G } },
+    async sendVideo(bytes, caption) { if (fail.video) throw new Error('video down'); videos.push({ caption, bytes }); return { id: `v${++n}`, fromMe: true, remoteJid: G } },
+    async sendText(text, quoted) { if (fail.text) throw new Error('text down'); sent.push({ text, quoted }); return { id: `s${++n}`, fromMe: true, remoteJid: G } },
     async react(key, emoji) { reactions.push({ key, emoji }) },
     async pin(key) { pins.push(`pin:${key.id}`) },
     async unpin(key) { pins.push(`unpin:${key.id}`) },
@@ -29,7 +33,7 @@ function fakeWa(desc = DESC) {
   }
   // A member edit: the current description changes, then the event arrives.
   const edit = (text: string) => { desc = text }
-  return { wa, sent, reactions, pins, descs, edit }
+  return { wa, sent, reactions, pins, descs, edit, videos, fail }
 }
 
 function fakeLlm(verdict: Verdict | null) {
@@ -41,16 +45,18 @@ function fakeLlm(verdict: Verdict | null) {
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale; llm?: Llm } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale; llm?: Llm; announce?: BotDeps['announce']; failVideo?: boolean; failText?: boolean } = {}) {
   seq = 0
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   if (!opts.fresh) store.get()._meta.last_reset = '2026-08'
   const w = fakeWa(opts.desc)
   const l = fakeLlm(opts.verdict ?? null)
-  const bot = makeBot({ wa: w.wa, llm: opts.llm ?? l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale })
+  w.fail.video = opts.failVideo ?? false
+  w.fail.text = opts.failText ?? false
+  const bot = makeBot({ wa: w.wa, llm: opts.llm ?? l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale, announce: opts.announce })
   await bot.join()
-  return { bot, store, ...w, llmCalls: l.calls, llm: l.llm }
+  return { bot, store, dir, ...w, llmCalls: l.calls, llm: l.llm }
 }
 
 let seq = 0
@@ -1079,4 +1085,62 @@ test('without AI an uncaptioned receipt asks to resend with a caption', async ()
   const { bot, sent } = await setup({ llm: NO_AI })
   await bot.onMessage(msg('', { media: untouchable }))
   assert.equal(sent.at(-1)?.text, DEFAULT_LOCALE.t.askNoAi)
+})
+
+const rel = (version: string, ...en: string[]): Release => ({ version, entries: en.map(e => ({ en: e })) })
+const ann = (version: string, releases: Release[], gif: () => Promise<Buffer | null> = async () => Buffer.from('gif')) => ({ version, releases, gif })
+const reopened = async (dir: string) => (await openState(join(dir, 'state.json'))).forGroup(G).get()._meta.announced_version
+test('an active group gets one GIF announcement per version and remembers it', async () => {
+  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')]) })
+  assert.equal(s.videos.length, 1)
+  assert.ok(s.videos[0].caption.startsWith('🎉🤖 contas-bot v1.2.0'))
+  assert.equal(s.videos[0].bytes.toString(), 'gif')
+  assert.equal(s.store.get()._meta.announced_version, '1.2.0')
+  assert.equal(await reopened(s.dir), '1.2.0')
+  await s.bot.join()
+  assert.equal(s.videos.length, 1)
+})
+test('without a GIF the announcement goes out as text', async () => {
+  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')], async () => null) })
+  assert.equal(s.videos.length, 0)
+  assert.ok(s.sent.some(m => m.text.startsWith('🎉🤖 contas-bot v1.2.0') && m.text.includes('new thing')))
+  assert.equal(s.store.get()._meta.announced_version, '1.2.0')
+})
+test('a failing GIF send falls back to text', async () => {
+  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')]), failVideo: true })
+  assert.ok(s.sent.some(m => m.text.startsWith('🎉🤖 contas-bot v1.2.0')))
+  assert.equal(s.store.get()._meta.announced_version, '1.2.0')
+})
+test('when every send fails the field stays unset and join still succeeds', async () => {
+  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')]), failVideo: true, failText: true })
+  assert.equal(s.store.get()._meta.announced_version, undefined)
+  assert.equal(await s.bot.join(), 'active')
+})
+test('a fresh group is onboarded silently at the current version', async () => {
+  const s = await setup({ fresh: true, announce: ann('1.2.0', [rel('1.2.0', 'new thing')]) })
+  assert.equal(s.videos.length, 0)
+  assert.ok(!s.sent.some(m => m.text.includes('contas-bot v1.2.0')))
+  assert.equal(s.store.get()._meta.announced_version, '1.2.0')
+})
+test('a dev build never announces', async () => {
+  const s = await setup({ announce: ann('dev', [rel('1.2.0', 'new thing')]) })
+  assert.equal(s.videos.length, 0)
+  assert.equal(s.store.get()._meta.announced_version, undefined)
+})
+test('a release without entries sends nothing but is marked announced', async () => {
+  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0')]) })
+  assert.equal(s.videos.length, 0)
+  assert.ok(!s.sent.some(m => m.text.includes('contas-bot v1.2.0')))
+  assert.equal(s.store.get()._meta.announced_version, '1.2.0')
+})
+test('skipped versions are announced together', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const store = (await openState(join(dir, 'state.json'))).forGroup(G)
+  store.get()._meta.last_reset = '2026-08'
+  store.get()._meta.announced_version = '1.0.0'
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, announce: ann('1.2.0', [rel('1.2.0', 'two'), rel('1.1.0', 'one')]) })
+  await bot.join()
+  assert.equal(w.videos.length, 1)
+  assert.ok(w.videos[0].caption.includes('• two\n• one'))
 })

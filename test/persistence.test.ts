@@ -39,7 +39,7 @@ async function onDisk(path: string) {
 async function run(opts: Opts, scenario: (bot: ReturnType<typeof makeBot>, store: StateStore) => Promise<void>) {
   const path = join(await mkdtemp(join(tmpdir(), 'contas-persist-')), 'state.json')
   const store = (await openState(path)).forGroup(G)
-  const bot = makeBot({ wa: fakeWa(opts), llm: fakeLlm, store, now: () => NOW })
+  const bot = makeBot({ version: 'dev', wa: fakeWa(opts), llm: fakeLlm, store, now: () => NOW })
   await scenario(bot, store)
   return { disk: await onDisk(path), memory: store.get() }
 }
@@ -78,7 +78,7 @@ for (const [label, opts, scenario] of scenarios) {
 test('a handled message id survives a reopen', async () => {
   const path = join(await mkdtemp(join(tmpdir(), 'contas-persist-')), 'state.json')
   const first = await openState(path)
-  const bot = makeBot({ wa: fakeWa({}), llm: fakeLlm, store: first.forGroup(G), now: () => NOW })
+  const bot = makeBot({ version: 'dev', wa: fakeWa({}), llm: fakeLlm, store: first.forGroup(G), now: () => NOW })
   await bot.join()
   await bot.onMessage(msg('REAL1', '/pago Luz 100'))
 

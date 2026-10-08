@@ -4,7 +4,7 @@ import {
   type Bill,
 } from './bills.ts'
 import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
-import { announcementText, isSemver, pendingReleases, type Release } from './announce.ts'
+import { announcementText, compareVersions, isSemver, pendingReleases, type Release } from './announce.ts'
 import type { StateStore } from './state.ts'
 import type { Llm } from './llm.ts'
 
@@ -35,7 +35,8 @@ export type BotDeps = {
   log?: Log
   pdfToPng?: (pdf: Buffer) => Promise<Buffer>
   locale?: Locale
-  announce?: { version: string; releases: Release[]; gif(): Promise<Buffer | null> }
+  version: string
+  announce?: { releases: Release[] | null; gif(): Promise<Buffer | null> }
 }
 
 const CONFIDENCE = 0.7
@@ -261,13 +262,20 @@ export function makeBot(deps: BotDeps) {
     await markPaid(bill, typed ?? inferred, m)
   }
 
+  let missingLogged = false
   async function maybeAnnounce() {
     const a = deps.announce
-    if (!a || !isSemver(a.version)) return
+    const version = deps.version
+    if (!a || !isSemver(version)) return
+    if (a.releases === null) {
+      if (!missingLogged) { missingLogged = true; log.info('no changelog in this build') }
+      return
+    }
     const meta = state()._meta
-    if (meta.announced_version === a.version) return
+    const previous = meta.announced_version
+    if (previous !== undefined && compareVersions(version, previous) <= 0) return
     try {
-      const text = announcementText(pendingReleases(a.releases, a.version, meta.announced_version), loc.lang, a.version, t.moreChanges)
+      const text = announcementText(pendingReleases(a.releases, version, previous), loc.lang, version, t.moreChanges)
       if (text !== null) {
         const gif = await a.gif().catch(() => null)
         try {
@@ -279,12 +287,17 @@ export function makeBot(deps: BotDeps) {
           await wa.sendText(text)
         }
       }
-      meta.announced_version = a.version
-      await store.save()
     } catch (e) {
       log.warn({ err: e }, 'release announcement failed')
+      return
+    }
+    meta.announced_version = version
+    try { await store.save() } catch (e) {
+      meta.announced_version = previous
+      log.warn({ err: e }, 'could not save the announced version, will retry on the next join')
     }
   }
+
   async function joinNow(): Promise<'onboarded' | 'active'> {
     const meta = state()._meta
     if (active()) {
@@ -318,7 +331,7 @@ export function makeBot(deps: BotDeps) {
     if (!onboardingListSent) await postList()
     // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
     meta.last_reset = monthKey(now())
-    if (deps.announce && isSemver(deps.announce.version)) meta.announced_version = deps.announce.version
+    if (isSemver(deps.version)) meta.announced_version = deps.version
     try { await store.save() } catch (e) { delete meta.last_reset; throw e }
     log.info({ bills: billNames() }, 'group onboarded')
     return 'onboarded'

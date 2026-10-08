@@ -45,7 +45,7 @@ function fakeLlm(verdict: Verdict | null) {
   return { llm, calls }
 }
 
-async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale; llm?: Llm; announce?: BotDeps['announce']; failVideo?: boolean; failText?: boolean } = {}) {
+async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date; fresh?: boolean; locale?: Locale; llm?: Llm; version?: string; announce?: BotDeps['announce']; failVideo?: boolean; failText?: boolean } = {}) {
   seq = 0
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
@@ -54,7 +54,7 @@ async function setup(opts: { verdict?: Verdict | null; desc?: string; now?: Date
   const l = fakeLlm(opts.verdict ?? null)
   w.fail.video = opts.failVideo ?? false
   w.fail.text = opts.failText ?? false
-  const bot = makeBot({ wa: w.wa, llm: opts.llm ?? l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale, announce: opts.announce })
+  const bot = makeBot({ wa: w.wa, llm: opts.llm ?? l.llm, store, now: () => opts.now ?? new Date('2026-09-10T15:00:00Z'), locale: opts.locale, version: opts.version ?? 'dev', announce: opts.announce })
   await bot.join()
   return { bot, store, dir, ...w, llmCalls: l.calls, llm: l.llm }
 }
@@ -307,7 +307,7 @@ test('the handled id reaches disk, so a restart after redelivery does not re-app
   const store = (await openState(path)).forGroup(G)
   store.get()._meta.last_reset = '2026-08'
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   const m = msg('/pago luz 231,45')
   await bot.onMessage(m)
@@ -322,7 +322,7 @@ test('a message whose handling threw is not recorded as handled, so redelivery r
   let fail = false
   const store: StateStore = { get: () => real.get(), save: () => fail ? Promise.reject(new Error('disk full')) : real.save() }
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   fail = true
   const m = msg('/pago luz 231,45')
@@ -353,7 +353,7 @@ test('an empty description is rebuilt from _meta.bills', async () => {
   store.get()._meta.last_reset = '2026-08'
   store.get()._meta.bills = ['Luz', 'Água']
   const w = fakeWa('')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store })
   await bot.join()
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água'])
   assert.ok(w.descs[0].includes('Luz\nÁgua'))
@@ -491,7 +491,7 @@ test('onboarding with a lost state.json keeps an existing bill section instead o
   const store = (await openState(join(dir, 'state.json'))).forGroup(G) // fresh: no last_reset
   const existing = must(composeDescription('Grupo da casa', parseDescription('Luz\nGás')))
   const w = fakeWa(existing)
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   assert.equal(await bot.join(), 'onboarded')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Gás'])
 })
@@ -514,7 +514,7 @@ test('switching BOT_LANG rewrites the section once and keeps payments', async ()
   const { store, descs, wa } = await setup() // pt-BR legacy group, migrated to a pt section
   store.get().months['2026-09'] = { luz: { name: 'Luz', paid_at: '', amount: 10, by: 'x', message_id: 'm' } }
   const EN = makeLocale('en', 'USD')
-  const bot = makeBot({ wa, llm: fakeLlm(null).llm, store, locale: EN, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa, llm: fakeLlm(null).llm, store, locale: EN, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   const last = must(descs.at(-1))
   assert.ok(last.includes('Bills (edit this list):'), last)
@@ -553,7 +553,7 @@ test('join republishes the list when the bills changed while the bot was offline
   store.get()._meta.listed = true
   const desc = must(composeDescription('', parseDescription('Luz\nÁgua')))
   const w = fakeWa(desc)
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   assert.ok(w.sent.some(s => s.text.includes('Água')))
 })
@@ -568,7 +568,7 @@ test('join republishes on offline changes even when every pin has failed (admin-
   const desc = must(composeDescription('', parseDescription('Luz\nÁgua')))
   const w = fakeWa(desc)
   w.wa.pin = async () => { throw new Error('not admin') }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   assert.ok(w.sent.some(s => s.text.includes('Água')))
   assert.equal(store.get()._meta.pinned, undefined)
@@ -660,7 +660,7 @@ test('onboarding with a refused description write still never reads the group te
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa('Grupo da casa 🏠')
   w.wa.setDescription = async () => { throw new Error('not-authorized') }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   assert.equal(await bot.join(), 'onboarded')
   await bot.onDescription('Grupo da casa 🏠')
   assert.deepEqual(bot.bills().map(b => b.name), ['Luz', 'Água', 'Internet', 'Aluguel', 'Academia'])
@@ -675,7 +675,7 @@ test('a failed first list post leaves the group inactive so the next join retrie
   let sends = 0
   const send = w.wa.sendText
   w.wa.sendText = async (t, q) => { if (++sends === 2) throw new Error('offline'); return send(t, q) }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store })
   await assert.rejects(bot.join())
   assert.equal(store.get()._meta.last_reset, undefined)
   assert.equal(await bot.join(), 'onboarded')
@@ -685,7 +685,7 @@ test('a message queued behind an onboarding join is handled after it', async () 
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa('Grupo')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await Promise.all([bot.join(), bot.onMessage(msg('/pago luz 10'))])
   assert.equal(store.get().months['2026-09'].luz.amount, 10)
 })
@@ -698,7 +698,7 @@ test('restart before join does not repost the list and still handles a queued pa
   store.get()._meta.bills = bills.map(b => billLine(b))
   store.get()._meta.section = true
   const w = fakeWa(must(composeDescription('', bills)))
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   // No bot.join(): this simulates onOpen's groups.update/messages.upsert reaching a freshly
   // built bot before its join() call has run.
   await bot.onDescription(must(composeDescription('', bills)))
@@ -766,7 +766,7 @@ test('an inactive group ignores messages until a tick onboards it', async () => 
   const dir = await mkdtemp(join(tmpdir(), 'contas-'))
   const store = (await openState(join(dir, 'state.json'))).forGroup(G)
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store })
   await bot.onMessage(msg('/lista'))
   assert.equal(w.sent.length, 0)
   await bot.tick()
@@ -813,7 +813,7 @@ test('the save that records a payment also records the message as handled', asyn
   const saves: string[][] = []
   const store: StateStore = { get: () => real.get(), save: () => { saves.push([...(real.get()._meta.handled ?? [])]); return real.save() } }
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   saves.length = 0
   const m = msg('/pago luz 231,45')
@@ -827,7 +827,7 @@ test('a pending receipt amount expires instead of landing on a /pago typed days 
   store.get()._meta.last_reset = '2026-08'
   const w = fakeWa()
   let clock = new Date('2026-09-10T15:00:00Z')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm({ bill: null, amount: 50, confidence: 0.9 }).llm, store, now: () => clock })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm({ bill: null, amount: 50, confidence: 0.9 }).llm, store, now: () => clock })
   await bot.join()
   await bot.onMessage(msg('', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
   clock = new Date('2026-09-17T15:00:00Z')
@@ -841,7 +841,7 @@ test('a pending receipt amount still applies to a /pago a few minutes later', as
   store.get()._meta.last_reset = '2026-08'
   const w = fakeWa()
   let clock = new Date('2026-09-10T15:00:00Z')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm({ bill: null, amount: 50, confidence: 0.9 }).llm, store, now: () => clock })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm({ bill: null, amount: 50, confidence: 0.9 }).llm, store, now: () => clock })
   await bot.join()
   await bot.onMessage(msg('', { media: { mime: 'image/png', download: async () => Buffer.from('png') } }))
   clock = new Date('2026-09-10T15:05:00Z')
@@ -862,7 +862,7 @@ async function failingStore() {
 test('a /pago whose save failed is not written later by an unrelated save', async () => {
   const { store, ctl, path } = await failingStore()
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   await bot.onMessage(msg('/pago luz 10'))
   ctl.fail = true
@@ -878,7 +878,7 @@ test('a /pago whose save failed is not written later by an unrelated save', asyn
 test('a first /pago whose save failed leaves the bill unpaid', async () => {
   const { store, ctl } = await failingStore()
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   ctl.fail = true
   await bot.onMessage(msg('/pago luz 10'))
@@ -888,7 +888,7 @@ test('a first /pago whose save failed leaves the bill unpaid', async () => {
 test('a /despago whose save failed keeps the payment', async () => {
   const { store, ctl } = await failingStore()
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await bot.join()
   await bot.onMessage(msg('/pago luz 10'))
   ctl.fail = true
@@ -903,7 +903,7 @@ test('tick retries an onboarding that failed, without repeating the intro', asyn
   let sends = 0
   const send = w.wa.sendText
   w.wa.sendText = async (t, q) => { if (++sends === 2) throw new Error('offline'); return send(t, q) }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await assert.rejects(bot.join())
   await bot.tick()
   assert.equal(store.get()._meta.last_reset, '2026-09')
@@ -918,7 +918,7 @@ test('tick on a group that never onboarded tries again on the next tick after a 
   let down = true
   const get = w.wa.getDescription
   w.wa.getDescription = async () => { if (down) throw new Error('timeout'); return get() }
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await assert.rejects(bot.join())
   await assert.rejects(bot.tick())
   down = false
@@ -1030,7 +1030,7 @@ test('a failing save never re-posts the list on retried onboarding ticks', async
   let failing = true
   const store: StateStore = { get: real.get, async save() { if (failing) throw new Error('ENOSPC'); return real.save() } }
   const w = fakeWa('Grupo')
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
+  const bot = makeBot({ version: 'dev', wa: w.wa, llm: fakeLlm(null).llm, store, now: () => new Date('2026-09-10T15:00:00Z') })
   await assert.rejects(bot.join())
   for (let i = 0; i < 5; i++) await assert.rejects(bot.tick())
   assert.equal(w.sent.filter(s => s.text.startsWith('📋')).length, 1)
@@ -1088,10 +1088,10 @@ test('without AI an uncaptioned receipt asks to resend with a caption', async ()
 })
 
 const rel = (version: string, ...en: string[]): Release => ({ version, entries: en.map(e => ({ en: e })) })
-const ann = (version: string, releases: Release[], gif: () => Promise<Buffer | null> = async () => Buffer.from('gif')) => ({ version, releases, gif })
+const ann = (version: string, releases: Release[] | null, gif: () => Promise<Buffer | null> = async () => Buffer.from('gif')) => ({ version, announce: { releases, gif } })
 const reopened = async (dir: string) => (await openState(join(dir, 'state.json'))).forGroup(G).get()._meta.announced_version
 test('an active group gets one GIF announcement per version and remembers it', async () => {
-  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')]) })
+  const s = await setup({ ...ann('1.2.0', [rel('1.2.0', 'new thing')]) })
   assert.equal(s.videos.length, 1)
   assert.ok(s.videos[0].caption.startsWith('🎉🤖 contas-bot v1.2.0'))
   assert.equal(s.videos[0].bytes.toString(), 'gif')
@@ -1101,34 +1101,34 @@ test('an active group gets one GIF announcement per version and remembers it', a
   assert.equal(s.videos.length, 1)
 })
 test('without a GIF the announcement goes out as text', async () => {
-  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')], async () => null) })
+  const s = await setup({ ...ann('1.2.0', [rel('1.2.0', 'new thing')], async () => null) })
   assert.equal(s.videos.length, 0)
   assert.ok(s.sent.some(m => m.text.startsWith('🎉🤖 contas-bot v1.2.0') && m.text.includes('new thing')))
   assert.equal(s.store.get()._meta.announced_version, '1.2.0')
 })
 test('a failing GIF send falls back to text', async () => {
-  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')]), failVideo: true })
+  const s = await setup({ ...ann('1.2.0', [rel('1.2.0', 'new thing')]), failVideo: true })
   assert.ok(s.sent.some(m => m.text.startsWith('🎉🤖 contas-bot v1.2.0')))
   assert.equal(s.store.get()._meta.announced_version, '1.2.0')
 })
 test('when every send fails the field stays unset and join still succeeds', async () => {
-  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0', 'new thing')]), failVideo: true, failText: true })
+  const s = await setup({ ...ann('1.2.0', [rel('1.2.0', 'new thing')]), failVideo: true, failText: true })
   assert.equal(s.store.get()._meta.announced_version, undefined)
   assert.equal(await s.bot.join(), 'active')
 })
 test('a fresh group is onboarded silently at the current version', async () => {
-  const s = await setup({ fresh: true, announce: ann('1.2.0', [rel('1.2.0', 'new thing')]) })
+  const s = await setup({ fresh: true, ...ann('1.2.0', [rel('1.2.0', 'new thing')]) })
   assert.equal(s.videos.length, 0)
   assert.ok(!s.sent.some(m => m.text.includes('contas-bot v1.2.0')))
   assert.equal(s.store.get()._meta.announced_version, '1.2.0')
 })
 test('a dev build never announces', async () => {
-  const s = await setup({ announce: ann('dev', [rel('1.2.0', 'new thing')]) })
+  const s = await setup({ ...ann('dev', [rel('1.2.0', 'new thing')]) })
   assert.equal(s.videos.length, 0)
   assert.equal(s.store.get()._meta.announced_version, undefined)
 })
 test('a release without entries sends nothing but is marked announced', async () => {
-  const s = await setup({ announce: ann('1.2.0', [rel('1.2.0')]) })
+  const s = await setup({ ...ann('1.2.0', [rel('1.2.0')]) })
   assert.equal(s.videos.length, 0)
   assert.ok(!s.sent.some(m => m.text.includes('contas-bot v1.2.0')))
   assert.equal(s.store.get()._meta.announced_version, '1.2.0')
@@ -1139,8 +1139,72 @@ test('skipped versions are announced together', async () => {
   store.get()._meta.last_reset = '2026-08'
   store.get()._meta.announced_version = '1.0.0'
   const w = fakeWa()
-  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, announce: ann('1.2.0', [rel('1.2.0', 'two'), rel('1.1.0', 'one')]) })
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, ...ann('1.2.0', [rel('1.2.0', 'two'), rel('1.1.0', 'one')]) })
   await bot.join()
   assert.equal(w.videos.length, 1)
   assert.ok(w.videos[0].caption.includes('• two\n• one'))
+})
+
+test('a bot rebuilt from the saved state does not announce again', async () => {
+  const s = await setup({ ...ann('1.2.0', [rel('1.2.0', 'new thing')]), version: '1.2.0' })
+  assert.equal(s.videos.length, 1)
+  const again = (await openState(join(s.dir, 'state.json'))).forGroup(G)
+  const w = fakeWa()
+  const a = ann('1.2.0', [rel('1.2.0', 'new thing')])
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store: again, ...a })
+  await bot.join()
+  assert.equal(w.videos.length, 0)
+  assert.equal(w.sent.length, 0)
+})
+test('a downgrade or same version leaves the watermark and does not save', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const inner = (await openState(join(dir, 'state.json'))).forGroup(G)
+  inner.get()._meta.last_reset = '2026-08'
+  inner.get()._meta.announced_version = '1.3.0'
+  let saves = 0
+  const store = { get: inner.get, save: async () => { saves++ } }
+  const w = fakeWa()
+  await makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, version: 'dev' }).join()
+  const baseline = saves
+  const sentBefore = w.sent.length
+  for (const v of ['1.2.0', '1.3.0']) {
+    await makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, ...ann(v, [rel(v, 'x')]) }).join()
+  }
+  assert.equal(w.videos.length, 0)
+  assert.equal(w.sent.length, sentBefore)
+  assert.equal(saves, baseline * 3)
+  assert.equal(inner.get()._meta.announced_version, '1.3.0')
+})
+test('missing releases announce nothing and keep the field', async () => {
+  const s = await setup({ ...ann('1.2.0', null) })
+  assert.equal(s.videos.length, 0)
+  assert.equal(s.store.get()._meta.announced_version, undefined)
+  assert.equal(await reopened(s.dir), undefined)
+})
+test('a failed save after a successful send restores the field and a later join retries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'contas-'))
+  const inner = (await openState(join(dir, 'state.json'))).forGroup(G)
+  inner.get()._meta.last_reset = '2026-08'
+  inner.get()._meta.announced_version = '1.0.0'
+  let failSave = true
+  const store = { get: inner.get, save: async () => { if (failSave && inner.get()._meta.announced_version === '1.2.0') throw new Error('disk full'); await inner.save() } }
+  const w = fakeWa()
+  const bot = makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store, ...ann('1.2.0', [rel('1.2.0', 'x')]) })
+  assert.equal(await bot.join(), 'active')
+  assert.equal(w.videos.length, 1)
+  assert.equal(inner.get()._meta.announced_version, '1.0.0')
+  failSave = false
+  await bot.join()
+  assert.equal(w.videos.length, 2)
+  assert.equal(inner.get()._meta.announced_version, '1.2.0')
+  assert.equal(await reopened(dir), '1.2.0')
+})
+test('with announcing disabled onboarding still records the version, and enabling later stays silent', async () => {
+  const s = await setup({ fresh: true, version: '1.2.0' })
+  assert.equal(s.store.get()._meta.announced_version, '1.2.0')
+  assert.equal(await reopened(s.dir), '1.2.0')
+  const again = (await openState(join(s.dir, 'state.json'))).forGroup(G)
+  const w = fakeWa()
+  await makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store: again, ...ann('1.2.0', [rel('1.2.0', 'x')]) }).join()
+  assert.equal(w.videos.length, 0)
 })

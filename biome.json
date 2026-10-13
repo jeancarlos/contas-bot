@@ -18,5 +18,60 @@
       "nursery": { "noFloatingPromises": "error" },
       "suspicious": { "noConsole": "error" }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/core/**",
+        "src/shell/**",
+        "src/adapters/**",
+        "test/core/**",
+        "test/shell/**",
+        "test/adapters/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": { "noNonNullAssertion": "error" },
+          "suspicious": { "noExplicitAny": "error" },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 15 } }
+          },
+          "nursery": { "useExhaustiveSwitchCases": "error" }
+        }
+      }
+    },
+    {
+      "includes": ["src/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "pino": "core is pure: logging belongs to the shell",
+                  "@whiskeysockets/baileys": "core is pure: WhatsApp belongs to the adapters"
+                },
+                "patterns": [
+                  { "group": ["node:*"], "message": "core is pure: no Node I/O" },
+                  { "group": ["../*", "../../*"], "message": "core may only import core" }
+                ]
+              }
+            },
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "Date": "core is pure: time comes in on the input",
+                  "setTimeout": "core is pure: no timers",
+                  "setInterval": "core is pure: no timers",
+                  "process": "core is pure: configuration comes in on the ctx"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

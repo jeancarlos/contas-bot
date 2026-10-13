@@ -44,26 +44,50 @@ const FILLER = new Set([
 ])
 
 const words = (b: Bill) => b.key.split(' ')
+const core = (b: Bill) =>
+  b.key
+    .split(' ')
+    .filter(w => !FILLER.has(w))
+    .join(' ')
+const coreWords = (b: Bill) => (core(b) ? core(b).split(' ') : words(b))
 
+function fromCovered(kept: readonly string[], bills: readonly Bill[]): Match | null {
+  const covered = bills.filter(b => coreWords(b).every(w => kept.includes(w)))
+  const union = new Set(covered.flatMap(coreWords))
+  if (covered.length > 1 && kept.every(w => union.has(w))) return { kind: 'many', bills: covered }
+  const full = covered.filter(b => words(b).every(w => kept.includes(w)))
+  const pick = covered.length === 1 ? covered[0] : full.length === 1 ? full[0] : undefined
+  if (!pick) return null
+  return kept.every(w => coreWords(pick).includes(w)) ? { kind: 'bill', bill: pick } : { kind: 'typo', bill: pick }
+}
+function paddedKey(raw: string, bills: readonly Bill[]): Bill | undefined {
+  const padded = ` ${raw} `
+  return [...bills]
+    .sort((a, b) => b.key.length - a.key.length)
+    .find(
+      b =>
+        padded.includes(` ${b.key} `) &&
+        padded
+          .replace(` ${b.key} `, ' ')
+          .split(' ')
+          .every(w => !w || FILLER.has(w)),
+    )
+}
 function match(toks: readonly Tok[], bills: readonly Bill[]): Match {
   const raw = normalize(toks.map(t => t.text).join(' '))
-  const named = bills.find(b => b.key === raw)
+  const named = bills.find(b => b.key === raw) ?? paddedKey(raw, bills)
   if (named) return { kind: 'bill', bill: named }
   const kept = raw.split(' ').filter(w => w && !FILLER.has(w))
   if (kept.length === 0) return { kind: 'empty' }
   const q = kept.join(' ')
-  const exact = bills.find(b => b.key === q)
+  const exact = bills.find(b => b.key === q) ?? bills.find(b => core(b) === q)
   if (exact) return { kind: 'bill', bill: exact }
-  const prefixed = bills.filter(b => b.key.startsWith(q))
+  const byKey = bills.filter(b => b.key.startsWith(q))
+  const prefixed = byKey.length > 0 ? byKey : bills.filter(b => core(b).startsWith(q))
   if (prefixed.length === 1 && prefixed[0]) return { kind: 'bill', bill: prefixed[0] }
   if (prefixed.length > 1) return { kind: 'many', bills: prefixed }
-  const covered = bills.filter(b => words(b).every(w => kept.includes(w)))
-  const union = new Set(covered.flatMap(words))
-  const onlyBillWords = kept.every(w => union.has(w))
-  if (covered.length > 1 && onlyBillWords) return { kind: 'many', bills: covered }
-  if (covered.length === 1 && covered[0]) {
-    return onlyBillWords ? { kind: 'bill', bill: covered[0] } : { kind: 'typo', bill: covered[0] }
-  }
+  const fromBills = fromCovered(kept, bills)
+  if (fromBills) return fromBills
   const near = closest(bills, b => b.key, q)
   return near ? { kind: 'typo', bill: near } : { kind: 'none', q }
 }
@@ -123,7 +147,7 @@ function joinYears(tokens: readonly string[], billWords: ReadonlySet<string>, cu
   return out
 }
 
-function oldest(current: string): string {
+export function oldest(current: string): string {
   const [y = 0, m = 1] = current.split('-').map(Number)
   return `${y - 2}-${String(m).padStart(2, '0')}`
 }

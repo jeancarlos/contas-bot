@@ -57,6 +57,9 @@ test('resolve /pago arguments, happy path and off path', () => {
     ['maio 2026', { bill: 'Maio', amount: 202600, month: null }],
     ['luz 05/10', 'suggest:Luz:null:null'],
     ['luz set/2010', 'suggest:Luz:null:null'],
+    ['apto 101 R$ 80', { bill: 'Apto 101', amount: 8000, month: null }],
+    ['a conta de luz', { bill: 'Conta de Luz', amount: null, month: null }],
+    ['conta de luz de setembro', { bill: 'Conta de Luz', amount: null, month: '2026-09' }],
   ]
   for (const [arg, want] of cases) assert.deepEqual(run(arg), want, arg)
 })
@@ -64,4 +67,17 @@ test('resolve /pago arguments, happy path and off path', () => {
 test('removed bills never resolve', () => {
   const list = bills('Luz', 'Água').map(b => (b.name === 'Luz' ? { ...b, removed: true } : b))
   assert.equal(run('luz', list), 'notFound')
+})
+test('filler words in a bill name do not hide it', () => {
+  const list = bills('Conta de Luz', 'Água')
+  assert.deepEqual(run('luz', list), { bill: 'Conta de Luz', amount: null, month: null })
+  assert.equal(run('conta de luz e agua', list), 'onePerCommand')
+})
+test('apto 101 R$ 80 resolves with only Apto and Apto 101', () => {
+  assert.deepEqual(run('apto 101 R$ 80', bills('Apto', 'Apto 101')), { bill: 'Apto 101', amount: 8000, month: null })
+})
+test('the full key wins over the filler-stripped core regardless of order', () => {
+  const list = bills('Conta de Luz', 'Luz')
+  assert.deepEqual(run('luz', list), { bill: 'Luz', amount: null, month: null })
+  assert.deepEqual(run('luz', bills('Luz', 'Conta de Luz')), { bill: 'Luz', amount: null, month: null })
 })

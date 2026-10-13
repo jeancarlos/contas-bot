@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -34,4 +34,9 @@ test('core may not import Node, pino, Baileys or code outside core, nor read the
 test('the same code outside core is allowed', () => {
   const out = lintProbe('src/probe.ts', PROBE)
   assert.doesNotMatch(out, /noRestricted/)
+})
+test('core never uses Math.random', () => {
+  const dir = join(root, 'src/core')
+  for (const f of readdirSync(dir).filter(n => n.endsWith('.ts')))
+    assert.ok(!readFileSync(join(dir, f), 'utf8').includes('Math.random'), f)
 })

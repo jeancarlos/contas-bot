@@ -50,7 +50,8 @@ function hitAt(tokens: readonly string[], i: number, decimal: ',' | '.'): { hit:
   const following = parseNumber(next, decimal)
   if (isCurrency(tok) && following !== null) return { hit: { start: i, end: i + 2, cents: following }, marked: true }
   if (own === null) return null
-  if (next && isCurrency(next)) return { hit: { start: i, end: i + 2, cents: own }, marked: true }
+  if (next && isCurrency(next) && parseNumber(tokens[i + 2] ?? '', decimal) === null)
+    return { hit: { start: i, end: i + 2, cents: own }, marked: true }
   return { hit: { start: i, end: i + 1, cents: own }, marked: false }
 }
 

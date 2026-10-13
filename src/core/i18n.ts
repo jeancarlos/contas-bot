@@ -107,7 +107,8 @@ const ptBR: Catalog = {
   suggest: (m, loc) => `você quis dizer \`${suggestion(m, loc)}\`?`,
   notFound: m => `não achei "${m.q}". Contas: ${m.names.join(', ')}`,
   missingBill: m => (m.cmd === 'pago' ? 'faltou a conta: /pago luz 80,00' : 'faltou a conta: /despago luz'),
-  onePerCommand: m => `um /pago por conta: ${m.bills.map(b => `/pago ${b.toLowerCase()}`).join(' · ')}`,
+  onePerCommand: m =>
+    `um /${WORDS['pt-BR'].cmd[m.cmd]} por conta: ${m.bills.map(b => `/${WORDS['pt-BR'].cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'um valor e um mês por comando: /pago <conta> [valor] [mês/ano]',
   futureMonth: () => 'esse mês ainda não chegou',
   unknownCmd: m =>
@@ -143,7 +144,8 @@ const en: Catalog = {
   suggest: (m, loc) => `did you mean \`${suggestion(m, loc)}\`?`,
   notFound: m => `couldn't find "${m.q}". Bills: ${m.names.join(', ')}`,
   missingBill: m => (m.cmd === 'pago' ? 'missing the bill: /paid power 80.00' : 'missing the bill: /unpaid power'),
-  onePerCommand: m => `one /paid per bill: ${m.bills.map(b => `/paid ${b.toLowerCase()}`).join(' · ')}`,
+  onePerCommand: m =>
+    `one /${WORDS.en.cmd[m.cmd]} per bill: ${m.bills.map(b => `/${WORDS.en.cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'one amount and one month per command: /paid <bill> [amount] [month/year]',
   futureMonth: () => "that month hasn't come yet",
   unknownCmd: m =>
@@ -178,7 +180,8 @@ const es: Catalog = {
   suggest: (m, loc) => `¿quisiste decir \`${suggestion(m, loc)}\`?`,
   notFound: m => `no encontré "${m.q}". Cuentas: ${m.names.join(', ')}`,
   missingBill: m => (m.cmd === 'pago' ? 'falta la cuenta: /pagado luz 80,00' : 'falta la cuenta: /despagado luz'),
-  onePerCommand: m => `un /pagado por cuenta: ${m.bills.map(b => `/pagado ${b.toLowerCase()}`).join(' · ')}`,
+  onePerCommand: m =>
+    `un /${WORDS.es.cmd[m.cmd]} por cuenta: ${m.bills.map(b => `/${WORDS.es.cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'un monto y un mes por comando: /pagado <cuenta> [monto] [mes/año]',
   futureMonth: () => 'ese mes todavía no llegó',
   unknownCmd: m =>

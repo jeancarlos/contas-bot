@@ -1,7 +1,7 @@
 import { type Command, type Conta, parseCommand, parseConta } from './commands.ts'
 import { findMoney } from './money.ts'
 import { monthOf, parseMonthToken } from './month.ts'
-import { type Resolution, resolve } from './resolve.ts'
+import { oldest, type Resolution, resolve } from './resolve.ts'
 import { normalize } from './text.ts'
 import type {
   Bill,
@@ -60,7 +60,7 @@ function failure(d: Draft, r: Failure, cmd: 'pago' | 'despago'): Msg {
     case 'notFound':
       return { k: 'notFound', q: r.q, names: active(d.s).map(b => b.name) }
     case 'onePerCommand':
-      return { k: 'onePerCommand', bills: r.bills.map(b => b.name) }
+      return { k: 'onePerCommand', cmd, bills: r.bills.map(b => b.name) }
   }
 }
 
@@ -135,7 +135,11 @@ function validName(d: Draft, name: string, to: MsgKey, self?: Bill): string | nu
 
 function looksLikePayment(d: Draft, name: string, m: Cmd): boolean {
   const tokens = name.split(' ').filter(Boolean)
-  const dated = tokens.some(t => t.includes('/') && parseMonthToken(t, current(d, m.at)) !== null)
+  const now = current(d, m.at)
+  const dated = tokens.some(t => {
+    const month = t.includes('/') ? parseMonthToken(t, now) : null
+    return month !== null && month >= oldest(now)
+  })
   if (!dated && findMoney(tokens, d.ctx.locale.decimal).marked.length === 0) return false
   const r = resolve(name, d.s.bills, current(d, m.at), d.ctx.locale.decimal)
   const target = r.ok || r.why === 'suggest' ? r : null
@@ -157,6 +161,7 @@ function addBill(d: Draft, name: string, m: Cmd): boolean {
   const removed = d.s.bills.filter(b => b.key === key).at(-1)
   if (removed) {
     removed.removed = false
+    removed.paused = false
     removed.name = name
   } else {
     d.s.bills.push({ id: d.s.nextBillId, name, key, paused: false, removed: false })
@@ -285,7 +290,7 @@ function onListPosted(d: Draft, messageId: string) {
 
 function onTick(d: Draft, at: number) {
   const month = current(d, at)
-  if (d.s.lastReset === null || d.s.lastReset === month) return
+  if (d.s.lastReset === null || month <= d.s.lastReset) return
   d.s.lastReset = month
   d.fx.push({ kind: 'postList', msg: listMsg(d.s, month) })
 }

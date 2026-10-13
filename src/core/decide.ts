@@ -29,6 +29,10 @@ const NAME_MAX = 40
 const reply = (d: Draft, to: MsgKey, msg: Msg) => d.fx.push({ kind: 'reply', to, msg })
 const active = (s: GroupState) => s.bills.filter(b => !b.removed)
 const current = (d: Draft, at: number) => monthOf(at, d.ctx.locale.timeZone)
+const pinnedMonth = (d: Draft, at: number) => {
+  const now = current(d, at)
+  return d.s.lastReset && d.s.lastReset > now ? d.s.lastReset : now
+}
 
 export function listMsg(s: GroupState, month: string): ListMsg {
   const paid = s.months[month] ?? {}
@@ -85,7 +89,7 @@ function pago(d: Draft, arg: string, m: Cmd): boolean {
   d.fx.push({ kind: 'react', to: m.key })
   if (prev) reply(d, m.key, { k: 'updated' })
   if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: r.bill.id })
-  else showList(d, month, now, m.key)
+  else showList(d, month, pinnedMonth(d, m.at), m.key)
   return true
 }
 
@@ -101,7 +105,7 @@ function despago(d: Draft, arg: string, m: Cmd): boolean {
   const had = Boolean(paid?.[r.bill.id])
   if (paid) delete paid[r.bill.id]
   d.fx.push({ kind: 'react', to: m.key })
-  showList(d, month, now, m.key)
+  showList(d, month, pinnedMonth(d, m.at), m.key)
   return had
 }
 
@@ -215,7 +219,7 @@ function run(d: Draft, c: Command, m: Cmd): boolean {
     case 'despago':
       return despago(d, c.arg, m)
     case 'lista':
-      d.fx.push({ kind: 'postList', msg: listMsg(d.s, current(d, m.at)) })
+      d.fx.push({ kind: 'postList', msg: listMsg(d.s, pinnedMonth(d, m.at)) })
       return false
     case 'ajuda':
       reply(d, m.key, { k: 'help' })
@@ -269,7 +273,7 @@ function onAmountRead(d: Draft, a: Extract<Input, { kind: 'amountRead' }>) {
     p.amount = a.amount
     p.status = 'read'
   }
-  showList(d, a.month, current(d, a.at), a.key)
+  showList(d, a.month, pinnedMonth(d, a.at), a.key)
 }
 
 function onListPosted(d: Draft, messageId: string) {

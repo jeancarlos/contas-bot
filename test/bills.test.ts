@@ -123,6 +123,8 @@ test('renderList without missing amounts has no footnote', () => {
 
 test('parseCommand', () => {
   assert.deepEqual(parseCommand('/pago luz'), { cmd: 'pago', name: 'luz', amount: null, full: 'luz' })
+  assert.deepEqual(parseCommand('/paguei luz'), { cmd: 'pago', name: 'luz', amount: null, full: 'luz' })
+  assert.deepEqual(parseCommand('/Pagar luz 80'), { cmd: 'pago', name: 'luz', amount: 80, full: 'luz 80' })
   assert.deepEqual(parseCommand('/pago cartão nu R$ 6.237,60'), {
     cmd: 'pago',
     name: 'cartão nu',

@@ -1,7 +1,7 @@
 import { clean, levenshtein, normalize } from './text.ts'
 
 export const COMMANDS = {
-  pago: ['pago', 'paid', 'pagado'],
+  pago: ['pago', 'paguei', 'pagar', 'paid', 'pagado'],
   despago: ['despago', 'despagado', 'unpaid', 'reverter', 'revert', 'revertir'],
   lista: ['lista', 'list'],
   ajuda: ['ajuda', 'help', 'ayuda'],

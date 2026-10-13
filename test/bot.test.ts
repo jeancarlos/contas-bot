@@ -1039,3 +1039,11 @@ test('with announcing disabled onboarding still records the version, and enablin
   await makeBot({ wa: w.wa, llm: fakeLlm(null).llm, store: again, ...ann('1.2.0', [rel('1.2.0', 'x')]) }).join()
   assert.equal(w.videos.length, 0)
 })
+
+test('an amount before the bill, in any currency, pays it; a lone amount asks for the bill', async () => {
+  const { bot, store, sent } = await setup()
+  await bot.onMessage(msg('/pago US$ 80 luz'))
+  assert.equal(store.get().months['2026-09'].luz.amount, 80)
+  await bot.onMessage(msg('/pago R$ 150'))
+  assert.equal(must(sent.at(-1)).text, 'faltou a conta: /pago luz 80,00')
+})

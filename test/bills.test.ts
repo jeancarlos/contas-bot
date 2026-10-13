@@ -266,9 +266,9 @@ test('parseAmount is currency-agnostic and uses the locale only for ambiguity', 
     ['231,45', 231.45, 231.45],
     ['231.45', 231.45, 231.45],
     ['R$ 6.237,60', 6237.6, 6237.6],
-    ['$6,237.60', null, 6237.6],
-    ['6.237,60 €', null, null],
-    ['USD 10', null, 10],
+    ['$6,237.60', 6237.6, 6237.6],
+    ['6.237,60 €', 6237.6, 6237.6],
+    ['USD 10', 10, 10],
     ['1.234', 1234, 1.23],
     ['1,234', 1.23, 1234],
     ['1.234.567', 1234567, 1234567],
@@ -329,10 +329,10 @@ test('parseAmount rejects repeated separators that are not thousands groups', ()
   assert.equal(parseAmount('1,234,567', EN), 1234567)
 })
 
-test('a bare currency code is only swallowed when it is the configured currency', () => {
+test('any currency code or symbol is swallowed, other acronyms stay in the name', () => {
   assert.deepEqual(parseCommand('/pago Plano TIM 100'), { cmd: 'pago', name: 'Plano TIM', amount: 100, full: 'Plano TIM 100' })
   assert.deepEqual(parseCommand('/pago Cartão BTG 500'), { cmd: 'pago', name: 'Cartão BTG', amount: 500, full: 'Cartão BTG 500' })
-  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water USD', amount: 80, full: 'water USD 80' })
+  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water', amount: 80, full: 'water USD 80' })
   assert.deepEqual(parseCommand('/pago luz BRL 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz BRL 10' })
   assert.deepEqual(parseCommand('/pago luz brl 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz brl 10' })
   assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10 BRL' })
@@ -359,12 +359,21 @@ test('parseAmount rejects an amount that quantizes to zero cents', () => {
   assert.equal(parseAmount('231,456'), 231.46)
 })
 
-test('parseAmount rejects a currency other than the configured one', () => {
-  assert.equal(parseAmount('US$ 100'), null)
-  assert.equal(parseAmount('100 EUR'), null)
-  assert.equal(parseAmount('$ 100'), null)
-  assert.equal(parseAmount('R$ 100'), 100)
-  assert.equal(parseAmount('US$ 80', EN), 80)
+test('parseAmount reads any currency as a money marker', () => {
+  for (const s of ['US$ 100', '100 EUR', '$ 100', 'R$ 100', 'usd 100', '100 R$']) assert.equal(parseAmount(s), 100, s)
+  assert.equal(parseAmount('R$'), null)
+  assert.equal(parseAmount('TIM 100'), null)
+})
+
+test('/pago takes the amount at either end of the bill name', () => {
+  for (const c of ['/pago luz 80', '/pago 80 luz', '/pago luz R$ 80', '/pago R$ 80 luz', '/pago USD 80 luz', '/pago $80 luz', '/pago luz 80 USD']) {
+    const p = parseCommand(c)
+    assert.deepEqual(p && p.cmd === 'pago' && [p.name, p.amount], ['luz', 80], c)
+  }
+  assert.deepEqual(parseCommand('/pago 6.237,60 cartão nu'), { cmd: 'pago', name: 'cartão nu', amount: 6237.6, full: '6.237,60 cartão nu' })
+  // A bill named like a number still takes a trailing amount, and a lone amount names no bill.
+  assert.deepEqual(parseCommand('/pago 101 80'), { cmd: 'pago', name: '101', amount: 80, full: '101 80' })
+  assert.deepEqual(parseCommand('/pago R$ 150'), { cmd: 'pago', name: 'R$ 150', amount: null, full: 'R$ 150' })
 })
 
 test('renderList does not treat an inherited Object property as a payment', () => {

@@ -5,6 +5,8 @@ import { parseCommand, parseConta } from '../../src/core/commands.ts'
 test('parseCommand: slash commands in any language, accents and case ignored, typos suggested', () => {
   assert.deepEqual(parseCommand('/Pagó luz 80'), { cmd: 'pago', arg: 'luz 80' })
   assert.deepEqual(parseCommand('*/PAID* water'), { cmd: 'pago', arg: 'water' })
+  assert.deepEqual(parseCommand('/paguei luz 80'), { cmd: 'pago', arg: 'luz 80' })
+  assert.deepEqual(parseCommand('/Pagar água'), { cmd: 'pago', arg: 'água' })
   assert.deepEqual(parseCommand('/conta adiciona Luz'), { cmd: 'conta', arg: 'adiciona Luz' })
   assert.deepEqual(parseCommand('/pagp luz'), { cmd: 'unknown', typed: 'pagp', suggestion: 'pago' })
   assert.equal(parseCommand('paguei a luz'), null)

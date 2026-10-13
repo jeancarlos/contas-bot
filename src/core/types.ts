@@ -54,7 +54,7 @@ export type Msg =
   | { k: 'suggest'; cmd: 'pago' | 'despago'; bill: string; amount: number | null; month: string | null }
   | { k: 'notFound'; q: string; names: string[] }
   | { k: 'missingBill'; cmd: 'pago' | 'despago' }
-  | { k: 'onePerCommand'; bills: string[] }
+  | { k: 'onePerCommand'; cmd: 'pago' | 'despago'; bills: string[] }
   | { k: 'pagoSyntax' }
   | { k: 'futureMonth' }
   | { k: 'unknownCmd'; typed: string; suggestion: string | null }

@@ -292,3 +292,28 @@ test('a backlog payment from last month never re-pins last month after the new l
   const posted = lista.effects.find(e => e.kind === 'postList')
   assert.equal(posted?.kind === 'postList' && posted.msg.month, '2026-11')
 })
+test('/despago ambiguity suggests /despago', () => {
+  const s = state('Luz', 'Água')
+  const r = decide(s, msg('/despago luz e agua'), ctx)
+  const reply = r.effects.find(e => e.kind === 'reply')
+  assert.deepEqual(reply?.kind === 'reply' && reply.msg, { k: 'onePerCommand', cmd: 'despago', bills: ['Luz', 'Água'] })
+})
+test('a revived bill is no longer paused', () => {
+  let s = state('Luz')
+  for (const t of ['/conta adiciona Gas', '/conta pausa Gas', '/conta remove Gas', '/conta adiciona Gas'])
+    s = decide(s, msg(t), ctx).state
+  assert.equal(s.bills.find(b => b.name === 'Gas')?.paused, false)
+})
+test('a bill name with an old-looking fraction is not a payment, a recent one is', () => {
+  const r = decide(state('Luz'), msg('/conta adiciona Parcela 3/10'), ctx)
+  assert.ok(r.state.bills.some(b => b.name === 'Parcela 3/10'))
+  const r2 = decide(state('Luz'), msg('/conta adiciona IPVA 1/26'), ctx)
+  assert.ok(!r2.state.bills.some(b => b.name === 'IPVA 1/26'))
+})
+test('a tick in an earlier month than lastReset does nothing', () => {
+  const s = state('Luz')
+  s.lastReset = '2026-11'
+  const r = decide(s, { kind: 'tick', at: OCT }, ctx)
+  assert.deepEqual(r.effects, [])
+  assert.equal(r.state.lastReset, '2026-11')
+})

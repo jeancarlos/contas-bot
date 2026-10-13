@@ -52,7 +52,7 @@ test('every message kind renders in every language', () => {
     { k: 'suggest', cmd: 'despago', bill: 'Luz', amount: null, month: null },
     { k: 'notFound', q: 'x', names: ['Luz'] },
     { k: 'missingBill', cmd: 'pago' },
-    { k: 'onePerCommand', bills: ['Luz', 'Água'] },
+    { k: 'onePerCommand', cmd: 'pago', bills: ['Luz', 'Água'] },
     { k: 'pagoSyntax' },
     { k: 'futureMonth' },
     { k: 'unknownCmd', typed: 'x', suggestion: null },
@@ -66,4 +66,10 @@ test('every message kind renders in every language', () => {
   for (const lang of ['pt-BR', 'en', 'es'] as const) {
     for (const m of all) assert.ok(render(m, loc(lang)).length > 0, `${lang} ${m.k}`)
   }
+})
+test('onePerCommand names the command of the failed message', () => {
+  const m: Msg = { k: 'onePerCommand', cmd: 'despago', bills: ['Luz', 'Água'] }
+  assert.match(render(m, loc('pt-BR')), /\/despago luz/)
+  assert.match(render(m, loc('en')), /\/unpaid luz/)
+  assert.match(render(m, loc('es')), /\/despagado luz/)
 })

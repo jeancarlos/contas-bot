@@ -70,11 +70,6 @@ export function levenshtein(a: string, b: string): number {
   return prev[b.length]
 }
 
-export function plainTextSuggestions(bills: Bill[], attempt: string): Bill[] {
-  const q = normalize(attempt)
-  if (q.length < 3) return []
-  return closestBills(bills, attempt).filter(b => b.key[0] === q[0] && (b.key.length > 4 || b.key.slice(0, 2) === q.slice(0, 2)))
-}
 export function closestBills(bills: Bill[], query: string): Bill[] {
   const q = normalize(query)
   if (!q) return []
@@ -205,20 +200,6 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
   }
 }
 
-const PAY_RE = /^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/
-const MAX_ATTEMPT_WORDS = 5
-export function matchPlainText(bills: Bill[], text: string): Bill | null {
-  const n = normalize(text)
-  // A bill literally named "Pago Luz" matches before the payment word is stripped.
-  const t = n.replace(PAY_RE, '')
-  return bills.find(b => b.key === n) ?? bills.find(b => b.key === t) ?? null
-}
-export function paymentAttempt(text: string): string | null {
-  const n = normalize(text)
-  if (!PAY_RE.test(n) || n.split(' ').length > MAX_ATTEMPT_WORDS) return null
-  return n.replace(PAY_RE, '') || null
-}
-
 export const SECTION_MARK = '🤖 contas-bot'
 const SECTION_HEADER = `──── ${SECTION_MARK} ────`
 const SECTION_DIVIDER = '──────────────'
@@ -275,14 +256,3 @@ export function composeDescription(original: string, bills: Bill[], loc: Locale 
   return candidates.find(d => d.length <= DESC_LIMIT) ?? null
 }
 
-const GREETINGS = [
-  'oi', 'ola', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi',
-  'hey', 'good morning', 'good afternoon', 'good evening', 'hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches',
-]
-
-// A greeting only counts when it names the bot: a bare "oi" is for the other person.
-export function isGreeting(text: string): boolean {
-  const t = normalize(text)
-  const words = t.split(' ')
-  return words.length <= 4 && words.includes('bot') && GREETINGS.some(g => t === g || t.startsWith(`${g} `))
-}

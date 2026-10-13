@@ -1,55 +1,48 @@
-export type Verdict = { bill: string | null; amount: number | null; confidence: number }
 export type Llm = {
   enabled: boolean
-  readReceipt(image: Buffer, mime: string, caption: string, bills: string[]): Promise<Verdict | null>
+  readAmount(image: Buffer, mime: string): Promise<number | null>
 }
 type Cfg = { baseUrl: string; apiKey: string; visionModel: string; currency?: string; fetchFn?: typeof fetch }
 
-function parseVerdict(raw: string, bills: string[]): Verdict | null {
+function parseAmountReply(raw: string): number | null {
   const m = /\{[\s\S]*\}/.exec(raw)
   if (!m) return null
-  let o: Record<string, unknown>
-  try { o = JSON.parse(m[0]) } catch { return null }
-  const bill = typeof o.bill === 'string' && bills.includes(o.bill) ? o.bill : null
-  const cents = typeof o.amount === 'number' && o.amount > 0 && o.amount < 1e12 ? Math.round(o.amount * 100) / 100 : 0
-  const amount = cents > 0 ? cents : null
-  const confidence = typeof o.confidence === 'number' ? Math.max(0, Math.min(1, o.confidence)) : 0
-  return { bill, amount, confidence }
+  try {
+    const { amount } = JSON.parse(m[0])
+    return typeof amount === 'number' && amount > 0 && amount < 1e12 ? Math.round(amount * 100) / 100 || null : null
+  } catch {
+    return null
+  }
 }
 
 export function makeLlm(cfg: Cfg): Llm {
-  if (!cfg.baseUrl) return { enabled: false, readReceipt: async () => null }
+  if (!cfg.baseUrl) return { enabled: false, readAmount: async () => null }
   const fetchFn = cfg.fetchFn ?? fetch
-  const system = `You classify household bill payments. Answer ONLY a JSON object:
-{"bill": <one exact name from the list or null>, "amount": <number in ${cfg.currency ?? 'BRL'} or null>, "confidence": <0..1>}
-"amount" is the total paid on the receipt ("Total", "Valor", "Valor pago", "Amount", "Importe"). Never invent a bill outside the list.`
-  async function chat(model: string, content: unknown): Promise<string | null> {
-    try {
-      const res = await fetchFn(`${cfg.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}) },
-        body: JSON.stringify({
-          model, stream: false, temperature: 0,
-          messages: [{ role: 'system', content: system }, { role: 'user', content }],
-        }),
-        signal: AbortSignal.timeout(45_000),
-      })
-      if (!res.ok) return null
-      const data = await res.json() as { choices?: { message?: { content?: string } }[] } | null
-      return data?.choices?.[0]?.message?.content ?? null
-    } catch {
-      return null
-    }
-  }
-  const listText = (bills: string[]) => `Bills: ${JSON.stringify(bills)}`
+  const system = `You read payment receipts. Answer ONLY a JSON object: {"amount": <total paid in ${cfg.currency ?? 'BRL'} as a number, or null>}
+"amount" is the total paid ("Total", "Valor", "Valor pago", "Amount", "Importe"). Answer null when unsure.`
   return {
     enabled: true,
-    async readReceipt(image, mime, caption, bills) {
-      const raw = await chat(cfg.visionModel, [
-        { type: 'text', text: `${listText(bills)}\nCaption: ${JSON.stringify(caption)}` },
-        { type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } },
-      ])
-      return raw == null ? null : parseVerdict(raw, bills)
+    async readAmount(image, mime) {
+      try {
+        const res = await fetchFn(`${cfg.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}) },
+          body: JSON.stringify({
+            model: cfg.visionModel, stream: false, temperature: 0,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } }] },
+            ],
+          }),
+          signal: AbortSignal.timeout(45_000),
+        })
+        if (!res.ok) return null
+        const data = await res.json() as { choices?: { message?: { content?: string } }[] } | null
+        const raw = data?.choices?.[0]?.message?.content
+        return raw ? parseAmountReply(raw) : null
+      } catch {
+        return null
+      }
     },
   }
 }

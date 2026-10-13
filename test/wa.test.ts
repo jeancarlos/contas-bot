@@ -355,7 +355,7 @@ function fakeEmitter() {
   }
 }
 
-test('wireGroupEvents: messages.upsert reaches onMessage for a notify message in a served group; not for another type, an unserved group, or a non-group jid; still delivers a fromMe message unchanged', () => {
+test('wireGroupEvents: messages.upsert reaches onMessage for a notify or offline (append) message in a served group; not for another type, an unserved group, or a non-group jid; still delivers a fromMe message unchanged', () => {
   const ev = fakeEmitter()
   const seen: Array<{ jid: string; fromMe: boolean }> = []
   const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
@@ -364,13 +364,14 @@ test('wireGroupEvents: messages.upsert reaches onMessage for a notify message in
 
   const wam = (remoteJid: string, fromMe = false): WAMessage => ({ key: { id: 'm1', remoteJid, fromMe }, message: { conversation: 'oi' } } as WAMessage)
 
-  ev.fire('messages.upsert', { messages: [wam('mine@g.us')], type: 'append' })
+  ev.fire('messages.upsert', { messages: [wam('mine@g.us')], type: 'history' })
   ev.fire('messages.upsert', { messages: [wam('theirs@g.us')], type: 'notify' })
   ev.fire('messages.upsert', { messages: [wam('mine@s.whatsapp.net')], type: 'notify' })
   assert.deepEqual(seen, [])
 
   ev.fire('messages.upsert', { messages: [wam('mine@g.us', true)], type: 'notify' })
-  assert.deepEqual(seen, [{ jid: 'mine@g.us', fromMe: true }])
+  ev.fire('messages.upsert', { messages: [wam('mine@g.us')], type: 'append' })
+  assert.deepEqual(seen, [{ jid: 'mine@g.us', fromMe: true }, { jid: 'mine@g.us', fromMe: false }])
 })
 
 test('wireGroupEvents: groups.update reaches onDescription when desc is present, including cleared to empty, and not when the key is absent', () => {

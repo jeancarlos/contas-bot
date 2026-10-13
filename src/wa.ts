@@ -141,7 +141,7 @@ export function wireGroupEvents(
   cfg: { groups: Set<string>; log: Pick<Logger, 'info'> },
 ): void {
   ev.on('messages.upsert', ({ messages, type }: { messages: WAMessage[]; type: string }) => {
-    if (type !== 'notify') return
+    if (type !== 'notify' && type !== 'append') return
     for (const raw of messages) {
       const jid = raw.key.remoteJid
       if (!jid?.endsWith('@g.us')) continue

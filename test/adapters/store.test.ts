@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } fr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { DatabaseSync } from 'node:sqlite'
 import { openStore } from '../../src/adapters/store.ts'
 import { fromV1 } from '../../src/adapters/v1.ts'
 import type { GroupState } from '../../src/core/types.ts'
@@ -150,4 +151,33 @@ test('an existing database wins over a state.json next to it', () => {
   assert.equal(imported, null)
   assert.deepEqual(store.load(JID), STATE)
   assert.ok(existsSync(p.v1Path))
+})
+
+test('a valid leftover .tmp survives a start that has nothing to import', () => {
+  const src = fresh()
+  src.store.commit(JID, STATE)
+  src.store.close()
+  const p = dir()
+  copyFileSync(src.dbPath, `${p.dbPath}.tmp`)
+  openStore({ ...p, allowEmpty: true }).store.close()
+  assert.ok(existsSync(`${p.dbPath}.tmp`))
+})
+
+test('the schema is versioned', () => {
+  const { store, dbPath } = fresh()
+  store.close()
+  const db = new DatabaseSync(dbPath)
+  assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1)
+  db.close()
+})
+
+test('a fractional amount is rejected and leaves the previous state', () => {
+  const { store } = fresh()
+  store.commit(JID, STATE)
+  const bad: GroupState = {
+    ...STATE,
+    months: { '2026-10': { 1: { amount: 2161.2, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'X' } } },
+  }
+  assert.throws(() => store.commit(JID, bad))
+  assert.deepEqual(store.load(JID), STATE)
 })

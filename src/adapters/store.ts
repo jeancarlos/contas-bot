@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS payments (
   group_jid TEXT NOT NULL,
   month TEXT NOT NULL,
   bill_id INTEGER NOT NULL,
-  amount INTEGER,
+  amount INTEGER CHECK (amount IS NULL OR typeof(amount) = 'integer'),
   amount_status TEXT NOT NULL CHECK (amount_status IN ('typed', 'read', 'pending', 'none')),
   paid_by TEXT NOT NULL,
   paid_at INTEGER NOT NULL,
@@ -78,7 +78,9 @@ type HandledRow = { message_id: string; changed_state: number; warned: number }
 function open(path: string) {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
+  db.exec('PRAGMA busy_timeout = 5000')
   db.exec(SCHEMA)
+  db.exec('PRAGMA user_version = 1')
   const sql = {
     group: db.prepare('SELECT * FROM groups WHERE jid = ?'),
     groups: db.prepare('SELECT jid FROM groups ORDER BY jid'),
@@ -114,7 +116,11 @@ function open(path: string) {
       fn()
       db.exec('COMMIT')
     } catch (e) {
-      db.exec('ROLLBACK')
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        throw e
+      }
       throw e
     }
   }
@@ -191,10 +197,10 @@ function open(path: string) {
 
 export function openStore(o: StoreOptions): { store: Store; imported: number | null } {
   const tmp = `${o.dbPath}.tmp`
-  for (const f of [tmp, `${tmp}-journal`, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true })
   if (existsSync(o.dbPath)) return { store: open(o.dbPath), imported: null }
   if (existsSync(o.v1Path)) {
     const groups = fromV1(JSON.parse(readFileSync(o.v1Path, 'utf8')))
+    for (const f of [tmp, `${tmp}-journal`, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true })
     const db = open(tmp)
     try {
       db.importAll(groups)

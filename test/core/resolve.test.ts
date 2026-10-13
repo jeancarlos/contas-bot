@@ -49,6 +49,14 @@ test('resolve /pago arguments, happy path and off path', () => {
     ['luz R$80 R$90', 'pagoSyntax'],
     ['luz 09/2026 08/2026', 'pagoSyntax'],
     ['luz 12/2026', 'futureMonth'],
+    ['80 apto 101', { bill: 'Apto 101', amount: 8000, month: null }],
+    ['o apto 101', { bill: 'Apto 101', amount: null, month: null }],
+    ['luz setembro 2026', { bill: 'Luz', amount: null, month: '2026-09' }],
+    ['luz setembro de 2025', { bill: 'Luz', amount: null, month: '2025-09' }],
+    ['luz 80 setembro 2026', { bill: 'Luz', amount: 8000, month: '2026-09' }],
+    ['maio 2026', { bill: 'Maio', amount: 202600, month: null }],
+    ['luz 05/10', 'suggest:Luz:null:null'],
+    ['luz set/2010', 'suggest:Luz:null:null'],
   ]
   for (const [arg, want] of cases) assert.deepEqual(run(arg), want, arg)
 })

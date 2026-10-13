@@ -89,27 +89,57 @@ function withBare(
   run: (toks: readonly Tok[]) => Match,
   month: string | null,
 ) {
-  const end = [rest.at(-1), rest[0]].find(t => t && parseNumber(t.text, decimal) !== null)
-  if (!end) return finish(run(rest), null, month)
-  const cents = parseNumber(end.text, decimal)
-  const without = run(rest.filter(t => t !== end))
-  if (without.kind === 'bill' || without.kind === 'empty') return finish(without, cents, month)
-  const asName = run(rest)
-  return asName.kind === 'bill' ? finish(asName, null, month) : finish(without, cents, month)
+  const whole = run(rest)
+  if (whole.kind === 'bill') return finish(whole, null, month)
+  const ends = [rest.at(-1), rest[0]].filter(
+    (t, k, all): t is Tok => t !== undefined && all.indexOf(t) === k && parseNumber(t.text, decimal) !== null,
+  )
+  for (const end of ends) {
+    const without = run(rest.filter(t => t !== end))
+    if (without.kind === 'bill' || without.kind === 'empty')
+      return finish(without, parseNumber(end.text, decimal), month)
+  }
+  const first = ends[0]
+  return first
+    ? finish(run(rest.filter(t => t !== first)), parseNumber(first.text, decimal), month)
+    : finish(whole, null, month)
+}
+
+const YEAR_RE = /^20\d\d$/
+const LINKS = new Set(['de', 'of', 'del'])
+
+function joinYears(tokens: readonly string[], billWords: ReadonlySet<string>, current: string): string[] {
+  const out: string[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i] ?? ''
+    const link = LINKS.has(normalize(tokens[i + 1] ?? '')) ? 1 : 0
+    const year = tokens[i + 1 + link] ?? ''
+    const named = !tok.includes('/') && !billWords.has(normalize(tok)) && parseMonthToken(tok, current) !== null
+    if (named && YEAR_RE.test(year)) {
+      out.push(`${tok}/${year}`)
+      i += 1 + link
+    } else out.push(tok)
+  }
+  return out
+}
+
+function oldest(current: string): string {
+  const [y = 0, m = 1] = current.split('-').map(Number)
+  return `${y - 2}-${String(m).padStart(2, '0')}`
 }
 
 export function resolve(arg: string, all: readonly Bill[], current: string, decimal: ',' | '.'): Resolution {
   const bills = all.filter(b => !b.removed)
   const whole = bills.find(b => b.key === normalize(arg))
   if (whole) return { ok: true, bill: whole, amount: null, month: null }
-  const tokens = arg.split(' ').filter(Boolean)
   const billWords = new Set(bills.flatMap(words))
+  const tokens = joinYears(arg.split(' ').filter(Boolean), billWords, current)
   const { marked } = findMoney(tokens, decimal)
   const money: MoneyHit | undefined = marked[0]
   if (marked.length > 1) return { ok: false, why: 'pagoSyntax', amount: null }
   const months = tokens
     .map((text, i) => ({ i, m: billWords.has(normalize(text)) ? null : parseMonthToken(text, current) }))
-    .filter((x): x is { i: number; m: string } => x.m !== null)
+    .filter((x): x is { i: number; m: string } => x.m !== null && x.m >= oldest(current))
   if (months.length > 1) return { ok: false, why: 'pagoSyntax', amount: money?.cents ?? null }
   const month = months[0]?.m ?? null
   if (month && month > current) return { ok: false, why: 'futureMonth', amount: null }

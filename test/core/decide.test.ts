@@ -278,3 +278,17 @@ test('/conta adiciona that looks like a payment points to /pago and creates noth
   assert.deepEqual(replies(decide(s, msg('/conta adiciona Apto 101'), ctx).effects), ['bills'])
   assert.deepEqual(replies(decide(s, msg('/conta adiciona Maio'), ctx).effects), ['bills'])
 })
+
+test('a backlog payment from last month never re-pins last month after the new list went up', () => {
+  const s = state('Luz')
+  const nov = decide(s, { kind: 'tick', at: Date.UTC(2026, 10, 1, 12) }, ctx).state
+  const pinned = decide(nov, { kind: 'listPosted', messageId: 'L-nov' }, ctx).state
+  const late = decide(pinned, msg('/pago luz 80', { at: NOV_1_LOCAL_LATE_OCT }), ctx)
+  assert.equal(late.state.months['2026-10']?.[1]?.amount, 8000)
+  assert.deepEqual(kinds(late.effects), ['react', 'reply'])
+  assert.deepEqual(replies(late.effects), ['list'])
+  assert.equal(late.state.pinnedId, 'L-nov')
+  const lista = decide(pinned, msg('/lista', { at: NOV_1_LOCAL_LATE_OCT }), ctx)
+  const posted = lista.effects.find(e => e.kind === 'postList')
+  assert.equal(posted?.kind === 'postList' && posted.msg.month, '2026-11')
+})

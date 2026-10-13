@@ -19,11 +19,18 @@ export function pendingReleases(all: Release[], current: string, announced: stri
   if (!isSemver(current) || announced === current) return []
   if (announced === undefined) return all.filter(r => r.version === current)
   return all
-    .filter(r => isSemver(r.version) && compareVersions(r.version, announced) > 0 && compareVersions(r.version, current) <= 0)
+    .filter(
+      r => isSemver(r.version) && compareVersions(r.version, announced) > 0 && compareVersions(r.version, current) <= 0,
+    )
     .sort((a, b) => compareVersions(b.version, a.version))
 }
 const MAX_LINES = 10
-export function announcementText(releases: Release[], lang: Lang, current: string, more: (n: number) => string): string | null {
+export function announcementText(
+  releases: Release[],
+  lang: Lang,
+  current: string,
+  more: (n: number) => string,
+): string | null {
   const lines = releases.flatMap(r => r.entries.map(e => e[lang] ?? e.en))
   if (lines.length === 0) return null
   const shown = lines.slice(0, MAX_LINES).map(l => `• ${l}`)
@@ -37,7 +44,9 @@ export async function loadReleases(file: URL): Promise<Release[] | null> {
   try {
     const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
     return Array.isArray(parsed) ? (parsed as Release[]) : null
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
 
 async function fetchGif(url: string, fetchFn: typeof fetch): Promise<Buffer> {
@@ -50,7 +59,10 @@ async function fetchGif(url: string, fetchFn: typeof fetch): Promise<Buffer> {
   let total = 0
   for await (const chunk of res.body) {
     total += chunk.length
-    if (total > MAX_GIF) { ctl.abort(); throw new Error('gif too large') }
+    if (total > MAX_GIF) {
+      ctl.abort()
+      throw new Error('gif too large')
+    }
     chunks.push(chunk)
   }
   return Buffer.concat(chunks)

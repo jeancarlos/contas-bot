@@ -4,11 +4,25 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { toIncoming, parseGroupJids, gate, resolveOpenJids, resolveInviteCodes, logJoinedGroup, participantsIncludeSelf, wireGroupEvents, handleOpen, pairingAction } from '../src/wa.ts'
+import {
+  toIncoming,
+  parseGroupJids,
+  gate,
+  resolveOpenJids,
+  resolveInviteCodes,
+  logJoinedGroup,
+  participantsIncludeSelf,
+  wireGroupEvents,
+  handleOpen,
+  pairingAction,
+} from '../src/wa.ts'
 import { openState, cachedGroupsForCodes } from '../src/state.ts'
 import type { Incoming } from '../src/bot.ts'
 import type { Payment } from '../src/bills.ts'
-const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
+const must = <T>(v: T | null | undefined): T => {
+  assert.ok(v != null)
+  return v
+}
 
 test('a receipt over 16 MB is refused before it is downloaded', async () => {
   const big = 16 * 1024 * 1024 + 1
@@ -22,10 +36,7 @@ test('a receipt over 16 MB is refused before it is downloaded', async () => {
 })
 
 test('parseGroupJids trims, drops empties and adds the @g.us suffix', () => {
-  assert.deepEqual(
-    [...parseGroupJids(' 123-456@g.us , 789 ,, ').jids],
-    ['123-456@g.us', '789@g.us'],
-  )
+  assert.deepEqual([...parseGroupJids(' 123-456@g.us , 789 ,, ').jids], ['123-456@g.us', '789@g.us'])
   const empty = parseGroupJids('')
   assert.equal(empty.jids.size, 0)
   assert.equal(empty.inviteCodes.length, 0)
@@ -50,7 +61,10 @@ test('GROUP_INVITE_LINKS unset or empty yields an empty allowlist without throwi
 })
 
 test('parseGroupJids rejects a jid that is not a group jid, but still normalizes bare digits', () => {
-  assert.throws(() => parseGroupJids('123@s.whatsapp.net'), /GROUP_INVITE_LINKS: not a group jid or invite link: 123@s\.whatsapp\.net/)
+  assert.throws(
+    () => parseGroupJids('123@s.whatsapp.net'),
+    /GROUP_INVITE_LINKS: not a group jid or invite link: 123@s\.whatsapp\.net/,
+  )
   assert.deepEqual([...parseGroupJids('456').jids], ['456@g.us'])
 })
 
@@ -74,18 +88,31 @@ test('parseGroupJids matches an uppercase host and suffix case-insensitively, bu
 test('parseGroupJids strips a #fragment and rejects a link with no path segment after the host', () => {
   assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCd123#frag').inviteCodes, ['AbCd123'])
   for (const entry of ['https://chat.whatsapp.com/', 'chat.whatsapp.com']) {
-    assert.throws(() => parseGroupJids(entry), new RegExp(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry.replace(/[.]/g, '\\.')}`))
+    assert.throws(
+      () => parseGroupJids(entry),
+      new RegExp(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry.replace(/[.]/g, '\\.')}`),
+    )
   }
 })
 
 test('gate passes through jids on the allowlist and swallows the rest', async () => {
   const seen: string[] = []
   const spy = {
-    onOpen: (jids: string[]) => { seen.push(`open:${jids.join('|')}`) },
-    onJoined: (jid: string) => { seen.push(`joined:${jid}`) },
-    onMessage: (jid: string, _m: Incoming) => { seen.push(`msg:${jid}`) },
-    onDescription: (jid: string, d: string) => { seen.push(`desc:${jid}:${d}`) },
-    onRemoved: (jid: string) => { seen.push(`removed:${jid}`) },
+    onOpen: (jids: string[]) => {
+      seen.push(`open:${jids.join('|')}`)
+    },
+    onJoined: (jid: string) => {
+      seen.push(`joined:${jid}`)
+    },
+    onMessage: (jid: string, _m: Incoming) => {
+      seen.push(`msg:${jid}`)
+    },
+    onDescription: (jid: string, d: string) => {
+      seen.push(`desc:${jid}:${d}`)
+    },
+    onRemoved: (jid: string) => {
+      seen.push(`removed:${jid}`)
+    },
   }
   const g = gate(parseGroupJids('mine@g.us').jids, spy)
   const m = { key: { id: 'm1', fromMe: false, remoteJid: 'mine@g.us' }, sender: 'Gabi', text: 'oi' } as Incoming
@@ -100,7 +127,13 @@ test('gate passes through jids on the allowlist and swallows the rest', async ()
   await g.onRemoved('theirs@g.us')
   await g.onRemoved('mine@g.us')
 
-  assert.deepEqual(seen, ['open:mine@g.us', 'joined:mine@g.us', 'msg:mine@g.us', 'desc:mine@g.us:y', 'removed:mine@g.us'])
+  assert.deepEqual(seen, [
+    'open:mine@g.us',
+    'joined:mine@g.us',
+    'msg:mine@g.us',
+    'desc:mine@g.us:y',
+    'removed:mine@g.us',
+  ])
 
   seen.length = 0
   const shut = gate(parseGroupJids('').jids, spy)
@@ -118,7 +151,11 @@ test('resolveOpenJids resolves to the configured jids even when group discovery 
     groups: parseGroupJids('mine@g.us,other@g.us').jids,
     log: { info() {}, warn: (o: unknown) => warnings.push(o) },
   }
-  const s = { groupFetchAllParticipating: async () => { throw new Error('socket dropped') } }
+  const s = {
+    groupFetchAllParticipating: async () => {
+      throw new Error('socket dropped')
+    },
+  }
   const jids = await resolveOpenJids(s, cfg)
   assert.deepEqual(jids.sort(), ['mine@g.us', 'other@g.us'])
   assert.equal(warnings.length, 1)
@@ -154,7 +191,15 @@ test('resolveInviteCodes adds the resolved jid to the Set, and the gate then let
   const s = { groupGetInviteInfo: async () => ({ id: 'new@g.us', subject: 'New Group' }) }
 
   const seen: string[] = []
-  const g = gate(jids, { onOpen() {}, onJoined: (jid: string) => { seen.push(jid) }, onMessage() {}, onDescription() {}, onRemoved() {} })
+  const g = gate(jids, {
+    onOpen() {},
+    onJoined: (jid: string) => {
+      seen.push(jid)
+    },
+    onMessage() {},
+    onDescription() {},
+    onRemoved() {},
+  })
   g.onJoined('new@g.us')
   assert.deepEqual(seen, [])
 
@@ -209,7 +254,12 @@ test('a resolved code persists its jid and is served on the next startup with gr
 
   const nextJids = new Set(cached.jids)
   let calls = 0
-  const s2 = { groupGetInviteInfo: async () => { calls++; throw new Error('must not be called') } }
+  const s2 = {
+    groupGetInviteInfo: async () => {
+      calls++
+      throw new Error('must not be called')
+    },
+  }
   await resolveInviteCodes(s2, { groups: nextJids, log: { info() {}, warn() {} } }, cached.toResolve)
 
   assert.equal(calls, 0)
@@ -229,7 +279,11 @@ test('a cached group survives a rejecting groupGetInviteInfo and stays in the al
   for (const jid of cached.jids) jids.add(jid)
   const warnings: unknown[] = []
   const cfg = { groups: jids, log: { info() {}, warn: (o: unknown) => warnings.push(o) } }
-  const s = { groupGetInviteInfo: async () => { throw new Error('invite revoked') } }
+  const s = {
+    groupGetInviteInfo: async () => {
+      throw new Error('invite revoked')
+    },
+  }
 
   await resolveInviteCodes(s, cfg, cached.toResolve)
 
@@ -256,7 +310,12 @@ test('a configured code with no cache entry still resolves over the network and 
 
   const { jids } = parseGroupJids('')
   let calls = 0
-  const s = { groupGetInviteInfo: async () => { calls++; return { id: 'fresh@g.us', subject: 'Fresh Group' } } }
+  const s = {
+    groupGetInviteInfo: async () => {
+      calls++
+      return { id: 'fresh@g.us', subject: 'Fresh Group' }
+    },
+  }
   const cfg = {
     groups: jids,
     log: { info() {}, warn() {} },
@@ -290,8 +349,13 @@ test('participantsIncludeSelf is false when the participants are somebody else',
 test('a remove event naming the bot fires onRemoved through gate only for an allowlisted group', async () => {
   const seen: string[] = []
   const g = gate(parseGroupJids('mine@g.us').jids, {
-    onOpen() {}, onJoined() {}, onMessage() {}, onDescription() {},
-    onRemoved: (jid: string) => { seen.push(jid) },
+    onOpen() {},
+    onJoined() {},
+    onMessage() {},
+    onDescription() {},
+    onRemoved: (jid: string) => {
+      seen.push(jid)
+    },
   })
   const me = ['bot@s.whatsapp.net']
   const removedByBot = [{ id: 'bot@s.whatsapp.net' }]
@@ -305,8 +369,13 @@ test('a remove event naming the bot fires onRemoved through gate only for an all
 test('a remove event naming somebody else never reaches onRemoved', async () => {
   const seen: string[] = []
   const g = gate(parseGroupJids('mine@g.us').jids, {
-    onOpen() {}, onJoined() {}, onMessage() {}, onDescription() {},
-    onRemoved: (jid: string) => { seen.push(jid) },
+    onOpen() {},
+    onJoined() {},
+    onMessage() {},
+    onDescription() {},
+    onRemoved: (jid: string) => {
+      seen.push(jid)
+    },
   })
   const me = ['bot@s.whatsapp.net']
   const removedByGabi = [{ id: 'gabi@s.whatsapp.net' }]
@@ -336,7 +405,15 @@ test('removal drops the jid from the allowlist, clears _meta.invite on disk, and
   assert.equal(groupJids.has('mine@g.us'), false)
 
   const seen: string[] = []
-  const gated = gate(groupJids, { onOpen() {}, onJoined() {}, onMessage: (jid: string) => { seen.push(jid) }, onDescription() {}, onRemoved() {} })
+  const gated = gate(groupJids, {
+    onOpen() {},
+    onJoined() {},
+    onMessage: (jid: string) => {
+      seen.push(jid)
+    },
+    onDescription() {},
+    onRemoved() {},
+  })
   gated.onMessage('mine@g.us', {} as Incoming)
   assert.deepEqual(seen, [])
 
@@ -350,7 +427,9 @@ test('removal drops the jid from the allowlist, clears _meta.invite on disk, and
 function fakeEmitter() {
   const handlers = new Map<string, (arg: unknown) => void>()
   return {
-    on: (event: string, handler: (arg: unknown) => void) => { handlers.set(event, handler) },
+    on: (event: string, handler: (arg: unknown) => void) => {
+      handlers.set(event, handler)
+    },
     fire: (event: string, arg: unknown) => must(handlers.get(event))(arg),
   }
 }
@@ -359,10 +438,18 @@ test('wireGroupEvents: messages.upsert reaches onMessage for a notify or offline
   const ev = fakeEmitter()
   const seen: Array<{ jid: string; fromMe: boolean }> = []
   const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
-  const on = { onJoined() {}, onMessage: (jid: string, m: Incoming) => { seen.push({ jid, fromMe: m.key.fromMe }) }, onDescription() {}, onRemoved() {} }
+  const on = {
+    onJoined() {},
+    onMessage: (jid: string, m: Incoming) => {
+      seen.push({ jid, fromMe: m.key.fromMe })
+    },
+    onDescription() {},
+    onRemoved() {},
+  }
   wireGroupEvents(ev, on, () => [], cfg)
 
-  const wam = (remoteJid: string, fromMe = false): WAMessage => ({ key: { id: 'm1', remoteJid, fromMe }, message: { conversation: 'oi' } } as WAMessage)
+  const wam = (remoteJid: string, fromMe = false): WAMessage =>
+    ({ key: { id: 'm1', remoteJid, fromMe }, message: { conversation: 'oi' } }) as WAMessage
 
   ev.fire('messages.upsert', { messages: [wam('mine@g.us')], type: 'history' })
   ev.fire('messages.upsert', { messages: [wam('theirs@g.us')], type: 'notify' })
@@ -371,14 +458,24 @@ test('wireGroupEvents: messages.upsert reaches onMessage for a notify or offline
 
   ev.fire('messages.upsert', { messages: [wam('mine@g.us', true)], type: 'notify' })
   ev.fire('messages.upsert', { messages: [wam('mine@g.us')], type: 'append' })
-  assert.deepEqual(seen, [{ jid: 'mine@g.us', fromMe: true }, { jid: 'mine@g.us', fromMe: false }])
+  assert.deepEqual(seen, [
+    { jid: 'mine@g.us', fromMe: true },
+    { jid: 'mine@g.us', fromMe: false },
+  ])
 })
 
 test('wireGroupEvents: groups.update reaches onDescription when desc is present, including cleared to empty, and not when the key is absent', () => {
   const ev = fakeEmitter()
   const seen: Array<{ jid: string; desc: string }> = []
   const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
-  const on = { onJoined() {}, onMessage() {}, onDescription: (jid: string, desc: string) => { seen.push({ jid, desc }) }, onRemoved() {} }
+  const on = {
+    onJoined() {},
+    onMessage() {},
+    onDescription: (jid: string, desc: string) => {
+      seen.push({ jid, desc })
+    },
+    onRemoved() {},
+  }
   wireGroupEvents(ev, on, () => [], cfg)
 
   ev.fire('groups.update', [{ id: 'mine@g.us' }])
@@ -386,7 +483,10 @@ test('wireGroupEvents: groups.update reaches onDescription when desc is present,
 
   ev.fire('groups.update', [{ id: 'mine@g.us', desc: 'new description' }])
   ev.fire('groups.update', [{ id: 'mine@g.us', desc: '' }])
-  assert.deepEqual(seen, [{ jid: 'mine@g.us', desc: 'new description' }, { jid: 'mine@g.us', desc: '' }])
+  assert.deepEqual(seen, [
+    { jid: 'mine@g.us', desc: 'new description' },
+    { jid: 'mine@g.us', desc: '' },
+  ])
 })
 
 test('wireGroupEvents: group-participants.update reaches onJoined on add-self and onRemoved on remove-self, but not for somebody else or for promote/demote/modify', () => {
@@ -394,12 +494,29 @@ test('wireGroupEvents: group-participants.update reaches onJoined on add-self an
   const joined: string[] = []
   const removed: string[] = []
   const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} } }
-  const on = { onJoined: (jid: string) => { joined.push(jid) }, onMessage() {}, onDescription() {}, onRemoved: (jid: string) => { removed.push(jid) } }
+  const on = {
+    onJoined: (jid: string) => {
+      joined.push(jid)
+    },
+    onMessage() {},
+    onDescription() {},
+    onRemoved: (jid: string) => {
+      removed.push(jid)
+    },
+  }
   const me = ['bot@s.whatsapp.net']
   wireGroupEvents(ev, on, () => me, cfg)
 
-  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'gabi@s.whatsapp.net' }], action: 'add' })
-  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'gabi@s.whatsapp.net' }], action: 'remove' })
+  ev.fire('group-participants.update', {
+    id: 'mine@g.us',
+    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    action: 'add',
+  })
+  ev.fire('group-participants.update', {
+    id: 'mine@g.us',
+    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    action: 'remove',
+  })
   for (const action of ['promote', 'demote', 'modify']) {
     ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action })
   }
@@ -409,7 +526,11 @@ test('wireGroupEvents: group-participants.update reaches onJoined on add-self an
   ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action: 'add' })
   assert.deepEqual(joined, ['mine@g.us'])
 
-  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action: 'remove' })
+  ev.fire('group-participants.update', {
+    id: 'mine@g.us',
+    participants: [{ id: 'bot@s.whatsapp.net' }],
+    action: 'remove',
+  })
   assert.deepEqual(removed, ['mine@g.us'])
 })
 
@@ -418,10 +539,20 @@ test('wireGroupEvents: groups.upsert reaches onJoined for each group and logs th
   const joined: string[] = []
   const infos: unknown[] = []
   const cfg = { groups: parseGroupJids('b@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
-  const on = { onJoined: (jid: string) => { joined.push(jid) }, onMessage() {}, onDescription() {}, onRemoved() {} }
+  const on = {
+    onJoined: (jid: string) => {
+      joined.push(jid)
+    },
+    onMessage() {},
+    onDescription() {},
+    onRemoved() {},
+  }
   wireGroupEvents(ev, on, () => [], cfg)
 
-  ev.fire('groups.upsert', [{ id: 'a@g.us', subject: 'A' }, { id: 'b@g.us', subject: 'B' }])
+  ev.fire('groups.upsert', [
+    { id: 'a@g.us', subject: 'A' },
+    { id: 'b@g.us', subject: 'B' },
+  ])
 
   assert.deepEqual(joined, ['a@g.us', 'b@g.us'])
   assert.deepEqual(infos, [
@@ -444,10 +575,15 @@ test('handleOpen logs every fetched group, resolves invite codes, and calls onOp
       'mine@g.us': { id: 'mine@g.us', subject: 'Mine' },
       'new@g.us': { id: 'new@g.us', subject: 'New' },
     }),
-    groupGetInviteInfo: async (code: string) => { resolved.push(code); return { id: 'new@g.us', subject: 'New Group' } },
+    groupGetInviteInfo: async (code: string) => {
+      resolved.push(code)
+      return { id: 'new@g.us', subject: 'New Group' }
+    },
   }
 
-  await handleOpen(s, cfg, jids => { opened.push(jids) })
+  await handleOpen(s, cfg, jids => {
+    opened.push(jids)
+  })
 
   assert.equal(infos[0], 'whatsapp connected')
   assert.deepEqual(resolved, ['AbCdEf123'])
@@ -468,12 +604,18 @@ test('handleOpen still calls onOpen when groupFetchAllParticipating rejects', as
     log: { info() {}, warn: (o: unknown) => warnings.push(o) },
   }
   const s = {
-    groupFetchAllParticipating: async () => { throw new Error('socket dropped') },
-    groupGetInviteInfo: async () => { throw new Error('must not be called') },
+    groupFetchAllParticipating: async () => {
+      throw new Error('socket dropped')
+    },
+    groupGetInviteInfo: async () => {
+      throw new Error('must not be called')
+    },
   }
   const opened: string[][] = []
 
-  await handleOpen(s, cfg, jids => { opened.push(jids) })
+  await handleOpen(s, cfg, jids => {
+    opened.push(jids)
+  })
 
   assert.deepEqual(opened, [['mine@g.us']])
   assert.equal(warnings.length, 1)

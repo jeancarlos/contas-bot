@@ -9,3 +9,4 @@ if git config --show-scope --get-all core.hooksPath | grep -qv '^local[[:space:]
 else
   git config --local core.hooksPath .githooks
 fi
+git config --local blame.ignoreRevsFile .git-blame-ignore-revs

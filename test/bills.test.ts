@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normalize, parseDescription, resolveBill, parseAmount, formatMoney,
-  monthKey, monthTitle, renderList, parseCommand, matchPlainText,
-  splitDescription, renderSection, composeDescription, isGreeting,
-  levenshtein, closestBills, plainTextSuggestions, suggestCommand, paymentAttempt,
+  monthKey, monthTitle, renderList, parseCommand,
+  splitDescription, renderSection, composeDescription,
+  levenshtein, closestBills, suggestCommand,
   type Bill, type Payment,
 } from '../src/bills.ts'
 const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
@@ -112,17 +112,6 @@ test('parseCommand', () => {
   assert.deepEqual(parseCommand('/ajuda'), { cmd: 'ajuda' })
   assert.deepEqual(parseCommand('/foo'), { cmd: 'unknown', raw: '/foo', name: 'foo' })
   assert.equal(parseCommand('oi'), null)
-})
-
-test('matchPlainText', () => {
-  const bills = parseDescription(desc)
-  assert.equal(matchPlainText(bills, 'luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'pago luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'Paguei a luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'pago agua')?.name, 'Água') // the article is a whole word, not the bill's first letter
-  assert.equal(matchPlainText(bills, 'paguei aluguel')?.name, 'Aluguel')
-  assert.equal(matchPlainText(bills, 'paguei a luz e a água'), null)
-  assert.equal(matchPlainText(bills, 'bom dia'), null)
 })
 
 test('parseDescription takes the group description as people actually write it', () => {
@@ -250,11 +239,6 @@ test('parseAmount rejects zero', () => {
   assert.equal(parseAmount('0,00'), null)
 })
 
-test('isGreeting needs a greeting that names the bot, in four words or fewer', () => {
-  for (const t of ['oi bot', 'Olá contas-bot', 'bom dia bot', 'e aí bot!']) assert.equal(isGreeting(t), true, t)
-  for (const t of ['oi', 'oi amor', 'o bot pagou a luz ontem de manhã', 'bot']) assert.equal(isGreeting(t), false, t)
-})
-
 test('/help and /ajuda are the same command', () => {
   assert.deepEqual(parseCommand('/help'), { cmd: 'ajuda' })
   assert.deepEqual(parseCommand('/AJUDA'), { cmd: 'ajuda' })
@@ -317,16 +301,6 @@ test('parseCommand keeps the full multi-word bill name and only swallows currenc
   assert.deepEqual(parseCommand('/paid water USD 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water USD 80' })
 })
 
-test('plain-text payments, pause tags and greetings in every language', () => {
-  const bills = parseDescription('Luz\nWater\nAgua\nHBO (paused)\nNetflix - pausada\nDespausado')
-  assert.deepEqual(bills.map(b => [b.name, b.paused]), [['Luz', false], ['Water', false], ['Agua', false], ['HBO', true], ['Netflix', true], ['Despausado', false]])
-  assert.equal(matchPlainText(bills, 'paid the water')?.name, 'Water')
-  assert.equal(matchPlainText(bills, 'pagué la luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'pagado agua')?.name, 'Agua')
-  for (const t of ['hey bot', 'good morning bot', 'hola bot', 'buenos días bot']) assert.equal(isGreeting(t), true, t)
-  assert.equal(isGreeting('hola'), false)
-})
-
 test('renderSection and renderList speak the locale', () => {
   const bills = parseDescription('Power\nGym (pausado)')
   assert.equal(renderSection(bills, EN), [
@@ -363,12 +337,6 @@ test('a bare currency code is only swallowed when it is the configured currency'
   assert.deepEqual(parseCommand('/pago luz brl 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz brl 10' })
   assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10 BRL' })
   assert.deepEqual(parseCommand('/paid water US$ 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water US$ 80' })
-})
-
-test('matchPlainText prefers a bill named with a payment word over stripping it', () => {
-  const bills = parseDescription('Luz\nPago Luz')
-  assert.equal(matchPlainText(bills, 'Pago Luz')?.name, 'Pago Luz')
-  assert.equal(matchPlainText(bills, 'paguei a luz')?.name, 'Luz')
 })
 
 test('parseAmount rejects absurd amounts', () => {
@@ -461,20 +429,3 @@ test('an unknown command carries the typed name', () => {
   assert.deepEqual(parseCommand('/pgao luz'), { cmd: 'unknown', raw: '/pgao luz', name: 'pgao' })
 })
 
-test('paymentAttempt returns the bill part of a short payment phrase', () => {
-  assert.equal(paymentAttempt('pago lux'), 'lux')
-  assert.equal(paymentAttempt('Paguei a água'), 'agua')
-})
-
-test('paymentAttempt ignores long chatter and non-payment text', () => {
-  assert.equal(paymentAttempt('paguei o mercado hoje de manhã com o cartão'), null)
-  assert.equal(paymentAttempt('bom dia'), null)
-  assert.equal(paymentAttempt('pago'), null)
-})
-test('plainTextSuggestions ignores short and chatty attempts', () => {
-  const bills = parseDescription('TIM\nTV\nÁgua\nAluguel')
-  for (const a of ['sim', 'tbm', 'tb', 'a', 'al']) assert.deepEqual(plainTextSuggestions(bills, a), [])
-  const real = parseDescription('Luz\nÁgua\nAluguel')
-  assert.deepEqual(plainTextSuggestions(real, 'lux').map(b => b.name), ['Luz'])
-  assert.deepEqual(plainTextSuggestions(real, 'aluguell').map(b => b.name), ['Aluguel'])
-})

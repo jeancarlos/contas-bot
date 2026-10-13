@@ -16,7 +16,7 @@ test('a receipt over 16 MB is refused before it is downloaded', async () => {
     { imageMessage: { mimetype: 'image/jpeg', fileLength: big } },
     { documentMessage: { mimetype: 'application/pdf', fileLength: big } },
   ]) {
-    const m = toIncoming({ key: { id: 'm1', remoteJid: '123@g.us' }, message } as WAMessage, [])
+    const m = toIncoming({ key: { id: 'm1', remoteJid: '123@g.us' }, message } as WAMessage)
     await assert.rejects(must(must(m).media).download(), /receipt too large/)
   }
 })

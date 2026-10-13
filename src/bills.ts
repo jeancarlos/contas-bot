@@ -20,7 +20,8 @@ function validTimeZone(tz: string): boolean {
 const TZ = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'America/Sao_Paulo'
 
 export function normalize(s: string): string {
-  return s.normalize('NFKD')
+  return s
+    .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -70,11 +71,6 @@ export function levenshtein(a: string, b: string): number {
   return prev[b.length]
 }
 
-export function plainTextSuggestions(bills: Bill[], attempt: string): Bill[] {
-  const q = normalize(attempt)
-  if (q.length < 3) return []
-  return closestBills(bills, attempt).filter(b => b.key[0] === q[0] && (b.key.length > 4 || b.key.slice(0, 2) === q.slice(0, 2)))
-}
 export function closestBills(bills: Bill[], query: string): Bill[] {
   const q = normalize(query)
   if (!q) return []
@@ -89,16 +85,18 @@ export function closestBills(bills: Bill[], query: string): Bill[] {
   return top.length === 1 ? [top[0].b] : []
 }
 
+// Any currency marks money: a symbol, optionally led by up to 3 letters ("R$", "US$"), or an ISO 4217 code ("USD").
+const CURRENCY = `(?:[A-Za-z]{0,3}\\p{Sc}|${Intl.supportedValuesOf('currency').join('|')})`
+const MONEY = `(?:${CURRENCY}\\s*)?\\d[\\d.,]*(?:\\s*${CURRENCY})?`
+const AMOUNT_RE = new RegExp(`^${CURRENCY}?\\s*(\\d[\\d.,\\s]*?)\\s*${CURRENCY}?$`, 'iu')
+const CURRENCY_RE = new RegExp(`^${CURRENCY}$`, 'iu')
+const TAIL_RE = new RegExp(`^(.+?)\\s+(${MONEY})$`, 'iu')
+const HEAD_RE = new RegExp(`^(${MONEY})\\s+(.+)$`, 'iu')
+
+// The currency is only a marker: whatever it is, the number is stored in the configured one. Spaces may group thousands.
 export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | null {
-  const symbol = new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).formatToParts(0).find(p => p.type === 'currency')?.value ?? loc.currency
-  const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Only the configured currency's own code or symbol is stripped from the ends ("R$ 10", "BRL 10"); spaces may
-  // group thousands. Any other text, or a foreign currency, stays and is never an amount ("US$ 10" under BRL).
-  const t = s.trim()
-    .replace(new RegExp(`^(?:[A-Za-z]{0,3}${esc}|${loc.currency})\\s*`, 'iu'), '')
-    .replace(new RegExp(`\\s*(?:${esc}|${loc.currency})$`, 'iu'), '')
-    .replace(/\s/g, '')
-  if (!/^\d[\d.,]*$/.test(t)) return null
+  const t = AMOUNT_RE.exec(s.trim())?.[1].replace(/\s/g, '')
+  if (!t || !/^\d[\d.,]*$/.test(t)) return null
   let num: string
   const last = Math.max(t.lastIndexOf(','), t.lastIndexOf('.'))
   if (t.includes(',') && t.includes('.')) {
@@ -127,7 +125,9 @@ export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | n
 }
 
 export function formatMoney(n: number, loc: Locale = DEFAULT_LOCALE): string {
-  return new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).format(n).replace(/[\u00a0\u202f]/g, ' ')
+  return new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency })
+    .format(n)
+    .replace(/[\u00a0\u202f]/g, ' ')
 }
 
 export function monthKey(d: Date): string {
@@ -138,11 +138,18 @@ export function monthKey(d: Date): string {
 
 export function monthTitle(key: string, loc: Locale = DEFAULT_LOCALE): string {
   const [y, m] = key.split('-').map(Number)
-  const name = new Intl.DateTimeFormat(loc.lang, { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, 15)))
+  const name = new Intl.DateTimeFormat(loc.lang, { month: 'long', timeZone: 'UTC' }).format(
+    new Date(Date.UTC(y, m - 1, 15)),
+  )
   return `${name[0].toLocaleUpperCase(loc.lang)}${name.slice(1)}/${y}`
 }
 
-export function renderList(key: string, bills: Bill[], paid: Record<string, Payment>, loc: Locale = DEFAULT_LOCALE): string {
+export function renderList(
+  key: string,
+  bills: Bill[],
+  paid: Record<string, Payment>,
+  loc: Locale = DEFAULT_LOCALE,
+): string {
   const active = bills.filter(b => !b.paused)
   const done = active.filter(b => Object.hasOwn(paid, b.key))
   const pending = active.filter(b => !Object.hasOwn(paid, b.key))
@@ -164,7 +171,7 @@ export function renderList(key: string, bills: Bill[], paid: Record<string, Paym
 }
 
 export const COMMANDS = {
-  pago: ['pago', 'paid', 'pagado'],
+  pago: ['pago', 'paguei', 'pagar', 'paid', 'pagado'],
   despago: ['despago', 'despagado', 'unpaid', 'reverter', 'revert', 'revertir'],
   lista: ['lista', 'list'],
   ajuda: ['ajuda', 'help', 'ayuda'],
@@ -175,7 +182,9 @@ const commandOf = (alias: string): CommandName | undefined =>
 
 export function suggestCommand(typed: string): string | null {
   const t = typed.toLowerCase()
-  const scored = (Object.values(COMMANDS) as readonly (readonly string[])[]).flat().map(a => ({ a, d: levenshtein(t, a) }))
+  const scored = (Object.values(COMMANDS) as readonly (readonly string[])[])
+    .flat()
+    .map(a => ({ a, d: levenshtein(t, a) }))
   const best = Math.min(...scored.map(x => x.d))
   if (best > 2) return null
   const top = scored.filter(x => x.d === best)
@@ -189,34 +198,26 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
   const arg = rest.join(' ')
   switch (commandOf(cmd.toLowerCase())) {
     case 'pago': {
-      // trailing amount: e.g. "cartão nu R$ 6.237,60", "water $80.10", "luz 80 €", "luz BRL 10".
-      // The optional prefix/suffix is restricted to currency tokens (a symbol, optionally led by
-      // up to 3 letters as in "R$"/"US$", or the configured currency code like "BRL") so a
-      // multi-word bill name, acronyms included ("Plano TIM 100"), is never swallowed into the amount.
-      const m = new RegExp(`^(.*?)\\s+((?:(?:[A-Za-z]{0,3}\\p{Sc}|${loc.currency})\\s*)?[\\d.,]+(?:\\s*(?:\\p{Sc}|${loc.currency}))?)$`, 'iu').exec(arg)
-      const amount = m ? parseAmount(m[2].toUpperCase(), loc) : null
+      // The amount is a money token at either end, the trailing one first: "luz R$ 80", "luz 80", "USD 80 luz", "80 luz".
+      const split = (name: string, money: string) => {
+        const amount = parseAmount(money, loc)
+        return amount != null && !CURRENCY_RE.test(name) ? { name, amount } : null
+      }
+      const tail = TAIL_RE.exec(arg)
+      const head = HEAD_RE.exec(arg)
+      const hit = (tail && split(tail[1], tail[2])) ?? (head && split(head[2], head[1]))
       // `full` lets the caller prefer a bill literally named "Apartamento 101" over "Apartamento" + 101.
-      return { cmd: 'pago', name: m && amount != null ? m[1] : arg, amount, full: arg }
+      return { cmd: 'pago', name: hit?.name ?? arg, amount: hit?.amount ?? null, full: arg }
     }
-    case 'despago': return { cmd: 'despago', name: arg }
-    case 'lista': return { cmd: 'lista' }
-    case 'ajuda': return { cmd: 'ajuda' }
-    default: return { cmd: 'unknown', raw: t, name: cmd }
+    case 'despago':
+      return { cmd: 'despago', name: arg }
+    case 'lista':
+      return { cmd: 'lista' }
+    case 'ajuda':
+      return { cmd: 'ajuda' }
+    default:
+      return { cmd: 'unknown', raw: t, name: cmd }
   }
-}
-
-const PAY_RE = /^(pago|paguei|paga|paid|pagado|pague)\s+((a|o|as|os|the|el|la|los|las)\s+)?/
-const MAX_ATTEMPT_WORDS = 5
-export function matchPlainText(bills: Bill[], text: string): Bill | null {
-  const n = normalize(text)
-  // A bill literally named "Pago Luz" matches before the payment word is stripped.
-  const t = n.replace(PAY_RE, '')
-  return bills.find(b => b.key === n) ?? bills.find(b => b.key === t) ?? null
-}
-export function paymentAttempt(text: string): string | null {
-  const n = normalize(text)
-  if (!PAY_RE.test(n) || n.split(' ').length > MAX_ATTEMPT_WORDS) return null
-  return n.replace(PAY_RE, '') || null
 }
 
 export const SECTION_MARK = '🤖 contas-bot'
@@ -228,7 +229,11 @@ const DESC_LIMIT = 2048
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
 
 // WhatsApp may drop emoji variation selectors or respace a line; the placeholder must still be recognized.
-const flat = (s: string) => s.replace(/\uFE0F/g, '').replace(/\s+/g, ' ').trim()
+const flat = (s: string) =>
+  s
+    .replace(/\uFE0F/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 const SECTION_HELP_LINES = new Set(Object.values(CATALOGS).map(c => flat(c.sectionHelp)))
 
 // The bot owns everything from its header line down; text above it belongs to the group. Text a member typed
@@ -247,7 +252,10 @@ export function splitDescription(desc: string): { original: string; section: str
   // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
   // the first header on the next read, its title and list parsed as bills.
   const h = below.findIndex(l => HEADER_RE.test(l.trim()))
-  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && flat(l.trim()) !== flat(SECTION_DIVIDER)).join('\n').trim()
+  const stray = (h < 0 ? below : below.slice(0, h))
+    .filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && flat(l.trim()) !== flat(SECTION_DIVIDER))
+    .join('\n')
+    .trim()
   const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
   return { original, section: (end < 0 ? section : section.slice(0, end)).join('\n') }
 }
@@ -267,22 +275,15 @@ const PLACEHOLDER_LINES = new Set(Object.values(CATALOGS).flatMap(c => c.descPla
 // null means it does not fit and the caller must leave the description alone.
 export function composeDescription(original: string, bills: Bill[], loc: Locale = DEFAULT_LOCALE): string | null {
   // The placeholder is the bot's, in whichever language wrote it: never kept as group text, put back when none is left.
-  const own = original.split('\n').filter(l => !PLACEHOLDER_LINES.has(flat(l))).join('\n').replace(/^\s*\n/, '').trimEnd()
+  const own = original
+    .split('\n')
+    .filter(l => !PLACEHOLDER_LINES.has(flat(l)))
+    .join('\n')
+    .replace(/^\s*\n/, '')
+    .trimEnd()
   const section = (help: boolean) => renderSection(bills, loc, help)
   const candidates = own
     ? [`${own}\n\n${section(true)}`, `${own}\n\n${section(false)}`]
     : [`${loc.t.descPlaceholder}\n\n${section(true)}`, section(true), section(false)] // the placeholder goes before the help line
   return candidates.find(d => d.length <= DESC_LIMIT) ?? null
-}
-
-const GREETINGS = [
-  'oi', 'ola', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite', 'hello', 'hi',
-  'hey', 'good morning', 'good afternoon', 'good evening', 'hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches',
-]
-
-// A greeting only counts when it names the bot: a bare "oi" is for the other person.
-export function isGreeting(text: string): boolean {
-  const t = normalize(text)
-  const words = t.split(' ')
-  return words.length <= 4 && words.includes('bot') && GREETINGS.some(g => t === g || t.startsWith(`${g} `))
 }

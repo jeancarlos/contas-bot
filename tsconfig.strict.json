@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noUncheckedIndexedAccess": true },
+  "include": ["src/core", "src/shell", "src/adapters", "test/core", "test/shell", "test/adapters"]
+}

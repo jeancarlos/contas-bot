@@ -1,7 +1,19 @@
 import {
-  normalize, parseDescription, resolveBill, parseCommand, parseAmount, matchPlainText, closestBills, plainTextSuggestions, paymentAttempt, renderList, monthKey,
-  splitDescription, renderSection, composeDescription, billLine, isGreeting, suggestCommand,
+  normalize,
+  parseDescription,
+  resolveBill,
+  parseCommand,
+  parseAmount,
+  closestBills,
+  renderList,
+  monthKey,
+  splitDescription,
+  renderSection,
+  composeDescription,
+  billLine,
+  suggestCommand,
   type Bill,
+  type Command,
 } from './bills.ts'
 import { DEFAULT_LOCALE, type Locale } from './i18n.ts'
 import { announcementText, compareVersions, isSemver, pendingReleases, type Release } from './announce.ts'
@@ -14,8 +26,6 @@ export type Incoming = {
   sender: string
   text: string
   media?: { mime: string; download(): Promise<Buffer> }
-  mentionsBot?: boolean
-  repliesToBot?: boolean
 }
 export type Wa = {
   sendText(text: string, quoted?: MsgKey): Promise<MsgKey>
@@ -26,7 +36,11 @@ export type Wa = {
   getDescription(): Promise<string>
   setDescription(text: string): Promise<void>
 }
-type Log = { info(o: unknown, m?: string): void; warn(o: unknown, m?: string): void; error(o: unknown, m?: string): void }
+type Log = {
+  info(o: unknown, m?: string): void
+  warn(o: unknown, m?: string): void
+  error(o: unknown, m?: string): void
+}
 export type BotDeps = {
   wa: Wa
   llm: Llm
@@ -39,8 +53,7 @@ export type BotDeps = {
   announce?: { releases: Release[] | null; gif(): Promise<Buffer | null> }
 }
 
-const CONFIDENCE = 0.7
-const PENDING_TTL_MS = 10 * 60_000
+type Pago = Extract<Command, { cmd: 'pago' }>
 
 export function makeBot(deps: BotDeps) {
   const { wa, llm, store } = deps
@@ -48,12 +61,17 @@ export function makeBot(deps: BotDeps) {
   const log: Log = deps.log ?? { info() {}, warn() {}, error() {} }
   const loc = deps.locale ?? DEFAULT_LOCALE
   const t = loc.t
+  const warn = (msg: string) => (err: unknown) => log.warn({ err }, msg)
   let bills: Bill[] = parseDescription((store.get()._meta.bills ?? []).join('\n'))
 
   const state = () => store.get()
   // One handler at a time: state.json saves and pin/unpin must not interleave.
   let queue: Promise<unknown> = Promise.resolve()
-  const serial = <T>(fn: () => Promise<T>) => { const p = queue.then(fn); queue = p.catch(() => {}); return p }
+  const serial = <T>(fn: () => Promise<T>) => {
+    const p = queue.then(fn)
+    queue = p.catch(() => {})
+    return p
+  }
   const month = () => {
     const key = monthKey(now())
     state().months[key] ??= {}
@@ -78,7 +96,7 @@ export function makeBot(deps: BotDeps) {
       // Pin first: a refused pin must not leave the group with no list pinned at all.
       await wa.pin(sentKey)
       state()._meta.pinned = { id: sentKey.id, fromMe: sentKey.fromMe, remoteJid: sentKey.remoteJid }
-      if (prev) await wa.unpin(prev).catch(e => log.warn({ err: e }, 'unpinning the previous list failed'))
+      if (prev) await wa.unpin(prev).catch(warn('unpinning the previous list failed'))
     } catch (e) {
       log.warn({ err: e }, 'pin failed (group may restrict pinning to admins)')
     }
@@ -88,7 +106,13 @@ export function makeBot(deps: BotDeps) {
   async function markPaid(bill: Bill, amount: number | null, m: Incoming) {
     const { paid } = month()
     const existing = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
-    paid[bill.key] = { name: bill.name, paid_at: now().toISOString(), amount: amount ?? existing?.amount ?? null, by: m.sender, message_id: m.key.id }
+    paid[bill.key] = {
+      name: bill.name,
+      paid_at: now().toISOString(),
+      amount: amount ?? existing?.amount ?? null,
+      by: m.sender,
+      message_id: m.key.id,
+    }
     const handled = state()._meta.handled
     markHandled(m.key.id)
     try {
@@ -100,19 +124,8 @@ export function makeBot(deps: BotDeps) {
       await wa.sendText(t.saveFailed, m.key)
       throw e
     }
-    if (pendingAmount?.participant === (m.key.participant ?? m.sender)) pendingAmount = null
-    try {
-      await wa.react(m.key, '✅')
-    } catch (e) {
-      log.warn({ err: e }, 'reaction failed')
-    }
-    if (existing) {
-      try {
-        await wa.sendText(t.updated, m.key)
-      } catch (e) {
-        log.warn({ err: e }, 'update notice failed')
-      }
-    }
+    await wa.react(m.key, '✅').catch(warn('reaction failed'))
+    if (existing) await wa.sendText(t.updated, m.key).catch(warn('update notice failed'))
     await postList()
   }
 
@@ -123,11 +136,6 @@ export function makeBot(deps: BotDeps) {
   }
   // Last text we wrote: if WhatsApp hands back something slightly different, don't fight it forever.
   let lastWritten = ''
-  let pendingAmount: { participant: string; amount: number | null; at: number } | null = null
-  const pendingFor = (m: Incoming) =>
-    pendingAmount?.participant === (m.key.participant ?? m.sender) && now().getTime() - pendingAmount.at <= PENDING_TTL_MS
-      ? pendingAmount.amount
-      : null
   let introduced = false
 
   // null: the description would not fit without cutting the group's text or the list, so it is left alone.
@@ -162,8 +170,12 @@ export function makeBot(deps: BotDeps) {
     let top = original
     let next: Bill[]
     if (section !== null) next = parseDescription(section)
-    else if (meta.section) next = [] // someone deleted our section: keep their text, restore the list below it
-    else { next = parseDescription(desc); top = '' } // legacy group: the whole description was the list
+    else if (meta.section)
+      next = [] // someone deleted our section: keep their text, restore the list below it
+    else {
+      next = parseDescription(desc)
+      top = ''
+    } // legacy group: the whole description was the list
     if (section === null && next.length === 0) next = parseDescription((meta.bills ?? []).join('\n'))
     const changed = renderSection(next, loc) !== renderSection(bills, loc)
     bills = next
@@ -175,66 +187,17 @@ export function makeBot(deps: BotDeps) {
     return changed
   }
 
-  async function handleCommand(m: Incoming): Promise<boolean> {
-    const c = parseCommand(m.text, loc)
-    if (!c) return false
-    switch (c.cmd) {
-      case 'pago': {
-        const whole = wholeName(c.full)
-        if (!whole && (!c.full.trim() || (parseAmount(c.full, loc) !== null && !resolveBill(bills, c.name)))) { await wa.sendText(t.missingBillPago, m.key); return true }
-        const bill = whole ?? resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
-        const pending = pendingFor(m)
-        await markPaid(bill, whole && c.amount != null ? pending : c.amount ?? pending, m)
-        return true
-      }
-      case 'despago': {
-        if (!c.name.trim()) { await wa.sendText(t.missingBillDespago, m.key); return true }
-        const bill = resolveBill(bills, c.name)
-        if (!bill) { await wa.sendText(notFoundText(c.name), m.key); return true }
-        const { paid } = month()
-        const removed = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
-        delete paid[bill.key]
-        try {
-          await store.save()
-        } catch (e) {
-          if (removed) paid[bill.key] = removed
-          await wa.sendText(t.saveFailed, m.key)
-          throw e
-        }
-        await wa.react(m.key, '✅').catch(e => log.warn({ err: e }, 'reaction failed'))
-        await postList()
-        return true
-      }
-      case 'lista': await postList(); return true
-      case 'ajuda': await wa.sendText(t.help, m.key); return true
-      case 'unknown': {
-        const s = suggestCommand(c.name)
-        await wa.sendText(s ? t.unknownCmdSuggest(c.name, s) : t.unknownCmd, m.key)
-        return true
-      }
-    }
+  // A bill named exactly like the whole argument ("Apartamento 101") wins over name + amount.
+  function pagoTarget(c: Pago): { bill: Bill; amount: number | null } | string {
+    const whole = wholeName(c.full)
+    if (whole) return { bill: whole, amount: null }
+    const bill = resolveBill(bills, c.name)
+    if (bill) return { bill, amount: c.amount }
+    return !c.name.trim() || parseAmount(c.name, loc) !== null ? t.missingBillPago : notFoundText(c.name)
   }
 
-  async function handleMedia(m: Incoming) {
-    pendingAmount = null
-    const c = parseCommand(m.text, loc)
-    const pago = c?.cmd === 'pago' ? c : null
-    const whole = pago ? wholeName(pago.full) : null
-    // "/pago" alone or "/pago 150,00" names no bill: the receipt is read to find it.
-    const named = !whole && pago && pago.name && parseAmount(pago.name, loc) === null ? pago.name : null
-    const known = whole ?? (named ? resolveBill(bills, named) : pago ? null : resolveBill(bills, m.text) ?? matchPlainText(bills, m.text))
-    // A typed bill name is answered like the text command when unknown, not guessed by the LLM.
-    if (named && !known) { await wa.sendText(notFoundText(named), m.key); return }
-    const typed = pago && !whole ? pago.amount ?? parseAmount(pago.name, loc) : null
-    if (!llm.enabled) {
-      if (known) { await markPaid(known, typed, m); return }
-      if (typed != null) pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed, at: now().getTime() }
-      await wa.sendText(t.askNoAi, m.key)
-      return
-    }
-    const media = m.media
-    if (!media) throw new Error('receipt flow entered without media')
+  // The receipt is only read for its amount, never to guess the bill. undefined: it could not be downloaded.
+  async function receiptAmount(media: NonNullable<Incoming['media']>, m: Incoming): Promise<number | null | undefined> {
     let image: Buffer
     let mime = media.mime
     try {
@@ -247,19 +210,69 @@ export function makeBot(deps: BotDeps) {
     } catch (e) {
       log.warn({ err: e }, 'media download failed')
       await wa.sendText(t.downloadFailed, m.key)
+      return undefined
+    }
+    const amount = await llm.readAmount(image, mime)
+    if (amount == null) await wa.sendText(t.noLlmAmount, m.key)
+    return amount
+  }
+
+  async function pago(c: Pago, m: Incoming) {
+    const target = pagoTarget(c)
+    if (typeof target === 'string') {
+      await wa.sendText(target, m.key)
       return
     }
-    const verdict = await llm.readReceipt(image, mime, m.text, billNames())
-    const inferred = verdict && verdict.confidence >= CONFIDENCE ? verdict.amount : null
-    if (known) {
-      const amount = typed ?? inferred
-      if (amount == null) await wa.sendText(t.noLlmAmount, m.key)
-      await markPaid(known, amount, m)
+    let { amount } = target
+    if (amount == null && m.media && llm.enabled) {
+      const read = await receiptAmount(m.media, m)
+      if (read === undefined) return
+      amount = read
+    }
+    await markPaid(target.bill, amount, m)
+  }
+
+  async function despago(name: string, m: Incoming) {
+    if (!name.trim()) {
+      await wa.sendText(t.missingBillDespago, m.key)
       return
     }
-    const bill = verdict && verdict.confidence >= CONFIDENCE ? bills.find(b => b.name === verdict.bill) : undefined
-    if (!bill) { pendingAmount = { participant: m.key.participant ?? m.sender, amount: typed ?? inferred, at: now().getTime() }; await wa.sendText(t.ask, m.key); return }
-    await markPaid(bill, typed ?? inferred, m)
+    const bill = resolveBill(bills, name)
+    if (!bill) {
+      await wa.sendText(notFoundText(name), m.key)
+      return
+    }
+    const { paid } = month()
+    const removed = Object.hasOwn(paid, bill.key) ? paid[bill.key] : undefined
+    delete paid[bill.key]
+    try {
+      await store.save()
+    } catch (e) {
+      if (removed) paid[bill.key] = removed
+      await wa.sendText(t.saveFailed, m.key)
+      throw e
+    }
+    await wa.react(m.key, '✅').catch(warn('reaction failed'))
+    await postList()
+  }
+
+  async function handleCommand(c: Command, m: Incoming) {
+    switch (c.cmd) {
+      case 'pago':
+        return pago(c, m)
+      case 'despago':
+        return despago(c.name, m)
+      case 'lista':
+        return postList()
+      case 'ajuda': {
+        await wa.sendText(t.help, m.key)
+        return
+      }
+      case 'unknown': {
+        const s = suggestCommand(c.name)
+        await wa.sendText(s ? t.unknownCmdSuggest(c.name, s) : t.unknownCmd, m.key)
+      }
+    }
   }
 
   let missingLogged = false
@@ -268,7 +281,10 @@ export function makeBot(deps: BotDeps) {
     const version = deps.version
     if (!a || !isSemver(version)) return
     if (a.releases === null) {
-      if (!missingLogged) { missingLogged = true; log.info('no changelog in this build') }
+      if (!missingLogged) {
+        missingLogged = true
+        log.info('no changelog in this build')
+      }
       return
     }
     const meta = state()._meta
@@ -292,7 +308,9 @@ export function makeBot(deps: BotDeps) {
       return
     }
     meta.announced_version = version
-    try { await store.save() } catch (e) {
+    try {
+      await store.save()
+    } catch (e) {
       meta.announced_version = previous
       log.warn({ err: e }, 'could not save the announced version, will retry on the next join')
     }
@@ -302,7 +320,9 @@ export function makeBot(deps: BotDeps) {
     const meta = state()._meta
     if (active()) {
       let desc: string
-      try { desc = await wa.getDescription() } catch (e) {
+      try {
+        desc = await wa.getDescription()
+      } catch (e) {
         // Rewriting from an unread description would wipe the group's own text: load and wait.
         log.warn({ err: e }, 'description unreadable, using saved bills')
         bills = parseDescription((meta.bills ?? []).join('\n'))
@@ -332,7 +352,12 @@ export function makeBot(deps: BotDeps) {
     // Active only once the list is out: if anything above throws, the next join retries the whole onboarding.
     meta.last_reset = monthKey(now())
     if (isSemver(deps.version)) meta.announced_version = deps.version
-    try { await store.save() } catch (e) { delete meta.last_reset; throw e }
+    try {
+      await store.save()
+    } catch (e) {
+      delete meta.last_reset
+      throw e
+    }
     log.info({ bills: billNames() }, 'group onboarded')
     return 'onboarded'
   }
@@ -350,7 +375,9 @@ export function makeBot(deps: BotDeps) {
       return serial(async () => {
         if (!active()) return
         let fresh: string
-        try { fresh = await wa.getDescription() } catch (e) {
+        try {
+          fresh = await wa.getDescription()
+        } catch (e) {
           log.warn({ err: e }, 'description unreadable, ignoring update')
           return
         }
@@ -361,37 +388,28 @@ export function makeBot(deps: BotDeps) {
       })
     },
 
+    // Only slash commands are answered: anything else, receipts included, is the group talking.
     onMessage(m: Incoming) {
-      if (m.key.fromMe) return Promise.resolve()
-      return serial(async () => { try {
-        if (!active()) return
-        const meta = state()._meta
-        if (meta.handled?.includes(m.key.id)) return
-        const dispatch = async () => {
-          if (m.media) {
-            const c = parseCommand(m.text, loc)
-            if (c && c.cmd !== 'pago' && c.cmd !== 'unknown') { await handleCommand(m); return }
-            return await handleMedia(m)
-          }
-          if (await handleCommand(m)) return
-          const bill = matchPlainText(bills, m.text)
-          if (bill) return await markPaid(bill, null, m)
-          const attempt = paymentAttempt(m.text)
-          const suggestions = attempt ? plainTextSuggestions(bills, attempt) : []
-          if (attempt && suggestions.length) { await wa.sendText(notFoundText(attempt, suggestions), m.key); return }
-          if (m.mentionsBot || m.repliesToBot || isGreeting(m.text)) await wa.sendText(t.intro, m.key)
+      const c = m.key.fromMe ? null : parseCommand(m.text, loc)
+      if (!c) return Promise.resolve()
+      return serial(async () => {
+        try {
+          if (!active() || state()._meta.handled?.includes(m.key.id)) return
+          await handleCommand(c, m)
+          markHandled(m.key.id)
+          await store.save()
+        } catch (e) {
+          log.error({ err: e, id: m.key.id }, 'message handling failed')
         }
-        await dispatch()
-        markHandled(m.key.id)
-        await store.save()
-      } catch (e) {
-        log.error({ err: e, id: m.key.id }, 'message handling failed')
-      } })
+      })
     },
 
     tick() {
       return serial(async () => {
-        if (!active()) { await joinNow(); return }
+        if (!active()) {
+          await joinNow()
+          return
+        }
         const key = monthKey(now())
         if (state()._meta.last_reset === key) return
         await postList()

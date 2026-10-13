@@ -22,12 +22,17 @@ const groups = await openState(stateFile, log)
 const version = process.env.APP_VERSION || 'dev'
 const gifSrc = process.env.ANNOUNCE_GIF || ''
 async function gif(): Promise<Buffer | null> {
-  try { return await loadGif(gifSrc, dirname(resolve(stateFile))) } catch (e) {
+  try {
+    return await loadGif(gifSrc, dirname(resolve(stateFile)))
+  } catch (e) {
     log.warn({ err: e }, 'announcement gif unavailable')
     return null
   }
 }
-const announce = process.env.ANNOUNCE_UPDATES === 'false' ? undefined : { releases: await loadReleases(new URL('../CHANGELOG.json', import.meta.url)), gif }
+const announce =
+  process.env.ANNOUNCE_UPDATES === 'false'
+    ? undefined
+    : { releases: await loadReleases(new URL('../CHANGELOG.json', import.meta.url)), gif }
 const llm = makeLlm({
   baseUrl: process.env.LLM_BASE_URL || '',
   apiKey: process.env.LLM_API_KEY || '',
@@ -37,7 +42,10 @@ const llm = makeLlm({
 if (!llm.enabled) log.warn('no LLM_BASE_URL: receipts are only paid when their caption names the bill')
 
 const { jids: groupJids, inviteCodes } = parseGroupJids(process.env.GROUP_INVITE_LINKS || '')
-if (groupJids.size === 0 && inviteCodes.length === 0) log.warn('serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_INVITE_LINKS and restart')
+if (groupJids.size === 0 && inviteCodes.length === 0)
+  log.warn(
+    'serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_INVITE_LINKS and restart',
+  )
 else log.info({ groups: [...groupJids], inviteCodes }, 'serving groups')
 const cached = cachedGroupsForCodes(groups, inviteCodes)
 for (const jid of cached.jids) groupJids.add(jid)
@@ -48,22 +56,40 @@ function botFor(jid: string) {
   let bot = bots.get(jid)
   if (!bot) {
     if (!wa) throw new Error('WhatsApp is not connected yet')
-    bot = makeBot({ wa: wa.forGroup(jid), llm, store: groups.forGroup(jid), log: log.child({ group: jid }), pdfToPng, locale, version, announce })
+    bot = makeBot({
+      wa: wa.forGroup(jid),
+      llm,
+      store: groups.forGroup(jid),
+      log: log.child({ group: jid }),
+      pdfToPng,
+      locale,
+      version,
+      announce,
+    })
     bots.set(jid, bot)
   }
   return bot
 }
 
-const join = (jid: string) => botFor(jid).join()
-  .then(r => log.info({ jid, result: r }, 'group joined'))
-  .catch(e => log.error({ err: e, jid }, 'join failed, retrying on next connection'))
+const join = (jid: string) =>
+  botFor(jid)
+    .join()
+    .then(r => log.info({ jid, result: r }, 'group joined'))
+    .catch(e => log.error({ err: e, jid }, 'join failed, retrying on next connection'))
 
 const onRemoved = (jid: string) => {
   groupJids.delete(jid)
   bots.delete(jid)
   delete groups.forGroup(jid).get()._meta.invite
-  return groups.forGroup(jid).save()
-    .then(() => log.info({ jid }, 'removed from group, no longer served — name it in GROUP_INVITE_LINKS again at next start to restore it'))
+  return groups
+    .forGroup(jid)
+    .save()
+    .then(() =>
+      log.info(
+        { jid },
+        'removed from group, no longer served — name it in GROUP_INVITE_LINKS again at next start to restore it',
+      ),
+    )
     .catch(e => log.error({ err: e, jid }, 'saving state after removal failed'))
 }
 
@@ -77,10 +103,20 @@ wa = await connectWa({
     groups.forGroup(jid).get()._meta.invite = code
     await groups.forGroup(jid).save()
   },
-  onOpen: jids => { for (const jid of jids) join(jid) },
-  onJoined: jid => { join(jid) },
-  onMessage: (jid, m) => { botFor(jid).onMessage(m) },
-  onDescription: (jid, d) => { botFor(jid).onDescription(d).catch(e => log.error({ err: e, jid }, 'description handling failed')) },
+  onOpen: jids => {
+    for (const jid of jids) join(jid)
+  },
+  onJoined: jid => {
+    join(jid)
+  },
+  onMessage: (jid, m) => {
+    botFor(jid).onMessage(m)
+  },
+  onDescription: (jid, d) => {
+    botFor(jid)
+      .onDescription(d)
+      .catch(e => log.error({ err: e, jid }, 'description handling failed'))
+  },
   onRemoved,
 })
 

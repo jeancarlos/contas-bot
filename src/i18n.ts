@@ -12,9 +12,7 @@ export type Catalog = {
   demoBills: string
   intro: string
   help: string
-  ask: string
   noLlmAmount: string
-  askNoAi: string
   saveFailed: string
   downloadFailed: string
   unknownCmd: string
@@ -38,13 +36,15 @@ const ptBR: Catalog = {
   pauseWord: 'pausado',
   sectionTitle: 'Contas (edite esta lista):',
   sectionHelp: '/pago <conta> [valor] · /lista · /help',
-  descPlaceholder: '✏️ Escreva aqui a descrição do grupo (apague estas linhas).\n⚠️ Abaixo é do bot: mude só a lista de contas.',
+  descPlaceholder:
+    '✏️ Escreva aqui a descrição do grupo (apague estas linhas).\n⚠️ Abaixo é do bot: mude só a lista de contas.',
   demoBills: 'Luz\nÁgua\nInternet\nAluguel\nAcademia (pausado)',
   intro: [
     '👋 Oi! Eu sou o *contas-bot*, cuido da lista de contas do mês deste grupo.',
     '',
-    '📎 Pagou? Manda o comprovante (foto ou PDF) aqui. Se a legenda tiver o nome da conta, eu marco na hora; se não, eu leio o comprovante e descubro.',
+    '📎 Pagou? Manda o comprovante (foto ou PDF) com a legenda /pago luz: eu marco e leio o valor.',
     '✍️ Sem comprovante: /pago luz 231,45',
+    '🤫 Só respondo a comandos: o resto da conversa eu ignoro.',
     '📌 A lista fica sempre fixada, com o total do mês.',
     '📝 As contas ficam na descrição do grupo: edite a lista lá que eu atualizo.',
     '🗓️ Todo dia 1º começo uma lista nova.',
@@ -60,12 +60,10 @@ const ptBR: Catalog = {
     '/lista — reposta e fixa a lista',
     '/help — esta mensagem',
     '',
-    '📎 Comprovante com o nome da conta na legenda = paga na hora.',
+    '📎 Comprovante com a legenda /pago <conta> = paga, com o valor lido do comprovante.',
     '📝 Mudar as contas: edite a lista na descrição do grupo. "(pausado)" no fim tira a conta do mês sem apagar.',
   ].join('\n'),
-  ask: 'esse comprovante é de qual conta? responde /pago <nome>',
-  noLlmAmount: 'sem valor (LLM indisponível)',
-  askNoAi: 'não leio comprovante sem legenda: manda de novo com a legenda /pago <conta> <valor>',
+  noLlmAmount: 'não li o valor do comprovante, marquei sem valor',
   saveFailed: 'não consegui salvar, tenta de novo',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
@@ -76,9 +74,10 @@ const ptBR: Catalog = {
   descTooLong: 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot',
   updated: 'atualizado',
   moreChanges: n => `…e mais ${n}`,
-  notFound: (q, names, suggest) => suggest?.length
-    ? `não achei "${q}", você quis dizer ${suggest.map(n => `*${n}*`).join(' ou ')}? Contas: ${names}`
-    : `não achei "${q}". Contas: ${names}`,
+  notFound: (q, names, suggest) =>
+    suggest?.length
+      ? `não achei "${q}", você quis dizer ${suggest.map(n => `*${n}*`).join(' ou ')}? Contas: ${names}`
+      : `não achei "${q}". Contas: ${names}`,
 }
 
 const en: Catalog = {
@@ -89,13 +88,15 @@ const en: Catalog = {
   pauseWord: 'paused',
   sectionTitle: 'Bills (edit this list):',
   sectionHelp: '/paid <bill> [amount] · /list · /help',
-  descPlaceholder: '✏️ Write the group description here (delete these lines).\n⚠️ Below is the bot\'s part: change only the bill list.',
+  descPlaceholder:
+    "✏️ Write the group description here (delete these lines).\n⚠️ Below is the bot's part: change only the bill list.",
   demoBills: 'Electricity\nWater\nInternet\nRent\nGym (paused)',
   intro: [
     "👋 Hi! I'm *contas-bot*, I keep this group's monthly bill list.",
     '',
-    '📎 Paid something? Send the receipt (photo or PDF) here. If the caption names the bill I tick it right away; if not, I read the receipt and figure it out.',
+    '📎 Paid something? Send the receipt (photo or PDF) captioned /paid electricity: I tick it and read the amount.',
     '✍️ No receipt: /paid electricity 231.45',
+    '🤫 I only answer commands: I ignore the rest of the chat.',
     '📌 The list is always pinned, with the month total.',
     '📝 The bills live in the group description: edit the list there and I follow.',
     '🗓️ Every 1st of the month I start a fresh list.',
@@ -111,12 +112,10 @@ const en: Catalog = {
     '/list — repost and pin the list',
     '/help — this message',
     '',
-    '📎 Receipt with the bill name in the caption = paid right away.',
+    '📎 Receipt captioned /paid <bill> = paid, with the amount read from the receipt.',
     '📝 To change the bills, edit the list in the group description. "(paused)" at the end skips a bill this month without deleting it.',
   ].join('\n'),
-  ask: 'which bill is this receipt for? reply /paid <name>',
-  noLlmAmount: 'no amount (LLM unavailable)',
-  askNoAi: "I can't read a receipt without a caption: send it again captioned /paid <bill> <amount>",
+  noLlmAmount: "couldn't read the amount on the receipt, marked without one",
   saveFailed: "couldn't save, try again",
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
@@ -127,9 +126,10 @@ const en: Catalog = {
   descTooLong: "the group description is over WhatsApp's limit: shorten the text above the bot's list",
   updated: 'updated',
   moreChanges: n => `…and ${n} more`,
-  notFound: (q, names, suggest) => suggest?.length
-    ? `couldn't find "${q}", did you mean ${suggest.map(n => `*${n}*`).join(' or ')}? Bills: ${names}`
-    : `couldn't find "${q}". Bills: ${names}`,
+  notFound: (q, names, suggest) =>
+    suggest?.length
+      ? `couldn't find "${q}", did you mean ${suggest.map(n => `*${n}*`).join(' or ')}? Bills: ${names}`
+      : `couldn't find "${q}". Bills: ${names}`,
 }
 
 const es: Catalog = {
@@ -140,13 +140,15 @@ const es: Catalog = {
   pauseWord: 'pausado',
   sectionTitle: 'Cuentas (edita esta lista):',
   sectionHelp: '/pagado <cuenta> [monto] · /lista · /ayuda',
-  descPlaceholder: '✏️ Escribe aquí la descripción del grupo (borra estas líneas).\n⚠️ Abajo es la parte del bot: cambia solo la lista de cuentas.',
+  descPlaceholder:
+    '✏️ Escribe aquí la descripción del grupo (borra estas líneas).\n⚠️ Abajo es la parte del bot: cambia solo la lista de cuentas.',
   demoBills: 'Luz\nAgua\nInternet\nAlquiler\nGimnasio (pausado)',
   intro: [
     '👋 ¡Hola! Soy *contas-bot*, llevo la lista de cuentas del mes de este grupo.',
     '',
-    '📎 ¿Pagaste algo? Manda el comprobante (foto o PDF) aquí. Si el texto tiene el nombre de la cuenta, la marco al instante; si no, leo el comprobante y lo descubro.',
+    '📎 ¿Pagaste algo? Manda el comprobante (foto o PDF) con el texto /pagado luz: la marco y leo el monto.',
     '✍️ Sin comprobante: /pagado luz 231,45',
+    '🤫 Solo respondo a comandos: el resto de la conversación lo ignoro.',
     '📌 La lista queda siempre fijada, con el total del mes.',
     '📝 Las cuentas están en la descripción del grupo: edita la lista ahí y yo la actualizo.',
     '🗓️ Cada día 1 empiezo una lista nueva.',
@@ -162,12 +164,10 @@ const es: Catalog = {
     '/lista — vuelve a publicar y fijar la lista',
     '/ayuda — este mensaje',
     '',
-    '📎 Comprobante con el nombre de la cuenta en el texto = pagada al instante.',
+    '📎 Comprobante con el texto /pagado <cuenta> = pagada, con el monto leído del comprobante.',
     '📝 Para cambiar las cuentas, edita la lista en la descripción del grupo. "(pausado)" al final salta la cuenta este mes sin borrarla.',
   ].join('\n'),
-  ask: '¿de qué cuenta es este comprobante? responde /pagado <nombre>',
-  noLlmAmount: 'sin monto (LLM no disponible)',
-  askNoAi: 'no leo comprobantes sin leyenda: mándalo de nuevo con la leyenda /pagado <cuenta> <monto>',
+  noLlmAmount: 'no leí el monto del comprobante, la marqué sin monto',
   saveFailed: 'no pude guardar, intenta de nuevo',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',
@@ -178,16 +178,18 @@ const es: Catalog = {
   descTooLong: 'la descripción del grupo pasó el límite de WhatsApp: acorta el texto sobre la lista del bot',
   updated: 'actualizado',
   moreChanges: n => `…y ${n} más`,
-  notFound: (q, names, suggest) => suggest?.length
-    ? `no encontré "${q}", ¿quisiste decir ${suggest.map(n => `*${n}*`).join(' o ')}? Cuentas: ${names}`
-    : `no encontré "${q}". Cuentas: ${names}`,
+  notFound: (q, names, suggest) =>
+    suggest?.length
+      ? `no encontré "${q}", ¿quisiste decir ${suggest.map(n => `*${n}*`).join(' o ')}? Cuentas: ${names}`
+      : `no encontré "${q}". Cuentas: ${names}`,
 }
 
 export const CATALOGS: Record<Lang, Catalog> = { 'pt-BR': ptBR, en, es }
 
 export function makeLocale(lang: string, currency: string): Locale {
   if (!Object.hasOwn(CATALOGS, lang)) throw new Error(`unsupported BOT_LANG "${lang}": use pt-BR, en or es`)
-  if (!/^[A-Za-z]{3}$/.test(currency)) throw new Error(`invalid BOT_CURRENCY "${currency}": use an ISO 4217 code like BRL, USD, EUR`)
+  if (!/^[A-Za-z]{3}$/.test(currency))
+    throw new Error(`invalid BOT_CURRENCY "${currency}": use an ISO 4217 code like BRL, USD, EUR`)
   const l = lang as Lang
   const decimal = new Intl.NumberFormat(l).formatToParts(1.5).find(p => p.type === 'decimal')?.value === '.' ? '.' : ','
   return { lang: l, currency: currency.toUpperCase(), decimal, t: CATALOGS[l] }

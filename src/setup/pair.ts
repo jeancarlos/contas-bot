@@ -8,7 +8,8 @@ import type { Pairing } from './core.ts'
 
 export const renderQr = (text: string): Promise<string> => QRCode.toString(text, { type: 'terminal', small: true })
 
-export const renderQrSvg = (text: string): Promise<string> => QRCode.toString(text, { type: 'svg', margin: 4, width: 360 })
+export const renderQrSvg = (text: string): Promise<string> =>
+  QRCode.toString(text, { type: 'svg', margin: 4, width: 360 })
 export const qrHtml = (svg: string): string =>
   `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="2"><title>contas-bot</title><body style="margin:0;background:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh">${svg}</body>`
 export function closeOutcome(done: boolean, code: number | undefined): 'ignore' | 'restart' | 'failed' {
@@ -47,7 +48,11 @@ export async function pair(
         saveCreds().catch(() => {})
       })
       s.ev.on('connection.update', u => {
-        if (u.qr && mode === 'qr') renderQr(u.qr).then(ascii => on.qr(ascii, u.qr as string), () => {})
+        if (u.qr && mode === 'qr')
+          renderQr(u.qr).then(
+            ascii => on.qr(ascii, u.qr as string),
+            () => {},
+          )
         if (u.qr && mode === 'code' && !asked) {
           asked = true
           s.requestPairingCode(phone).then(on.code, stop)
@@ -72,7 +77,11 @@ export async function pair(
             restarted = true
             start()
           }
-          if (next === 'failed') emptyDir(authDir).then(() => resolve(false), () => resolve(false))
+          if (next === 'failed')
+            emptyDir(authDir).then(
+              () => resolve(false),
+              () => resolve(false),
+            )
         }
       })
     }

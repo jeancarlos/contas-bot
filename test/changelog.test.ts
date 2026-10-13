@@ -14,7 +14,11 @@ Object.assign(env, { GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1' })
 
 function repo() {
   const dir = mkdtempSync(join(scratch, 'r-'))
-  const git = (...a: string[]) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...a], { cwd: dir, env, encoding: 'utf8' })
+  let tick = 1_700_000_000
+  const git = (...a: string[]) => {
+    const date = `${tick++} +0000`
+    return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...a], { cwd: dir, env: { ...env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }, encoding: 'utf8' })
+  }
   git('init', '-q', '-b', 'main')
   git('config', 'user.name', 't')
   git('config', 'user.email', 't@t')
@@ -39,10 +43,10 @@ test('builds releases newest first from feat/fix commits', () => {
   const got = buildChangelog(dir)
   assert.deepEqual(got, [
     { version: '1.10.0', entries: [{ en: 'old style' }] },
-    { version: '1.1.0', entries: [{ en: 'b', 'pt-BR': 'fix: b pt', es: 'fix: b es' }, { en: 'side', 'pt-BR': 'feat: side pt', es: 'feat: side es' }] },
+    { version: '1.1.0', entries: [{ en: 'side', 'pt-BR': 'feat: side pt', es: 'feat: side es' }, { en: 'b', 'pt-BR': 'fix: b pt', es: 'fix: b es' }] },
     { version: '1.0.0', entries: [{ en: 'a', 'pt-BR': 'feat: a pt', es: 'feat: a es' }] },
   ])
-  assert.equal(releaseNotes(got[1]), '- b\n  fix: b pt\n- side\n  feat: side pt')
+  assert.equal(releaseNotes(got[1]), '- side\n  feat: side pt\n- b\n  fix: b pt')
   assert.equal(releaseNotes(got[0]), '- old style')
   assert.equal(releaseNotes({ version: '9', entries: [] }), 'Maintenance release.')
 })

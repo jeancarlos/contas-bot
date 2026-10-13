@@ -111,7 +111,7 @@ export function gate(groups: Set<string>, cfg: Handlers): Handlers {
   }
 }
 
-export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
+export function toIncoming(msg: WAMessage): Incoming | null {
   const c = normalizeMessageContent(msg.message)
   if (!c || !msg.key.id || !msg.key.remoteJid) return null
   const key: MsgKey = {
@@ -119,10 +119,6 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
     participant: msg.key.participant ?? undefined,
   }
   const sender = msg.pushName || key.participant || 'alguém'
-  const ctx = c.extendedTextMessage?.contextInfo ?? c.imageMessage?.contextInfo ?? c.documentMessage?.contextInfo
-  const isSelf = (j?: string | null) => !!j && self.includes(jidNormalizedUser(j))
-  const mentionsBot = (ctx?.mentionedJid ?? []).some(isSelf)
-  const repliesToBot = isSelf(ctx?.participant)
   const raw = c.conversation ?? c.extendedTextMessage?.text ?? c.imageMessage?.caption ?? c.documentMessage?.caption ?? ''
   const text = raw.replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
   const mediaMime = c.imageMessage ? (c.imageMessage.mimetype || 'image/jpeg') : c.documentMessage?.mimetype ?? undefined
@@ -134,7 +130,7 @@ export function toIncoming(msg: WAMessage, self: string[]): Incoming | null {
         return (await downloadMediaMessage(msg, 'buffer', {})) as Buffer
       } }
     : undefined
-  return { key, sender, text, media, mentionsBot, repliesToBot }
+  return { key, sender, text, media }
 }
 
 type Listener = { bivariant(arg: unknown): void }['bivariant']
@@ -145,12 +141,12 @@ export function wireGroupEvents(
   cfg: { groups: Set<string>; log: Pick<Logger, 'info'> },
 ): void {
   ev.on('messages.upsert', ({ messages, type }: { messages: WAMessage[]; type: string }) => {
-    if (type !== 'notify') return
+    if (type !== 'notify' && type !== 'append') return
     for (const raw of messages) {
       const jid = raw.key.remoteJid
       if (!jid?.endsWith('@g.us')) continue
       if (!cfg.groups.has(jid)) continue
-      const m = toIncoming(raw, self())
+      const m = toIncoming(raw)
       if (m) on.onMessage(jid, m)
     }
   })

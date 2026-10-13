@@ -12,9 +12,7 @@ export type Catalog = {
   demoBills: string
   intro: string
   help: string
-  ask: string
   noLlmAmount: string
-  askNoAi: string
   saveFailed: string
   downloadFailed: string
   unknownCmd: string
@@ -43,8 +41,9 @@ const ptBR: Catalog = {
   intro: [
     '👋 Oi! Eu sou o *contas-bot*, cuido da lista de contas do mês deste grupo.',
     '',
-    '📎 Pagou? Manda o comprovante (foto ou PDF) aqui. Se a legenda tiver o nome da conta, eu marco na hora; se não, eu leio o comprovante e descubro.',
+    '📎 Pagou? Manda o comprovante (foto ou PDF) com a legenda /pago luz: eu marco e leio o valor.',
     '✍️ Sem comprovante: /pago luz 231,45',
+    '🤫 Só respondo a comandos: o resto da conversa eu ignoro.',
     '📌 A lista fica sempre fixada, com o total do mês.',
     '📝 As contas ficam na descrição do grupo: edite a lista lá que eu atualizo.',
     '🗓️ Todo dia 1º começo uma lista nova.',
@@ -60,12 +59,10 @@ const ptBR: Catalog = {
     '/lista — reposta e fixa a lista',
     '/help — esta mensagem',
     '',
-    '📎 Comprovante com o nome da conta na legenda = paga na hora.',
+    '📎 Comprovante com a legenda /pago <conta> = paga, com o valor lido do comprovante.',
     '📝 Mudar as contas: edite a lista na descrição do grupo. "(pausado)" no fim tira a conta do mês sem apagar.',
   ].join('\n'),
-  ask: 'esse comprovante é de qual conta? responde /pago <nome>',
-  noLlmAmount: 'sem valor (LLM indisponível)',
-  askNoAi: 'não leio comprovante sem legenda: manda de novo com a legenda /pago <conta> <valor>',
+  noLlmAmount: 'não li o valor do comprovante, marquei sem valor',
   saveFailed: 'não consegui salvar, tenta de novo',
   downloadFailed: 'não consegui ler o comprovante, manda de novo ou usa /pago <nome> [valor]',
   unknownCmd: 'não conheço esse comando. /help mostra todos.',
@@ -94,8 +91,9 @@ const en: Catalog = {
   intro: [
     "👋 Hi! I'm *contas-bot*, I keep this group's monthly bill list.",
     '',
-    '📎 Paid something? Send the receipt (photo or PDF) here. If the caption names the bill I tick it right away; if not, I read the receipt and figure it out.',
+    '📎 Paid something? Send the receipt (photo or PDF) captioned /paid electricity: I tick it and read the amount.',
     '✍️ No receipt: /paid electricity 231.45',
+    '🤫 I only answer commands: I ignore the rest of the chat.',
     '📌 The list is always pinned, with the month total.',
     '📝 The bills live in the group description: edit the list there and I follow.',
     '🗓️ Every 1st of the month I start a fresh list.',
@@ -111,12 +109,10 @@ const en: Catalog = {
     '/list — repost and pin the list',
     '/help — this message',
     '',
-    '📎 Receipt with the bill name in the caption = paid right away.',
+    '📎 Receipt captioned /paid <bill> = paid, with the amount read from the receipt.',
     '📝 To change the bills, edit the list in the group description. "(paused)" at the end skips a bill this month without deleting it.',
   ].join('\n'),
-  ask: 'which bill is this receipt for? reply /paid <name>',
-  noLlmAmount: 'no amount (LLM unavailable)',
-  askNoAi: "I can't read a receipt without a caption: send it again captioned /paid <bill> <amount>",
+  noLlmAmount: "couldn't read the amount on the receipt, marked without one",
   saveFailed: "couldn't save, try again",
   downloadFailed: "couldn't read the receipt, send it again or use /paid <name> [amount]",
   unknownCmd: "I don't know that command. /help lists them all.",
@@ -145,8 +141,9 @@ const es: Catalog = {
   intro: [
     '👋 ¡Hola! Soy *contas-bot*, llevo la lista de cuentas del mes de este grupo.',
     '',
-    '📎 ¿Pagaste algo? Manda el comprobante (foto o PDF) aquí. Si el texto tiene el nombre de la cuenta, la marco al instante; si no, leo el comprobante y lo descubro.',
+    '📎 ¿Pagaste algo? Manda el comprobante (foto o PDF) con el texto /pagado luz: la marco y leo el monto.',
     '✍️ Sin comprobante: /pagado luz 231,45',
+    '🤫 Solo respondo a comandos: el resto de la conversación lo ignoro.',
     '📌 La lista queda siempre fijada, con el total del mes.',
     '📝 Las cuentas están en la descripción del grupo: edita la lista ahí y yo la actualizo.',
     '🗓️ Cada día 1 empiezo una lista nueva.',
@@ -162,12 +159,10 @@ const es: Catalog = {
     '/lista — vuelve a publicar y fijar la lista',
     '/ayuda — este mensaje',
     '',
-    '📎 Comprobante con el nombre de la cuenta en el texto = pagada al instante.',
+    '📎 Comprobante con el texto /pagado <cuenta> = pagada, con el monto leído del comprobante.',
     '📝 Para cambiar las cuentas, edita la lista en la descripción del grupo. "(pausado)" al final salta la cuenta este mes sin borrarla.',
   ].join('\n'),
-  ask: '¿de qué cuenta es este comprobante? responde /pagado <nombre>',
-  noLlmAmount: 'sin monto (LLM no disponible)',
-  askNoAi: 'no leo comprobantes sin leyenda: mándalo de nuevo con la leyenda /pagado <cuenta> <monto>',
+  noLlmAmount: 'no leí el monto del comprobante, la marqué sin monto',
   saveFailed: 'no pude guardar, intenta de nuevo',
   downloadFailed: 'no pude leer el comprobante, mándalo de nuevo o usa /pagado <nombre> [monto]',
   unknownCmd: 'no conozco ese comando. /ayuda los muestra todos.',

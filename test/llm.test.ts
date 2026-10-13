@@ -2,19 +2,29 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeLlm } from '../src/llm.ts'
 
-type Call = { url: string; headers: Record<string, string>; body: { stream: boolean; model: string; messages: { content: unknown }[] } }
+type Call = {
+  url: string
+  headers: Record<string, string>
+  body: { stream: boolean; model: string; messages: { content: unknown }[] }
+}
 function fakeFetch(body: unknown, status = 200) {
   const calls: Call[] = []
   const fn = (async (url: unknown, init?: RequestInit) => {
-    calls.push({ url: String(url), headers: init?.headers as Record<string, string>, body: JSON.parse(String(init?.body)) })
+    calls.push({
+      url: String(url),
+      headers: init?.headers as Record<string, string>,
+      body: JSON.parse(String(init?.body)),
+    })
     return new Response(JSON.stringify(body), { status })
   }) as typeof fetch
   return { fn, calls }
 }
 
-const llmWith = (fetchFn: typeof fetch, apiKey = 'k') => makeLlm({ baseUrl: 'http://x/v1', apiKey, visionModel: 'v', currency: 'EUR', fetchFn })
+const llmWith = (fetchFn: typeof fetch, apiKey = 'k') =>
+  makeLlm({ baseUrl: 'http://x/v1', apiKey, visionModel: 'v', currency: 'EUR', fetchFn })
 const reply = (content: string) => ({ choices: [{ message: { content } }] })
-const amountOf = async (content: string) => llmWith(fakeFetch(reply(content)).fn).readAmount(Buffer.from('x'), 'image/png')
+const amountOf = async (content: string) =>
+  llmWith(fakeFetch(reply(content)).fn).readAmount(Buffer.from('x'), 'image/png')
 
 test('readAmount sends the image alone, as a data URI, with stream:false', async () => {
   const { fn, calls } = fakeFetch(reply('{"amount":6237.6}'))
@@ -25,7 +35,9 @@ test('readAmount sends the image alone, as a data URI, with stream:false', async
   assert.equal(body.stream, false)
   assert.equal(body.model, 'v')
   assert.match(String(body.messages[0].content), /EUR/)
-  assert.deepEqual(body.messages[1].content, [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${Buffer.from('img').toString('base64')}` } }])
+  assert.deepEqual(body.messages[1].content, [
+    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${Buffer.from('img').toString('base64')}` } },
+  ])
 })
 
 test('the reply is parsed through code fences and quantized to cents', async () => {
@@ -34,7 +46,16 @@ test('the reply is parsed through code fences and quantized to cents', async () 
 })
 
 test('anything that is not a sane positive amount becomes null', async () => {
-  for (const content of ['sorry, I cannot', '{"amount":null}', '{"amount":"80"}', '{"amount":0}', '{"amount":-5}', '{"amount":1e12}', '{"amount":0.001}', '{bad json}']) {
+  for (const content of [
+    'sorry, I cannot',
+    '{"amount":null}',
+    '{"amount":"80"}',
+    '{"amount":0}',
+    '{"amount":-5}',
+    '{"amount":1e12}',
+    '{"amount":0.001}',
+    '{bad json}',
+  ]) {
     assert.equal(await amountOf(content), null, content)
   }
 })
@@ -42,7 +63,9 @@ test('anything that is not a sane positive amount becomes null', async () => {
 test('http errors, network errors and empty replies degrade to null', async () => {
   assert.equal(await llmWith(fakeFetch(reply('{"amount":10}'), 500).fn).readAmount(Buffer.from('x'), 'image/png'), null)
   assert.equal(await llmWith(fakeFetch({ choices: [] }).fn).readAmount(Buffer.from('x'), 'image/png'), null)
-  const down = (async () => { throw new Error('ECONNREFUSED') }) as typeof fetch
+  const down = (async () => {
+    throw new Error('ECONNREFUSED')
+  }) as typeof fetch
   assert.equal(await llmWith(down).readAmount(Buffer.from('x'), 'image/png'), null)
 })
 

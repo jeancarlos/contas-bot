@@ -11,7 +11,10 @@ async function install(version: string, lang = 'en') {
   const dir = await mkdtemp(join(tmpdir(), 'cli-'))
   await copyFile(join(ROOT, 'bin', 'contas-bot'), join(dir, 'contas-bot'))
   await writeFile(join(dir, '.env'), `BOT_LANG=${lang}\n`)
-  await writeFile(join(dir, 'docker-compose.yml'), `services:\n  contas-bot:\n    image: ghcr.io/jeancarlos/contas-bot:${version}\n`)
+  await writeFile(
+    join(dir, 'docker-compose.yml'),
+    `services:\n  contas-bot:\n    image: ghcr.io/jeancarlos/contas-bot:${version}\n`,
+  )
   return dir
 }
 const release = async (tag: string) => {
@@ -20,7 +23,11 @@ const release = async (tag: string) => {
   return `file://${f}`
 }
 const cli = (dir: string, args: string[], api: string) =>
-  spawnSync('sh', [join(dir, 'contas-bot'), ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CONTAS_BOT_API: api, CONTAS_BOT_TTY: '/dev/null' } })
+  spawnSync('sh', [join(dir, 'contas-bot'), ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CONTAS_BOT_API: api, CONTAS_BOT_TTY: '/dev/null' },
+  })
 
 test('update on the latest version says so and exits 0', async () => {
   const r = cli(await install('1.2.0'), ['update'], await release('v1.2.0'))
@@ -61,7 +68,11 @@ test('running through a symlink in another directory works', async () => {
   await symlink(join(dir, 'contas-bot'), linkpath)
   await copyFile(join(dir, '.env'), join(linkdir, '.env'))
   await copyFile(join(dir, 'docker-compose.yml'), join(linkdir, 'docker-compose.yml'))
-  const r = spawnSync('sh', [linkpath, 'update'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CONTAS_BOT_API: await release('v1.2.0'), CONTAS_BOT_TTY: '/dev/null' } })
+  const r = spawnSync('sh', [linkpath, 'update'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CONTAS_BOT_API: await release('v1.2.0'), CONTAS_BOT_TTY: '/dev/null' },
+  })
   assert.equal(r.status, 0)
   assert.match(r.stdout, /already on v1\.2\.0/)
 })
@@ -74,7 +85,11 @@ test('unknown subcommand exits 2 and prints usage to stderr', async () => {
 
 test('nonexistent CONTAS_BOT_TTY path shows hint without error leak', async () => {
   const dir = await install('1.2.0')
-  const r = spawnSync('sh', [join(dir, 'contas-bot'), 'update'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CONTAS_BOT_API: await release('v1.10.0'), CONTAS_BOT_TTY: '/nonexistent/tty' } })
+  const r = spawnSync('sh', [join(dir, 'contas-bot'), 'update'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CONTAS_BOT_API: await release('v1.10.0'), CONTAS_BOT_TTY: '/nonexistent/tty' },
+  })
   assert.equal(r.status, 0)
   assert.match(r.stdout, /no terminal to confirm/)
   assert.doesNotMatch(r.stderr, /tty/)

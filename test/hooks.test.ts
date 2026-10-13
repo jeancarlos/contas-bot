@@ -30,11 +30,15 @@ async function repo(parent: NodeJS.ProcessEnv = process.env) {
   const env = { ...scrub(parent), GIT_CONFIG_GLOBAL: globalCfg, GIT_CONFIG_NOSYSTEM: '1' }
   git(dir, env, 'init', '-q', '-b', 'main')
   await mkdir(join(dir, 'scripts'))
-  await writeFile(join(dir, 'scripts', 'install-hooks.sh'), await readFile(join(ROOT, 'scripts', 'install-hooks.sh'), 'utf8'))
+  await writeFile(
+    join(dir, 'scripts', 'install-hooks.sh'),
+    await readFile(join(ROOT, 'scripts', 'install-hooks.sh'), 'utf8'),
+  )
   return { dir, env, globalCfg }
 }
 
-const install = (dir: string, env: NodeJS.ProcessEnv) => execFileSync('sh', ['scripts/install-hooks.sh'], { cwd: dir, env })
+const install = (dir: string, env: NodeJS.ProcessEnv) =>
+  execFileSync('sh', ['scripts/install-hooks.sh'], { cwd: dir, env })
 const local = (dir: string, env: NodeJS.ProcessEnv, key: string) =>
   spawnSync('git', ['config', '--local', '--get', key], { cwd: dir, env, encoding: 'utf8' })
 
@@ -74,7 +78,10 @@ test('a stale local core.hooksPath is unset when a global one exists', async () 
 test('outside a git repository the installer does nothing and succeeds', async () => {
   const dir = await tmp('nogit-')
   const env = scrub(process.env)
-  const r = spawnSync('sh', [join(ROOT, 'scripts', 'install-hooks.sh')], { cwd: dir, env: { ...env, GIT_CEILING_DIRECTORIES: tmpdir() } })
+  const r = spawnSync('sh', [join(ROOT, 'scripts', 'install-hooks.sh')], {
+    cwd: dir,
+    env: { ...env, GIT_CEILING_DIRECTORIES: tmpdir() },
+  })
   assert.equal(r.status, 0)
 })
 
@@ -101,7 +108,11 @@ for (const branch of ['main', 'develop']) {
     const { dir, env } = await repo()
     git(dir, env, 'symbolic-ref', 'HEAD', `refs/heads/${branch}`)
     await mkdir(join(dir, 'test'))
-    const r = spawnSync('sh', [join(ROOT, '.githooks', 'pre-commit')], { cwd: join(dir, 'test'), env, encoding: 'utf8' })
+    const r = spawnSync('sh', [join(ROOT, '.githooks', 'pre-commit')], {
+      cwd: join(dir, 'test'),
+      env,
+      encoding: 'utf8',
+    })
     assert.equal(r.status, 1)
     assert.match(r.stderr, /feature\/, fix\/ ou chore\//)
   })

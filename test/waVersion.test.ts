@@ -8,7 +8,9 @@ test('uses the live version when the fetch succeeds', async () => {
   assert.deepEqual(r, { version: [2, 3000, 42], live: true })
 })
 test('falls back to the bundled version when the fetch throws', async () => {
-  const r = await resolveWaVersion(async () => { throw new Error('offline') })
+  const r = await resolveWaVersion(async () => {
+    throw new Error('offline')
+  })
   assert.deepEqual(r, { version: DEFAULT_CONNECTION_CONFIG.version, live: false })
 })
 test('falls back when baileys reports isLatest false', async () => {

@@ -26,18 +26,26 @@ export function makeLlm(cfg: Cfg): Llm {
       try {
         const res = await fetchFn(`${cfg.baseUrl}/chat/completions`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}) },
+          headers: {
+            'content-type': 'application/json',
+            ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
+          },
           body: JSON.stringify({
-            model: cfg.visionModel, stream: false, temperature: 0,
+            model: cfg.visionModel,
+            stream: false,
+            temperature: 0,
             messages: [
               { role: 'system', content: system },
-              { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } }] },
+              {
+                role: 'user',
+                content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } }],
+              },
             ],
           }),
           signal: AbortSignal.timeout(45_000),
         })
         if (!res.ok) return null
-        const data = await res.json() as { choices?: { message?: { content?: string } }[] } | null
+        const data = (await res.json()) as { choices?: { message?: { content?: string } }[] } | null
         const raw = data?.choices?.[0]?.message?.content
         return raw ? parseAmountReply(raw) : null
       } catch {

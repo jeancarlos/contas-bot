@@ -42,7 +42,7 @@ jobs:
           }
 
   source-is-develop:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - env:

@@ -1,13 +1,28 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normalize, parseDescription, resolveBill, parseAmount, formatMoney,
-  monthKey, monthTitle, renderList, parseCommand, matchPlainText,
-  splitDescription, renderSection, composeDescription, isGreeting,
-  levenshtein, closestBills, plainTextSuggestions, suggestCommand, paymentAttempt,
-  type Bill, type Payment,
+  normalize,
+  parseDescription,
+  resolveBill,
+  parseAmount,
+  formatMoney,
+  monthKey,
+  monthTitle,
+  renderList,
+  parseCommand,
+  splitDescription,
+  renderSection,
+  composeDescription,
+  levenshtein,
+  closestBills,
+  suggestCommand,
+  type Bill,
+  type Payment,
 } from '../src/bills.ts'
-const must = <T>(v: T | null | undefined): T => { assert.ok(v != null); return v }
+const must = <T>(v: T | null | undefined): T => {
+  assert.ok(v != null)
+  return v
+}
 import { makeLocale, DEFAULT_LOCALE } from '../src/i18n.ts'
 
 const desc = `# Contas do mês
@@ -79,22 +94,25 @@ test('renderList: paid first, pending, paused, total with missing amounts', () =
     aluguel: { name: 'Aluguel', paid_at: 'x', amount: null, by: 'Gabi', message_id: '3' },
   }
   const out = renderList('2026-09', bills, paid)
-  assert.equal(out, [
-    '📋 *Contas — Setembro/2026*',
-    '',
-    '✅ Luz — R$ 231,45',
-    '✅ Aluguel',
-    '✅ Cartão Nu — R$ 6.237,60',
-    '⬜ Água',
-    '⬜ Condomínio',
-    '⬜ Carro',
-    '⬜ Mercado Pago',
-    '⬜ HBO',
-    '⬜ Spotify',
-    '⏸️ Mãe Carme',
-    '',
-    '*Pago:* 3/9 · *Total:* R$ 6.469,05 (1 sem valor)',
-  ].join('\n'))
+  assert.equal(
+    out,
+    [
+      '📋 *Contas — Setembro/2026*',
+      '',
+      '✅ Luz — R$ 231,45',
+      '✅ Aluguel',
+      '✅ Cartão Nu — R$ 6.237,60',
+      '⬜ Água',
+      '⬜ Condomínio',
+      '⬜ Carro',
+      '⬜ Mercado Pago',
+      '⬜ HBO',
+      '⬜ Spotify',
+      '⏸️ Mãe Carme',
+      '',
+      '*Pago:* 3/9 · *Total:* R$ 6.469,05 (1 sem valor)',
+    ].join('\n'),
+  )
 })
 
 test('renderList without missing amounts has no footnote', () => {
@@ -105,7 +123,14 @@ test('renderList without missing amounts has no footnote', () => {
 
 test('parseCommand', () => {
   assert.deepEqual(parseCommand('/pago luz'), { cmd: 'pago', name: 'luz', amount: null, full: 'luz' })
-  assert.deepEqual(parseCommand('/pago cartão nu R$ 6.237,60'), { cmd: 'pago', name: 'cartão nu', amount: 6237.6, full: 'cartão nu R$ 6.237,60' })
+  assert.deepEqual(parseCommand('/paguei luz'), { cmd: 'pago', name: 'luz', amount: null, full: 'luz' })
+  assert.deepEqual(parseCommand('/Pagar luz 80'), { cmd: 'pago', name: 'luz', amount: 80, full: 'luz 80' })
+  assert.deepEqual(parseCommand('/pago cartão nu R$ 6.237,60'), {
+    cmd: 'pago',
+    name: 'cartão nu',
+    amount: 6237.6,
+    full: 'cartão nu R$ 6.237,60',
+  })
   assert.deepEqual(parseCommand('/pago luz 231,45'), { cmd: 'pago', name: 'luz', amount: 231.45, full: 'luz 231,45' })
   assert.deepEqual(parseCommand('/despago Luz'), { cmd: 'despago', name: 'Luz' })
   assert.deepEqual(parseCommand('/lista'), { cmd: 'lista' })
@@ -114,28 +139,26 @@ test('parseCommand', () => {
   assert.equal(parseCommand('oi'), null)
 })
 
-test('matchPlainText', () => {
-  const bills = parseDescription(desc)
-  assert.equal(matchPlainText(bills, 'luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'pago luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'Paguei a luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'pago agua')?.name, 'Água') // the article is a whole word, not the bill's first letter
-  assert.equal(matchPlainText(bills, 'paguei aluguel')?.name, 'Aluguel')
-  assert.equal(matchPlainText(bills, 'paguei a luz e a água'), null)
-  assert.equal(matchPlainText(bills, 'bom dia'), null)
-})
-
 test('parseDescription takes the group description as people actually write it', () => {
   const bills = parseDescription('Conta:\nLuz\nMãe Carme - pausado\nHBO pausada\nSpotify')
-  assert.deepEqual(bills.map(b => [b.name, b.paused]), [
-    ['Luz', false], ['Mãe Carme', true], ['HBO', true], ['Spotify', false],
-  ])
+  assert.deepEqual(
+    bills.map(b => [b.name, b.paused]),
+    [
+      ['Luz', false],
+      ['Mãe Carme', true],
+      ['HBO', true],
+      ['Spotify', false],
+    ],
+  )
   assert.equal(parseDescription('Luz\nLUZ').length, 1)
 })
 
 test('parseDescription stops at a divider so the description can carry help text', () => {
   const bills = parseDescription('Contas:\nLuz\n/pago luz 10\nÁgua\n───────\nBot das contas\nMande o comprovante')
-  assert.deepEqual(bills.map(b => b.name), ['Luz', 'Água'])
+  assert.deepEqual(
+    bills.map(b => b.name),
+    ['Luz', 'Água'],
+  )
 })
 
 test('splitDescription finds the bot section by its marker', () => {
@@ -149,13 +172,20 @@ test('splitDescription finds the bot section by its marker', () => {
 
 test('renderSection is the canonical text and parses back to the same bills', () => {
   const bills = parseDescription(DEFAULT_LOCALE.t.demoBills)
-  assert.equal(renderSection(bills), [
-    '──── 🤖 contas-bot ────',
-    'Contas (edite esta lista):',
-    'Luz', 'Água', 'Internet', 'Aluguel', 'Academia (pausado)',
-    '──────────────',
-    '/pago <conta> [valor] · /lista · /help',
-  ].join('\n'))
+  assert.equal(
+    renderSection(bills),
+    [
+      '──── 🤖 contas-bot ────',
+      'Contas (edite esta lista):',
+      'Luz',
+      'Água',
+      'Internet',
+      'Aluguel',
+      'Academia (pausado)',
+      '──────────────',
+      '/pago <conta> [valor] · /lista · /help',
+    ].join('\n'),
+  )
   assert.deepEqual(parseDescription(splitDescription(renderSection(bills)).section ?? ''), bills)
 })
 
@@ -176,7 +206,10 @@ test('composeDescription marks an empty group text with the placeholder, in any 
   assert.equal(composeDescription(splitDescription(d).original, bills), d)
   // a placeholder in another language (BOT_LANG switched) is replaced, not kept as group text
   const en = makeLocale('en', 'USD')
-  assert.equal(composeDescription(splitDescription(d).original, bills, en), `${en.t.descPlaceholder}\n\n${renderSection(bills, en)}`)
+  assert.equal(
+    composeDescription(splitDescription(d).original, bills, en),
+    `${en.t.descPlaceholder}\n\n${renderSection(bills, en)}`,
+  )
   // WhatsApp dropping emoji variation selectors or retyped spacing still reads as the placeholder
   assert.equal(composeDescription(`${ph.replace(/\uFE0F/g, '').replace(/ /g, '  ')}\n`, bills), d)
 })
@@ -205,10 +238,19 @@ test('splitDescription moves text typed below the section up into the group text
   assert.equal(composeDescription(original, bills), `Grupo\n\nPix: chave 123\n\n/pago luz\n\n${renderSection(bills)}`)
   // below an untouched placeholder, the rescued text replaces it
   const withPh = `${composeDescription('', bills)}\nPix: chave 123`
-  assert.equal(composeDescription(splitDescription(withPh).original, bills), `Pix: chave 123\n\n${renderSection(bills)}`)
+  assert.equal(
+    composeDescription(splitDescription(withPh).original, bills),
+    `Pix: chave 123\n\n${renderSection(bills)}`,
+  )
   // a duplicated section pasted below is dropped, not lifted above where the next read would parse it as bills
   const twice = `${composeDescription('Grupo', bills)}\nPix: chave 123\n${renderSection(parseDescription('Água'))}`
-  const once = must(composeDescription(splitDescription(twice).original, parseDescription(splitDescription(twice).section ?? ''), DEFAULT_LOCALE))
+  const once = must(
+    composeDescription(
+      splitDescription(twice).original,
+      parseDescription(splitDescription(twice).section ?? ''),
+      DEFAULT_LOCALE,
+    ),
+  )
   assert.equal(once, `Grupo\n\nPix: chave 123\n\n${renderSection(bills)}`)
   assert.deepEqual(parseDescription(splitDescription(once).section ?? ''), bills)
   // divider deleted: the help line ends the list, so a note after it is still rescued, not read as a bill
@@ -219,7 +261,10 @@ test('splitDescription moves text typed below the section up into the group text
   assert.equal(splitDescription(must(composeDescription('Grupo', bills))).original, 'Grupo\n')
   const ownDivider = `Grupo\n\n${renderSection(bills)}\n-----\nPix: chave 123`
   assert.equal(splitDescription(ownDivider).original, 'Grupo\n\n-----\nPix: chave 123')
-  assert.equal(composeDescription(splitDescription(ownDivider).original, bills), `Grupo\n\n-----\nPix: chave 123\n\n${renderSection(bills)}`)
+  assert.equal(
+    composeDescription(splitDescription(ownDivider).original, bills),
+    `Grupo\n\n-----\nPix: chave 123\n\n${renderSection(bills)}`,
+  )
 })
 
 test('composeDescription drops the help line first when over 2048 characters', () => {
@@ -240,19 +285,22 @@ test('composeDescription returns null instead of cutting the group text or the l
 
 test('parseDescription strips list markers and needs a separator before pausado', () => {
   const bills = parseDescription('- Luz\n1. Água\n• Gás\n2) Aluguel\nDespausado\nHBO - pausado')
-  assert.deepEqual(bills.map(b => [b.name, b.paused]), [
-    ['Luz', false], ['Água', false], ['Gás', false], ['Aluguel', false], ['Despausado', false], ['HBO', true],
-  ])
+  assert.deepEqual(
+    bills.map(b => [b.name, b.paused]),
+    [
+      ['Luz', false],
+      ['Água', false],
+      ['Gás', false],
+      ['Aluguel', false],
+      ['Despausado', false],
+      ['HBO', true],
+    ],
+  )
 })
 
 test('parseAmount rejects zero', () => {
   assert.equal(parseAmount('0'), null)
   assert.equal(parseAmount('0,00'), null)
-})
-
-test('isGreeting needs a greeting that names the bot, in four words or fewer', () => {
-  for (const t of ['oi bot', 'Olá contas-bot', 'bom dia bot', 'e aí bot!']) assert.equal(isGreeting(t), true, t)
-  for (const t of ['oi', 'oi amor', 'o bot pagou a luz ontem de manhã', 'bot']) assert.equal(isGreeting(t), false, t)
 })
 
 test('/help and /ajuda are the same command', () => {
@@ -282,9 +330,9 @@ test('parseAmount is currency-agnostic and uses the locale only for ambiguity', 
     ['231,45', 231.45, 231.45],
     ['231.45', 231.45, 231.45],
     ['R$ 6.237,60', 6237.6, 6237.6],
-    ['$6,237.60', null, 6237.6],
-    ['6.237,60 €', null, null],
-    ['USD 10', null, 10],
+    ['$6,237.60', 6237.6, 6237.6],
+    ['6.237,60 €', 6237.6, 6237.6],
+    ['USD 10', 10, 10],
     ['1.234', 1234, 1.23],
     ['1,234', 1.23, 1234],
     ['1.234.567', 1234567, 1234567],
@@ -300,42 +348,77 @@ test('parseAmount is currency-agnostic and uses the locale only for ambiguity', 
 })
 
 test('commands in every language map to the same actions', () => {
-  for (const c of ['/pago luz 10', '/paid luz 10', '/pagado luz 10']) assert.deepEqual(parseCommand(c), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10' }, c)
-  for (const c of ['/despago luz', '/despagado luz', '/unpaid luz', '/reverter luz', '/revert luz', '/revertir luz']) assert.deepEqual(parseCommand(c), { cmd: 'despago', name: 'luz' }, c)
+  for (const c of ['/pago luz 10', '/paid luz 10', '/pagado luz 10'])
+    assert.deepEqual(parseCommand(c), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10' }, c)
+  for (const c of ['/despago luz', '/despagado luz', '/unpaid luz', '/reverter luz', '/revert luz', '/revertir luz'])
+    assert.deepEqual(parseCommand(c), { cmd: 'despago', name: 'luz' }, c)
   for (const c of ['/lista', '/list']) assert.deepEqual(parseCommand(c), { cmd: 'lista' }, c)
   for (const c of ['/ajuda', '/help', '/ayuda']) assert.deepEqual(parseCommand(c), { cmd: 'ajuda' }, c)
-  assert.deepEqual(parseCommand('/paid water $80.10', EN), { cmd: 'pago', name: 'water', amount: 80.1, full: 'water $80.10' })
+  assert.deepEqual(parseCommand('/paid water $80.10', EN), {
+    cmd: 'pago',
+    name: 'water',
+    amount: 80.1,
+    full: 'water $80.10',
+  })
   assert.deepEqual(parseCommand('/pagado luz 80 €', ES), { cmd: 'pago', name: 'luz', amount: 80, full: 'luz 80 €' })
 })
 
 test('parseCommand keeps the full multi-word bill name and only swallows currency tokens', () => {
-  assert.deepEqual(parseCommand('/pago cartão nu 500'), { cmd: 'pago', name: 'cartão nu', amount: 500, full: 'cartão nu 500' })
-  assert.deepEqual(parseCommand('/pago conta de luz 150'), { cmd: 'pago', name: 'conta de luz', amount: 150, full: 'conta de luz 150' })
+  assert.deepEqual(parseCommand('/pago cartão nu 500'), {
+    cmd: 'pago',
+    name: 'cartão nu',
+    amount: 500,
+    full: 'cartão nu 500',
+  })
+  assert.deepEqual(parseCommand('/pago conta de luz 150'), {
+    cmd: 'pago',
+    name: 'conta de luz',
+    amount: 150,
+    full: 'conta de luz 150',
+  })
   // "101" here is the bill's own name, not an amount: no currency token follows it, so nothing parses as money.
-  assert.deepEqual(parseCommand('/pago apto 101 luz'), { cmd: 'pago', name: 'apto 101 luz', amount: null, full: 'apto 101 luz' })
+  assert.deepEqual(parseCommand('/pago apto 101 luz'), {
+    cmd: 'pago',
+    name: 'apto 101 luz',
+    amount: null,
+    full: 'apto 101 luz',
+  })
   assert.deepEqual(parseCommand('/pago luz r$ 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz r$ 10' })
-  assert.deepEqual(parseCommand('/paid water USD 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water USD 80' })
-})
-
-test('plain-text payments, pause tags and greetings in every language', () => {
-  const bills = parseDescription('Luz\nWater\nAgua\nHBO (paused)\nNetflix - pausada\nDespausado')
-  assert.deepEqual(bills.map(b => [b.name, b.paused]), [['Luz', false], ['Water', false], ['Agua', false], ['HBO', true], ['Netflix', true], ['Despausado', false]])
-  assert.equal(matchPlainText(bills, 'paid the water')?.name, 'Water')
-  assert.equal(matchPlainText(bills, 'pagué la luz')?.name, 'Luz')
-  assert.equal(matchPlainText(bills, 'pagado agua')?.name, 'Agua')
-  for (const t of ['hey bot', 'good morning bot', 'hola bot', 'buenos días bot']) assert.equal(isGreeting(t), true, t)
-  assert.equal(isGreeting('hola'), false)
+  assert.deepEqual(parseCommand('/paid water USD 80', EN), {
+    cmd: 'pago',
+    name: 'water',
+    amount: 80,
+    full: 'water USD 80',
+  })
 })
 
 test('renderSection and renderList speak the locale', () => {
   const bills = parseDescription('Power\nGym (pausado)')
-  assert.equal(renderSection(bills, EN), [
-    '──── 🤖 contas-bot ────', 'Bills (edit this list):', 'Power', 'Gym (paused)', '──────────────', '/paid <bill> [amount] · /list · /help',
-  ].join('\n'))
-  const out = renderList('2026-09', bills, { power: { name: 'Power', paid_at: '', amount: 10, by: 'x', message_id: 'm' } }, EN)
+  assert.equal(
+    renderSection(bills, EN),
+    [
+      '──── 🤖 contas-bot ────',
+      'Bills (edit this list):',
+      'Power',
+      'Gym (paused)',
+      '──────────────',
+      '/paid <bill> [amount] · /list · /help',
+    ].join('\n'),
+  )
+  const out = renderList(
+    '2026-09',
+    bills,
+    { power: { name: 'Power', paid_at: '', amount: 10, by: 'x', message_id: 'm' } },
+    EN,
+  )
   assert.ok(out.startsWith('📋 *Bills — September/2026*'), out)
   assert.ok(out.endsWith('*Paid:* 1/1 · *Total:* $10.00'), out)
-  const missing = renderList('2026-09', bills, { power: { name: 'Power', paid_at: '', amount: null, by: 'x', message_id: 'm' } }, ES)
+  const missing = renderList(
+    '2026-09',
+    bills,
+    { power: { name: 'Power', paid_at: '', amount: null, by: 'x', message_id: 'm' } },
+    ES,
+  )
   assert.ok(missing.endsWith('*Pagado:* 1/1 · *Total:* 0,00 € (1 sin monto)'), missing)
 })
 
@@ -355,20 +438,29 @@ test('parseAmount rejects repeated separators that are not thousands groups', ()
   assert.equal(parseAmount('1,234,567', EN), 1234567)
 })
 
-test('a bare currency code is only swallowed when it is the configured currency', () => {
-  assert.deepEqual(parseCommand('/pago Plano TIM 100'), { cmd: 'pago', name: 'Plano TIM', amount: 100, full: 'Plano TIM 100' })
-  assert.deepEqual(parseCommand('/pago Cartão BTG 500'), { cmd: 'pago', name: 'Cartão BTG', amount: 500, full: 'Cartão BTG 500' })
-  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water USD', amount: 80, full: 'water USD 80' })
+test('any currency code or symbol is swallowed, other acronyms stay in the name', () => {
+  assert.deepEqual(parseCommand('/pago Plano TIM 100'), {
+    cmd: 'pago',
+    name: 'Plano TIM',
+    amount: 100,
+    full: 'Plano TIM 100',
+  })
+  assert.deepEqual(parseCommand('/pago Cartão BTG 500'), {
+    cmd: 'pago',
+    name: 'Cartão BTG',
+    amount: 500,
+    full: 'Cartão BTG 500',
+  })
+  assert.deepEqual(parseCommand('/paid water USD 80'), { cmd: 'pago', name: 'water', amount: 80, full: 'water USD 80' })
   assert.deepEqual(parseCommand('/pago luz BRL 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz BRL 10' })
   assert.deepEqual(parseCommand('/pago luz brl 10'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz brl 10' })
   assert.deepEqual(parseCommand('/pago luz 10 BRL'), { cmd: 'pago', name: 'luz', amount: 10, full: 'luz 10 BRL' })
-  assert.deepEqual(parseCommand('/paid water US$ 80', EN), { cmd: 'pago', name: 'water', amount: 80, full: 'water US$ 80' })
-})
-
-test('matchPlainText prefers a bill named with a payment word over stripping it', () => {
-  const bills = parseDescription('Luz\nPago Luz')
-  assert.equal(matchPlainText(bills, 'Pago Luz')?.name, 'Pago Luz')
-  assert.equal(matchPlainText(bills, 'paguei a luz')?.name, 'Luz')
+  assert.deepEqual(parseCommand('/paid water US$ 80', EN), {
+    cmd: 'pago',
+    name: 'water',
+    amount: 80,
+    full: 'water US$ 80',
+  })
 })
 
 test('parseAmount rejects absurd amounts', () => {
@@ -391,12 +483,34 @@ test('parseAmount rejects an amount that quantizes to zero cents', () => {
   assert.equal(parseAmount('231,456'), 231.46)
 })
 
-test('parseAmount rejects a currency other than the configured one', () => {
-  assert.equal(parseAmount('US$ 100'), null)
-  assert.equal(parseAmount('100 EUR'), null)
-  assert.equal(parseAmount('$ 100'), null)
-  assert.equal(parseAmount('R$ 100'), 100)
-  assert.equal(parseAmount('US$ 80', EN), 80)
+test('parseAmount reads any currency as a money marker', () => {
+  for (const s of ['US$ 100', '100 EUR', '$ 100', 'R$ 100', 'usd 100', '100 R$']) assert.equal(parseAmount(s), 100, s)
+  assert.equal(parseAmount('R$'), null)
+  assert.equal(parseAmount('TIM 100'), null)
+})
+
+test('/pago takes the amount at either end of the bill name', () => {
+  for (const c of [
+    '/pago luz 80',
+    '/pago 80 luz',
+    '/pago luz R$ 80',
+    '/pago R$ 80 luz',
+    '/pago USD 80 luz',
+    '/pago $80 luz',
+    '/pago luz 80 USD',
+  ]) {
+    const p = parseCommand(c)
+    assert.deepEqual(p && p.cmd === 'pago' && [p.name, p.amount], ['luz', 80], c)
+  }
+  assert.deepEqual(parseCommand('/pago 6.237,60 cartão nu'), {
+    cmd: 'pago',
+    name: 'cartão nu',
+    amount: 6237.6,
+    full: '6.237,60 cartão nu',
+  })
+  // A bill named like a number still takes a trailing amount, and a lone amount names no bill.
+  assert.deepEqual(parseCommand('/pago 101 80'), { cmd: 'pago', name: '101', amount: 80, full: '101 80' })
+  assert.deepEqual(parseCommand('/pago R$ 150'), { cmd: 'pago', name: 'R$ 150', amount: null, full: 'R$ 150' })
 })
 
 test('renderList does not treat an inherited Object property as a payment', () => {
@@ -415,15 +529,24 @@ test('levenshtein counts single edits', () => {
 const B = parseDescription('Luz\nÁgua\nAluguel\nCartão Nu\nTV')
 
 test('closestBills suggests the bill one typo away', () => {
-  assert.deepEqual(closestBills(B, 'lux').map(b => b.name), ['Luz'])
+  assert.deepEqual(
+    closestBills(B, 'lux').map(b => b.name),
+    ['Luz'],
+  )
 })
 
 test('closestBills ignores accents and case like exact matching does', () => {
-  assert.deepEqual(closestBills(B, 'AGUAA').map(b => b.name), ['Água'])
+  assert.deepEqual(
+    closestBills(B, 'AGUAA').map(b => b.name),
+    ['Água'],
+  )
 })
 
 test('closestBills lists every bill an ambiguous prefix starts', () => {
-  assert.deepEqual(closestBills(B, 'a').map(b => b.name), ['Água', 'Aluguel'])
+  assert.deepEqual(
+    closestBills(B, 'a').map(b => b.name),
+    ['Água', 'Aluguel'],
+  )
 })
 
 test('closestBills suggests nothing when nothing is close', () => {
@@ -459,22 +582,4 @@ test('suggestCommand gives up when nothing is close', () => {
 
 test('an unknown command carries the typed name', () => {
   assert.deepEqual(parseCommand('/pgao luz'), { cmd: 'unknown', raw: '/pgao luz', name: 'pgao' })
-})
-
-test('paymentAttempt returns the bill part of a short payment phrase', () => {
-  assert.equal(paymentAttempt('pago lux'), 'lux')
-  assert.equal(paymentAttempt('Paguei a água'), 'agua')
-})
-
-test('paymentAttempt ignores long chatter and non-payment text', () => {
-  assert.equal(paymentAttempt('paguei o mercado hoje de manhã com o cartão'), null)
-  assert.equal(paymentAttempt('bom dia'), null)
-  assert.equal(paymentAttempt('pago'), null)
-})
-test('plainTextSuggestions ignores short and chatty attempts', () => {
-  const bills = parseDescription('TIM\nTV\nÁgua\nAluguel')
-  for (const a of ['sim', 'tbm', 'tb', 'a', 'al']) assert.deepEqual(plainTextSuggestions(bills, a), [])
-  const real = parseDescription('Luz\nÁgua\nAluguel')
-  assert.deepEqual(plainTextSuggestions(real, 'lux').map(b => b.name), ['Luz'])
-  assert.deepEqual(plainTextSuggestions(real, 'aluguell').map(b => b.name), ['Aluguel'])
 })

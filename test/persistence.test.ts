@@ -15,21 +15,37 @@ type Opts = { desc?: string; pinFails?: boolean; descFails?: boolean }
 function fakeWa(opts: Opts): Wa {
   let n = 0
   return {
-    async sendText() { return { id: `s${++n}`, fromMe: true, remoteJid: G } },
-    async sendVideo() { return { id: `v${++n}`, fromMe: true, remoteJid: G } },
+    async sendText() {
+      return { id: `s${++n}`, fromMe: true, remoteJid: G }
+    },
+    async sendVideo() {
+      return { id: `v${++n}`, fromMe: true, remoteJid: G }
+    },
     async react() {},
-    async pin() { if (opts.pinFails) throw new Error('pinning is admin-only') },
+    async pin() {
+      if (opts.pinFails) throw new Error('pinning is admin-only')
+    },
     async unpin() {},
-    async getDescription() { return opts.desc ?? 'Luz\nÁgua' },
-    async setDescription() { if (opts.descFails) throw new Error('description write denied') },
+    async getDescription() {
+      return opts.desc ?? 'Luz\nÁgua'
+    },
+    async setDescription() {
+      if (opts.descFails) throw new Error('description write denied')
+    },
   }
 }
 
-const fakeLlm: Llm = { enabled: true, async readAmount() { return null } }
+const fakeLlm: Llm = {
+  enabled: true,
+  async readAmount() {
+    return null
+  },
+}
 
 const msg = (id: string, text: string): Incoming => ({
   key: { id, fromMe: false, remoteJid: G, participant: 'gabi@s.whatsapp.net' },
-  sender: 'Gabi', text,
+  sender: 'Gabi',
+  text,
 })
 
 async function onDisk(path: string) {
@@ -45,23 +61,78 @@ async function run(opts: Opts, scenario: (bot: ReturnType<typeof makeBot>, store
 }
 
 const scenarios: [string, Opts, (bot: ReturnType<typeof makeBot>, store: StateStore) => Promise<void>][] = [
-  ['onboarding a new group', {}, async bot => { await bot.join() }],
-  ['a payment by command', {}, async bot => { await bot.join(); await bot.onMessage(msg('a', '/pago Luz 100')) }],
-  ['a reversal', {}, async bot => {
-    await bot.join()
-    await bot.onMessage(msg('a', '/pago Luz 100'))
-    await bot.onMessage(msg('b', '/despago Luz'))
-  }],
-  ['an unknown command', {}, async bot => { await bot.join(); await bot.onMessage(msg('a', '/xpto')) }],
-  ['a greeting', {}, async bot => { await bot.join(); await bot.onMessage(msg('a', 'oi bot')) }],
-  ['a refused pin', { pinFails: true }, async bot => { await bot.join(); await bot.onMessage(msg('a', '/pago Luz 100')) }],
-  ['a refused description write', { descFails: true }, async bot => { await bot.join() }],
-  ['a member editing the description', {}, async bot => { await bot.join(); await bot.onDescription('Luz\nÁgua\nGás') }],
-  ['a month rollover', {}, async (bot, store) => {
-    await bot.join()
-    store.get()._meta.last_reset = '2026-08'
-    await bot.tick()
-  }],
+  [
+    'onboarding a new group',
+    {},
+    async bot => {
+      await bot.join()
+    },
+  ],
+  [
+    'a payment by command',
+    {},
+    async bot => {
+      await bot.join()
+      await bot.onMessage(msg('a', '/pago Luz 100'))
+    },
+  ],
+  [
+    'a reversal',
+    {},
+    async bot => {
+      await bot.join()
+      await bot.onMessage(msg('a', '/pago Luz 100'))
+      await bot.onMessage(msg('b', '/despago Luz'))
+    },
+  ],
+  [
+    'an unknown command',
+    {},
+    async bot => {
+      await bot.join()
+      await bot.onMessage(msg('a', '/xpto'))
+    },
+  ],
+  [
+    'a greeting',
+    {},
+    async bot => {
+      await bot.join()
+      await bot.onMessage(msg('a', 'oi bot'))
+    },
+  ],
+  [
+    'a refused pin',
+    { pinFails: true },
+    async bot => {
+      await bot.join()
+      await bot.onMessage(msg('a', '/pago Luz 100'))
+    },
+  ],
+  [
+    'a refused description write',
+    { descFails: true },
+    async bot => {
+      await bot.join()
+    },
+  ],
+  [
+    'a member editing the description',
+    {},
+    async bot => {
+      await bot.join()
+      await bot.onDescription('Luz\nÁgua\nGás')
+    },
+  ],
+  [
+    'a month rollover',
+    {},
+    async (bot, store) => {
+      await bot.join()
+      store.get()._meta.last_reset = '2026-08'
+      await bot.tick()
+    },
+  ],
 ]
 
 // The dedup list was appended to memory after every save and so never reached disk, which made it

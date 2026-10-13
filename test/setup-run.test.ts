@@ -8,11 +8,18 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const run = (dir: string, env: Record<string, string>) =>
   spawnSync(process.execPath, [join(ROOT, 'src', 'setup.ts')], {
-    cwd: ROOT, encoding: 'utf8', input: '',
+    cwd: ROOT,
+    encoding: 'utf8',
+    input: '',
     env: { PATH: process.env.PATH, CONTAS_BOT_SETUP_DIR: dir, APP_VERSION: '9.9.9', CONTAS_BOT_NO_PAIR: '1', ...env },
   })
 
-const answers = { CONTAS_BOT_LANG: 'pt-BR', CONTAS_BOT_PAIRING: 'code', CONTAS_BOT_PHONE: '+55 11 90000-0000', CONTAS_BOT_AI: 'none' }
+const answers = {
+  CONTAS_BOT_LANG: 'pt-BR',
+  CONTAS_BOT_PAIRING: 'code',
+  CONTAS_BOT_PHONE: '+55 11 90000-0000',
+  CONTAS_BOT_AI: 'none',
+}
 
 test('a full non-interactive install writes .env (600), compose, folders and the CLI', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'setup-'))
@@ -41,7 +48,10 @@ test('an already paired folder is updated: compose rewritten, .env untouched', a
   await writeFile(join(dir, '.env'), 'BOT_LANG=en\nKEEP=me\n')
   await mkdir(join(dir, 'auth'))
   await writeFile(join(dir, 'auth', 'creds.json'), JSON.stringify({ me: { id: 'x' } }))
-  await writeFile(join(dir, 'docker-compose.yml'), 'services:\n  contas-bot:\n    image: ghcr.io/jeancarlos/contas-bot:1.0.0\n')
+  await writeFile(
+    join(dir, 'docker-compose.yml'),
+    'services:\n  contas-bot:\n    image: ghcr.io/jeancarlos/contas-bot:1.0.0\n',
+  )
   const r = run(dir, {})
   assert.equal(r.status, 0, r.stderr)
   assert.equal(await readFile(join(dir, '.env'), 'utf8'), 'BOT_LANG=en\nKEEP=me\n')

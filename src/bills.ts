@@ -20,7 +20,8 @@ function validTimeZone(tz: string): boolean {
 const TZ = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'America/Sao_Paulo'
 
 export function normalize(s: string): string {
-  return s.normalize('NFKD')
+  return s
+    .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -124,7 +125,9 @@ export function parseAmount(s: string, loc: Locale = DEFAULT_LOCALE): number | n
 }
 
 export function formatMoney(n: number, loc: Locale = DEFAULT_LOCALE): string {
-  return new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency }).format(n).replace(/[\u00a0\u202f]/g, ' ')
+  return new Intl.NumberFormat(loc.lang, { style: 'currency', currency: loc.currency })
+    .format(n)
+    .replace(/[\u00a0\u202f]/g, ' ')
 }
 
 export function monthKey(d: Date): string {
@@ -135,11 +138,18 @@ export function monthKey(d: Date): string {
 
 export function monthTitle(key: string, loc: Locale = DEFAULT_LOCALE): string {
   const [y, m] = key.split('-').map(Number)
-  const name = new Intl.DateTimeFormat(loc.lang, { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, 15)))
+  const name = new Intl.DateTimeFormat(loc.lang, { month: 'long', timeZone: 'UTC' }).format(
+    new Date(Date.UTC(y, m - 1, 15)),
+  )
   return `${name[0].toLocaleUpperCase(loc.lang)}${name.slice(1)}/${y}`
 }
 
-export function renderList(key: string, bills: Bill[], paid: Record<string, Payment>, loc: Locale = DEFAULT_LOCALE): string {
+export function renderList(
+  key: string,
+  bills: Bill[],
+  paid: Record<string, Payment>,
+  loc: Locale = DEFAULT_LOCALE,
+): string {
   const active = bills.filter(b => !b.paused)
   const done = active.filter(b => Object.hasOwn(paid, b.key))
   const pending = active.filter(b => !Object.hasOwn(paid, b.key))
@@ -172,7 +182,9 @@ const commandOf = (alias: string): CommandName | undefined =>
 
 export function suggestCommand(typed: string): string | null {
   const t = typed.toLowerCase()
-  const scored = (Object.values(COMMANDS) as readonly (readonly string[])[]).flat().map(a => ({ a, d: levenshtein(t, a) }))
+  const scored = (Object.values(COMMANDS) as readonly (readonly string[])[])
+    .flat()
+    .map(a => ({ a, d: levenshtein(t, a) }))
   const best = Math.min(...scored.map(x => x.d))
   if (best > 2) return null
   const top = scored.filter(x => x.d === best)
@@ -197,10 +209,14 @@ export function parseCommand(text: string, loc: Locale = DEFAULT_LOCALE): Comman
       // `full` lets the caller prefer a bill literally named "Apartamento 101" over "Apartamento" + 101.
       return { cmd: 'pago', name: hit?.name ?? arg, amount: hit?.amount ?? null, full: arg }
     }
-    case 'despago': return { cmd: 'despago', name: arg }
-    case 'lista': return { cmd: 'lista' }
-    case 'ajuda': return { cmd: 'ajuda' }
-    default: return { cmd: 'unknown', raw: t, name: cmd }
+    case 'despago':
+      return { cmd: 'despago', name: arg }
+    case 'lista':
+      return { cmd: 'lista' }
+    case 'ajuda':
+      return { cmd: 'ajuda' }
+    default:
+      return { cmd: 'unknown', raw: t, name: cmd }
   }
 }
 
@@ -213,7 +229,11 @@ const DESC_LIMIT = 2048
 const HEADER_RE = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
 
 // WhatsApp may drop emoji variation selectors or respace a line; the placeholder must still be recognized.
-const flat = (s: string) => s.replace(/\uFE0F/g, '').replace(/\s+/g, ' ').trim()
+const flat = (s: string) =>
+  s
+    .replace(/\uFE0F/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 const SECTION_HELP_LINES = new Set(Object.values(CATALOGS).map(c => flat(c.sectionHelp)))
 
 // The bot owns everything from its header line down; text above it belongs to the group. Text a member typed
@@ -232,7 +252,10 @@ export function splitDescription(desc: string): { original: string; section: str
   // A second header starts a duplicated bot section (a paste): it is the bot's, and lifting it above would make it
   // the first header on the next read, its title and list parsed as bills.
   const h = below.findIndex(l => HEADER_RE.test(l.trim()))
-  const stray = (h < 0 ? below : below.slice(0, h)).filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && flat(l.trim()) !== flat(SECTION_DIVIDER)).join('\n').trim()
+  const stray = (h < 0 ? below : below.slice(0, h))
+    .filter(l => !SECTION_HELP_LINES.has(flat(l.trim())) && flat(l.trim()) !== flat(SECTION_DIVIDER))
+    .join('\n')
+    .trim()
   const original = stray ? [above.trimEnd(), stray].filter(Boolean).join('\n\n') : above
   return { original, section: (end < 0 ? section : section.slice(0, end)).join('\n') }
 }
@@ -252,11 +275,15 @@ const PLACEHOLDER_LINES = new Set(Object.values(CATALOGS).flatMap(c => c.descPla
 // null means it does not fit and the caller must leave the description alone.
 export function composeDescription(original: string, bills: Bill[], loc: Locale = DEFAULT_LOCALE): string | null {
   // The placeholder is the bot's, in whichever language wrote it: never kept as group text, put back when none is left.
-  const own = original.split('\n').filter(l => !PLACEHOLDER_LINES.has(flat(l))).join('\n').replace(/^\s*\n/, '').trimEnd()
+  const own = original
+    .split('\n')
+    .filter(l => !PLACEHOLDER_LINES.has(flat(l)))
+    .join('\n')
+    .replace(/^\s*\n/, '')
+    .trimEnd()
   const section = (help: boolean) => renderSection(bills, loc, help)
   const candidates = own
     ? [`${own}\n\n${section(true)}`, `${own}\n\n${section(false)}`]
     : [`${loc.t.descPlaceholder}\n\n${section(true)}`, section(true), section(false)] // the placeholder goes before the help line
   return candidates.find(d => d.length <= DESC_LIMIT) ?? null
 }
-

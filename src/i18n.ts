@@ -36,7 +36,8 @@ const ptBR: Catalog = {
   pauseWord: 'pausado',
   sectionTitle: 'Contas (edite esta lista):',
   sectionHelp: '/pago <conta> [valor] · /lista · /help',
-  descPlaceholder: '✏️ Escreva aqui a descrição do grupo (apague estas linhas).\n⚠️ Abaixo é do bot: mude só a lista de contas.',
+  descPlaceholder:
+    '✏️ Escreva aqui a descrição do grupo (apague estas linhas).\n⚠️ Abaixo é do bot: mude só a lista de contas.',
   demoBills: 'Luz\nÁgua\nInternet\nAluguel\nAcademia (pausado)',
   intro: [
     '👋 Oi! Eu sou o *contas-bot*, cuido da lista de contas do mês deste grupo.',
@@ -73,9 +74,10 @@ const ptBR: Catalog = {
   descTooLong: 'a descrição do grupo passou do limite do WhatsApp: encurte o texto acima da lista do bot',
   updated: 'atualizado',
   moreChanges: n => `…e mais ${n}`,
-  notFound: (q, names, suggest) => suggest?.length
-    ? `não achei "${q}", você quis dizer ${suggest.map(n => `*${n}*`).join(' ou ')}? Contas: ${names}`
-    : `não achei "${q}". Contas: ${names}`,
+  notFound: (q, names, suggest) =>
+    suggest?.length
+      ? `não achei "${q}", você quis dizer ${suggest.map(n => `*${n}*`).join(' ou ')}? Contas: ${names}`
+      : `não achei "${q}". Contas: ${names}`,
 }
 
 const en: Catalog = {
@@ -86,7 +88,8 @@ const en: Catalog = {
   pauseWord: 'paused',
   sectionTitle: 'Bills (edit this list):',
   sectionHelp: '/paid <bill> [amount] · /list · /help',
-  descPlaceholder: '✏️ Write the group description here (delete these lines).\n⚠️ Below is the bot\'s part: change only the bill list.',
+  descPlaceholder:
+    "✏️ Write the group description here (delete these lines).\n⚠️ Below is the bot's part: change only the bill list.",
   demoBills: 'Electricity\nWater\nInternet\nRent\nGym (paused)',
   intro: [
     "👋 Hi! I'm *contas-bot*, I keep this group's monthly bill list.",
@@ -123,9 +126,10 @@ const en: Catalog = {
   descTooLong: "the group description is over WhatsApp's limit: shorten the text above the bot's list",
   updated: 'updated',
   moreChanges: n => `…and ${n} more`,
-  notFound: (q, names, suggest) => suggest?.length
-    ? `couldn't find "${q}", did you mean ${suggest.map(n => `*${n}*`).join(' or ')}? Bills: ${names}`
-    : `couldn't find "${q}". Bills: ${names}`,
+  notFound: (q, names, suggest) =>
+    suggest?.length
+      ? `couldn't find "${q}", did you mean ${suggest.map(n => `*${n}*`).join(' or ')}? Bills: ${names}`
+      : `couldn't find "${q}". Bills: ${names}`,
 }
 
 const es: Catalog = {
@@ -136,7 +140,8 @@ const es: Catalog = {
   pauseWord: 'pausado',
   sectionTitle: 'Cuentas (edita esta lista):',
   sectionHelp: '/pagado <cuenta> [monto] · /lista · /ayuda',
-  descPlaceholder: '✏️ Escribe aquí la descripción del grupo (borra estas líneas).\n⚠️ Abajo es la parte del bot: cambia solo la lista de cuentas.',
+  descPlaceholder:
+    '✏️ Escribe aquí la descripción del grupo (borra estas líneas).\n⚠️ Abajo es la parte del bot: cambia solo la lista de cuentas.',
   demoBills: 'Luz\nAgua\nInternet\nAlquiler\nGimnasio (pausado)',
   intro: [
     '👋 ¡Hola! Soy *contas-bot*, llevo la lista de cuentas del mes de este grupo.',
@@ -173,16 +178,18 @@ const es: Catalog = {
   descTooLong: 'la descripción del grupo pasó el límite de WhatsApp: acorta el texto sobre la lista del bot',
   updated: 'actualizado',
   moreChanges: n => `…y ${n} más`,
-  notFound: (q, names, suggest) => suggest?.length
-    ? `no encontré "${q}", ¿quisiste decir ${suggest.map(n => `*${n}*`).join(' o ')}? Cuentas: ${names}`
-    : `no encontré "${q}". Cuentas: ${names}`,
+  notFound: (q, names, suggest) =>
+    suggest?.length
+      ? `no encontré "${q}", ¿quisiste decir ${suggest.map(n => `*${n}*`).join(' o ')}? Cuentas: ${names}`
+      : `no encontré "${q}". Cuentas: ${names}`,
 }
 
 export const CATALOGS: Record<Lang, Catalog> = { 'pt-BR': ptBR, en, es }
 
 export function makeLocale(lang: string, currency: string): Locale {
   if (!Object.hasOwn(CATALOGS, lang)) throw new Error(`unsupported BOT_LANG "${lang}": use pt-BR, en or es`)
-  if (!/^[A-Za-z]{3}$/.test(currency)) throw new Error(`invalid BOT_CURRENCY "${currency}": use an ISO 4217 code like BRL, USD, EUR`)
+  if (!/^[A-Za-z]{3}$/.test(currency))
+    throw new Error(`invalid BOT_CURRENCY "${currency}": use an ISO 4217 code like BRL, USD, EUR`)
   const l = lang as Lang
   const decimal = new Intl.NumberFormat(l).formatToParts(1.5).find(p => p.type === 'decimal')?.value === '.' ? '.' : ','
   return { lang: l, currency: currency.toUpperCase(), decimal, t: CATALOGS[l] }

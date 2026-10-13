@@ -5,10 +5,15 @@ export type ResolvedVersion = { version: WAVersion; live: boolean }
 
 let cached: Promise<ResolvedVersion> | null = null
 
-export async function resolveWaVersion(fetchFn: Fetch = fetchLatestWaWebVersion, timeoutMs = 10_000): Promise<ResolvedVersion> {
+export async function resolveWaVersion(
+  fetchFn: Fetch = fetchLatestWaWebVersion,
+  timeoutMs = 10_000,
+): Promise<ResolvedVersion> {
   const fallback: ResolvedVersion = { version: DEFAULT_CONNECTION_CONFIG.version, live: false }
   let timer: NodeJS.Timeout | undefined
-  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), timeoutMs) })
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
+  })
   try {
     const r = await Promise.race([fetchFn(), timeout])
     if (r.isLatest === false) return fallback
@@ -20,7 +25,8 @@ export async function resolveWaVersion(fetchFn: Fetch = fetchLatestWaWebVersion,
   }
 }
 
-export const waVersionOnce = (): Promise<ResolvedVersion> => (cached ??= resolveWaVersion().then(r => {
-  if (!r.live) cached = null
-  return r
-}))
+export const waVersionOnce = (): Promise<ResolvedVersion> =>
+  (cached ??= resolveWaVersion().then(r => {
+    if (!r.live) cached = null
+    return r
+  }))

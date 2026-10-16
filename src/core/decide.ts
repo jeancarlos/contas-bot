@@ -30,6 +30,7 @@ const HANDLED_MAX = 500
 const NAME_MAX = 40
 const ASK_TTL = 10 * 60_000
 const YES = new Set(['sim', 's', 'yes', 'y', 'si', 'ok', 'isso'])
+const NO = new Set(['n', 'no', 'nao', 'nope'])
 export const THUMBS = /^👍[\u{1F3FB}-\u{1F3FF}]?$/u
 
 const reply = (d: Draft, to: MsgKey, msg: Msg) => d.fx.push({ kind: 'reply', to, msg })
@@ -404,6 +405,7 @@ function answer(d: Draft, a: Question, m: MessageInput): boolean {
   const text = clean(m.text)
   const yes = YES.has(normalize(text)) || THUMBS.test(m.text.trim())
   if (a.q === 'amount') return fillAmount(d, a, text, m)
+  if (NO.has(normalize(text))) return false
   const asker: Cmd = { key: m.key, sender: m.sender, at: m.at, ...(a.media ? { media: a.media } : {}) }
   const month = a.month ?? current(d, a.at)
   if (a.q === 'confirm') return yes && confirmed(d, a, month, asker)

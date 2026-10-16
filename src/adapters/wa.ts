@@ -178,7 +178,7 @@ function quotedOf(c: Content, remoteJid: string, msgs: Messages): MediaRef | und
   const quoted = normalizeMessageContent(ctx?.quotedMessage)
   if (!ctx?.stanzaId || !quoted) return undefined
   const key = { remoteJid, id: ctx.stanzaId, participant: ctx.participant, fromMe: false }
-  return mediaOf(quoted, `${ctx.stanzaId}:quoted`, { key, message: ctx.quotedMessage }, msgs)
+  return mediaOf(quoted, `${remoteJid}:${ctx.stanzaId}:quoted`, { key, message: ctx.quotedMessage }, msgs)
 }
 
 const keyOf = (k: WAMessageKey, id: string, remoteJid: string): MsgKey => ({
@@ -199,7 +199,7 @@ export function toMessage(msg: WAMessage, msgs: Messages): MessageInput | null {
     sender: msg.pushName || msg.key.participant || '',
     text: textOf(c),
     at: millis(msg.messageTimestamp),
-    media: mediaOf(c, id, msg, msgs),
+    media: mediaOf(c, `${remoteJid}:${id}`, msg, msgs),
     quoted: quotedOf(c, remoteJid, msgs),
   }
 }
@@ -208,7 +208,7 @@ export function toEdit(u: WAMessageUpdate, recent: Recent): EditInput | null {
   const c = normalizeMessageContent(u.update.message?.editedMessage?.message)
   const { id, remoteJid } = u.key
   if (!c || !id || !remoteJid) return null
-  const original = recent.get(id)
+  const original = recent.get(`${remoteJid}:${id}`)
   return {
     kind: 'edit',
     key: keyOf(u.key, id, remoteJid),
@@ -227,7 +227,7 @@ function newest(map: Map<string, unknown>) {
 }
 
 function remember(recent: Recent, msgs: Messages, m: MessageInput) {
-  recent.set(m.key.id, { sender: m.sender, media: m.media ?? m.quoted })
+  recent.set(`${m.key.remoteJid}:${m.key.id}`, { sender: m.sender, media: m.media ?? m.quoted })
   newest(recent)
   newest(msgs)
 }
@@ -264,6 +264,7 @@ export async function download(
   if (h.size > MAX_RECEIPT) throw new Error('receipt too large')
   const msg = msgs.get(h.id)
   if (!msg) throw new Error('receipt expired')
+  if (!msg.key.remoteJid || !h.id.startsWith(`${msg.key.remoteJid}:`)) throw new Error('receipt group mismatch')
   if (!trustedHost(msg)) throw new Error('receipt host refused')
   const stream = await dl(msg, 'stream', {}, ctx)
   const chunks: Buffer[] = []

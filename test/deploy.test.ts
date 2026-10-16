@@ -20,3 +20,10 @@ test('the image runs as the unprivileged node user unless compose says otherwise
   assert.ok(user < lines.findIndex(l => l.startsWith('CMD ')))
   assert.ok(lines.slice(user).every(l => !l.startsWith('RUN ')))
 })
+
+test('the example config and the defaults point at no private endpoint or model', () => {
+  const example = read('.env.example')
+  assert.match(example, /^LLM_BASE_URL=$/m)
+  assert.doesNotMatch(example, /192\.168\.|cx\//)
+  assert.doesNotMatch(read('src/shell/index.ts'), /192\.168\.|cx\//)
+})

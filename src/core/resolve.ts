@@ -8,7 +8,7 @@ export type Resolution =
   | { ok: false; why: 'missingBill' | 'pagoSyntax' | 'futureMonth'; amount: number | null }
   | { ok: false; why: 'suggest'; bill: Bill; amount: number | null; month: string | null }
   | { ok: false; why: 'notFound'; q: string }
-  | { ok: false; why: 'onePerCommand'; bills: Bill[] }
+  | { ok: false; why: 'onePerCommand'; bills: Bill[]; amount: number | null; month: string | null }
 
 type Match =
   | { kind: 'bill'; bill: Bill }
@@ -99,7 +99,7 @@ function finish(m: Match, amount: number | null, month: string | null): Resoluti
     case 'empty':
       return { ok: false, why: 'missingBill', amount }
     case 'many':
-      return { ok: false, why: 'onePerCommand', bills: m.bills }
+      return { ok: false, why: 'onePerCommand', bills: m.bills, amount, month }
     case 'typo':
       return { ok: false, why: 'suggest', bill: m.bill, amount, month }
     case 'none':

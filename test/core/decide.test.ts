@@ -80,7 +80,7 @@ test('off-path /pago answers with a suggestion or the syntax and changes nothing
     ['/pago lux 80', 'askConfirm'],
     ['/pago netflix', 'notFound'],
     ['/pago', 'missingBill'],
-    ['/pago luz e agua', 'onePerCommand'],
+    ['/pago luz e agua', 'askBill'],
     ['/pago luz R$80 R$90', 'pagoSyntax'],
     ['/pago luz 12/2026', 'futureMonth'],
     ['/pagp luz', 'unknownCmd'],
@@ -358,7 +358,7 @@ test('/pago avulsa refuses a misparsed name and creates nothing', () => {
     [`/pago avulsa ${'x'.repeat(41)} 50`, 'nameInvalid'],
     ['/pago avulsa luz 50', 'askConfirm'],
     ['/pago avulsa lux 50', 'askConfirm'],
-    ['/pago avulsa cartão 50', 'onePerCommand'],
+    ['/pago avulsa cartão 50', 'askBill'],
     ['/pago avulsa farmácia 50 12/2026', 'futureMonth'],
   ]
   for (const [text, k] of cases) {
@@ -499,4 +499,69 @@ test('a one-off receipt without AI is saved and asks for the amount', () => {
   assert.equal(bill?.removed, true)
   assert.deepEqual(replies(r.effects), ['askAmount'])
   assert.equal(decide(r.state, msg('45,90'), noLlm).state.months['2026-10']?.[bill?.id ?? 0]?.amount, 4590)
+})
+
+test('an ambiguous bill asks which one and the answer pays it with the typed amount', () => {
+  const s = state('Luz', 'Cartão Nu', 'Cartão Itaú')
+  const asked = decide(s, msg('/pago cartão 50'), ctx)
+  const q = asked.effects.find(e => e.kind === 'reply')
+  assert.deepEqual(q?.kind === 'reply' && q.msg, { k: 'askBill', names: ['Cartão Nu', 'Cartão Itaú'] })
+  const r = decide(asked.state, msg('nu'), ctx)
+  assert.equal(r.state.months['2026-10']?.[2]?.amount, 5000)
+  assert.deepEqual(kinds(r.effects), ['react', 'postList'])
+})
+
+test('an ambiguous bill with a receipt lets the AI pick among the matches only', () => {
+  const s = state('Luz', 'Cartão Nu', 'Cartão Itaú')
+  const media = { mime: 'image/png', handle: 'h' }
+  const asked = decide(s, msg('/pago cartão', { media }), ctx)
+  const pick = asked.effects.find(e => e.kind === 'pickBill')
+  assert.ok(pick?.kind === 'pickBill')
+  if (pick?.kind !== 'pickBill') return
+  const { kind: _, ...p } = pick
+  assert.deepEqual(
+    p.bills.map(b => b.name),
+    ['Cartão Nu', 'Cartão Itaú'],
+  )
+  assert.deepEqual(asked.state.months, {})
+  const picked = decide(asked.state, { kind: 'billPicked', pick: p, billId: 3, amount: 12000 }, ctx)
+  assert.equal(picked.state.months['2026-10']?.[3]?.amount, 12000)
+  assert.equal(picked.state.months['2026-10']?.[3]?.status, 'read')
+  const outside = decide(asked.state, { kind: 'billPicked', pick: p, billId: 1, amount: 12000 }, ctx)
+  assert.deepEqual(outside.state.months, {})
+  assert.deepEqual(replies(outside.effects), ['askBill'])
+  const unsure = decide(asked.state, { kind: 'billPicked', pick: p, billId: null, amount: null }, ctx)
+  assert.deepEqual(replies(unsure.effects), ['askBill'])
+  const answered = decide(unsure.state, msg('itaú'), ctx)
+  assert.deepEqual(kinds(answered.effects), ['react', 'readAmount'])
+  const noAmount = decide(asked.state, { kind: 'billPicked', pick: p, billId: 2, amount: null }, ctx)
+  assert.deepEqual(replies(noAmount.effects), ['askAmount'])
+  assert.equal(decide(noAmount.state, msg('99'), ctx).state.months['2026-10']?.[2]?.amount, 9900)
+})
+
+test('an unknown bill with an amount offers a one-off, and sim records it', () => {
+  const s = state('Luz')
+  const asked = decide(s, msg('/pago Farmácia 45,90'), ctx)
+  const q = asked.effects.find(e => e.kind === 'reply')
+  assert.deepEqual(q?.kind === 'reply' && q.msg, { k: 'askOneOff', name: 'Farmácia' })
+  assert.deepEqual(asked.state.bills, s.bills)
+  const r = decide(asked.state, msg('sim'), ctx)
+  const bill = r.state.bills.find(b => b.key === 'farmacia')
+  assert.equal(bill?.removed, true)
+  assert.equal(r.state.months['2026-10']?.[bill?.id ?? 0]?.amount, 4590)
+  assert.deepEqual(replies(decide(s, msg('/pago netflix'), ctx).effects), ['notFound'])
+  assert.deepEqual(replies(decide(s, msg('/pago netflix 2 50'), ctx).effects), ['notFound'])
+})
+
+test('answering a one-off offer with a bill name pays that bill instead', () => {
+  const asked = decide(state('Luz', 'Água'), msg('/pago energia 80'), ctx).state
+  const r = decide(asked, msg('luz'), ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.amount, 8000)
+  assert.equal(r.state.bills.length, 2)
+})
+
+test('a typed thumbs up confirms', () => {
+  const asked = decide(state('Luz'), msg('/pago lux 80'), ctx).state
+  assert.equal(decide(asked, msg('👍🏽'), ctx).state.months['2026-10']?.[1]?.amount, 8000)
+  assert.equal(decide(asked, msg('👍'), ctx).state.months['2026-10']?.[1]?.amount, 8000)
 })

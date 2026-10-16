@@ -12,7 +12,6 @@ import type {
   Input,
   ListMsg,
   Locale,
-  MediaRef,
   MessageInput,
   Msg,
   MsgKey,
@@ -29,6 +28,7 @@ const HANDLED_MAX = 500
 const NAME_MAX = 40
 const ASK_TTL = 10 * 60_000
 const YES = new Set(['sim', 's', 'yes', 'y', 'si', 'ok', 'isso'])
+const THUMBS = /^👍[\u{1F3FB}-\u{1F3FF}]?$/u
 
 const reply = (d: Draft, to: MsgKey, msg: Msg) => d.fx.push({ kind: 'reply', to, msg })
 const active = (s: GroupState) => s.bills.filter(b => !b.removed)
@@ -37,10 +37,8 @@ const pinnedMonth = (d: Draft, at: number) => {
   const now = current(d, at)
   return d.s.lastReset && d.s.lastReset > now ? d.s.lastReset : now
 }
-// Questions belong to the number that wrote (the participant), not to a display name.
 const who = (key: MsgKey, sender: string) => key.participant ?? sender
 
-// One open question per asker: a new one replaces theirs.
 function ask(d: Draft, a: Ask, to: MsgKey, msg: Msg) {
   d.s.asks = [...d.s.asks.filter(x => x.who !== a.who), a]
   reply(d, to, msg)
@@ -56,6 +54,34 @@ function confirm(d: Draft, cmd: 'pago' | 'despago', bill: Bill, amount: number |
   const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'confirm', cmd, billId: bill.id, amount, month }
   if (media) a.media = media
   ask(d, a, m.key, { k: 'askConfirm', cmd, bill: bill.name, amount, month })
+}
+
+type Choice = { id: number; name: string }
+
+function askWhich(d: Draft, bills: readonly Choice[], amount: number | null, month: string | null, m: Cmd) {
+  const media = m.media ?? m.quoted
+  const choices = bills.map(b => b.id)
+  const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'bill', choices, amount, month }
+  if (media) a.media = media
+  ask(d, a, m.key, { k: 'askBill', names: bills.map(b => b.name) })
+}
+
+function chosen(d: Draft, text: string, choices: readonly number[]): Named | undefined {
+  const words = normalize(text).split(' ').filter(Boolean)
+  const keyWords = (b: Bill) => b.key.split(' ')
+  const hits = d.s.bills.filter(
+    b => choices.includes(b.id) && words.length > 0 && words.every(w => keyWords(b).some(k => k.startsWith(w))),
+  )
+  const [bill, ...more] = hits
+  return bill && more.length === 0 ? { bill, amount: null, month: null } : undefined
+}
+
+function ambiguous(d: Draft, bills: readonly Bill[], amount: number | null, month: string | null, m: Cmd) {
+  const media = m.media ?? m.quoted
+  const choices = bills.map(b => ({ id: b.id, name: b.name }))
+  if (media && d.ctx.llm)
+    d.fx.push({ kind: 'pickBill', to: m.key, sender: m.sender, at: m.at, media, month, amount, bills: choices })
+  else askWhich(d, choices, amount, month, m)
 }
 
 export function listMsg(s: GroupState, month: string): ListMsg {
@@ -88,14 +114,13 @@ function failure(d: Draft, r: Failure, cmd: 'pago' | 'despago'): Msg {
   }
 }
 
-// A near miss asks to confirm the bill; a receipt with no bill named asks which one.
-function refuse(d: Draft, r: Failure, cmd: 'pago' | 'despago', m: Cmd) {
+function refuse(d: Draft, r: Failure, cmd: 'pago' | 'despago', m: Cmd, arg: string) {
   const media = m.media ?? m.quoted
   if (r.why === 'suggest') confirm(d, cmd, r.bill, cmd === 'pago' ? r.amount : null, r.month, m)
-  else if (r.why === 'missingBill' && cmd === 'pago' && media) {
-    const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'bill', media }
-    ask(d, a, m.key, { k: 'askBill', names: active(d.s).map(b => b.name) })
-  } else reply(d, m.key, failure(d, r, cmd))
+  else if (cmd === 'despago') reply(d, m.key, failure(d, r, cmd))
+  else if (r.why === 'onePerCommand') ambiguous(d, r.bills, r.amount, r.month, m)
+  else if (r.why === 'missingBill' && media) askWhich(d, active(d.s), r.amount, null, m)
+  else if (r.why !== 'notFound' || !offerOneOff(d, arg, m)) reply(d, m.key, failure(d, r, cmd))
 }
 
 function payment(prev: Payment | undefined, amount: number | null, reading: boolean, m: Cmd): Payment {
@@ -118,7 +143,6 @@ function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd)
   if (prev) reply(d, m.key, { k: 'updated' })
   if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: bill.id })
   else showList(d, month, pinnedMonth(d, m.at), m.key)
-  // No AI to read the receipt: ask the sender instead.
   if (media && !reading && p.amount === null) askAmount(d, bill.id, month, m.key, m.sender, m.at)
 }
 
@@ -129,17 +153,14 @@ function pago(d: Draft, arg: string, m: Cmd): boolean {
     pay(d, r.bill, r.amount, r.month ?? now, m)
     return true
   }
-  // Only after the bills: a bill named "Extra" is still paid as itself.
   const [head = '', ...rest] = arg.split(' ')
   if (ONE_OFF.has(normalize(head))) return oneOff(d, rest, m)
-  refuse(d, r, 'pago', m)
+  refuse(d, r, 'pago', m, arg)
   return false
 }
 
 type OneOff = { name: string; key: string; amount: number | null; month: string | null }
 
-// Strict on purpose: anything but "<name> <amount> [month]" with a plain name is refused rather than saved as a
-// stray bill. A null amount is only accepted with a receipt to take it from.
 function parseOneOff(tokens: readonly string[], now: string, decimal: ',' | '.', reading: boolean): OneOff | Msg {
   const months = tokens.map(t => (t.includes('/') ? parseMonthToken(t, now) : null))
   const dated = months.filter((x): x is string => x !== null && x >= oldest(now))
@@ -160,37 +181,49 @@ function parseOneOff(tokens: readonly string[], now: string, decimal: ',' | '.',
   return { name, key, amount: money?.cents ?? null, month }
 }
 
-// A name that is, or is close to, a bill is that bill misspelled, not a new expense. True when refused.
 function clash(d: Draft, o: OneOff, now: string, m: Cmd): boolean {
   const r = resolve(o.name, d.s.bills, now, d.ctx.locale.decimal)
   if (r.ok || r.why === 'suggest') confirm(d, 'pago', r.bill, o.amount, o.month, m)
-  else if (r.why === 'onePerCommand') reply(d, m.key, failure(d, r, 'pago'))
+  else if (r.why === 'onePerCommand') ambiguous(d, r.bills, o.amount, o.month, m)
   else if (r.why !== 'notFound') reply(d, m.key, { k: 'oneOffSyntax' })
   return r.ok || r.why !== 'notFound'
 }
 
-// A one-off is a removed bill: it is on the list of the month it was paid in, never in /conta or a later month.
 function oneOff(d: Draft, tokens: readonly string[], m: Cmd): boolean {
   const now = current(d, m.at)
-  // A receipt stands in for the amount: the AI reads it, or the sender is asked.
   const o = parseOneOff(tokens, now, d.ctx.locale.decimal, Boolean(m.media ?? m.quoted))
   if ('k' in o) {
     reply(d, m.key, o)
     return false
   }
   if (clash(d, o, now, m)) return false
-  let bill = d.s.bills.filter(b => b.removed && b.key === o.key).at(-1)
-  if (bill) bill.paused = false
-  else {
-    bill = { id: d.s.nextBillId, name: o.name, key: o.key, paused: false, removed: true }
-    d.s.bills.push(bill)
-    d.s.nextBillId++
-  }
-  pay(d, bill, o.amount, o.month ?? now, m)
+  pay(d, addOneOff(d, o), o.amount, o.month ?? now, m)
   return true
 }
 
-// Removed bills paid within reach (one-offs) can still be unpaid.
+function addOneOff(d: Draft, o: OneOff): Bill {
+  const found = d.s.bills.filter(b => b.removed && b.key === o.key).at(-1)
+  if (found) {
+    found.paused = false
+    return found
+  }
+  const bill = { id: d.s.nextBillId, name: o.name, key: o.key, paused: false, removed: true }
+  d.s.bills.push(bill)
+  d.s.nextBillId++
+  return bill
+}
+
+function offerOneOff(d: Draft, arg: string, m: Cmd): boolean {
+  const media = m.media ?? m.quoted
+  const tokens = arg.split(' ').filter(Boolean)
+  const o = parseOneOff(tokens, current(d, m.at), d.ctx.locale.decimal, Boolean(media))
+  if ('k' in o) return false
+  const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'oneOff', ...o }
+  if (media) a.media = media
+  ask(d, a, m.key, { k: 'askOneOff', name: o.name })
+  return true
+}
+
 function unpayable(s: GroupState, now: string): Bill[] {
   const recent = Object.entries(s.months).filter(([k]) => k >= oldest(now))
   return s.bills.map(b => (b.removed && recent.some(([, p]) => p[b.id]) ? { ...b, removed: false } : b))
@@ -200,7 +233,7 @@ function despago(d: Draft, arg: string, m: Cmd): boolean {
   const now = current(d, m.at)
   const r = resolve(arg, unpayable(d.s, now), now, d.ctx.locale.decimal)
   if (!r.ok) {
-    refuse(d, r, 'despago', m)
+    refuse(d, r, 'despago', m, arg)
     return false
   }
   return unpay(d, r.bill.id, r.month ?? now, m)
@@ -348,7 +381,6 @@ function remember(s: GroupState, id: string, changed: boolean, warned = false) {
   if (s.handled.length > HANDLED_MAX) s.handled.splice(0, s.handled.length - HANDLED_MAX)
 }
 
-// The asker's next message closes their question (expired ones go too): a command replaces it, plain text answers it.
 function takeAsk(d: Draft, m: MessageInput): Ask | undefined {
   const by = who(m.key, m.sender)
   const live = (x: Ask) => m.at - x.at <= ASK_TTL
@@ -357,28 +389,35 @@ function takeAsk(d: Draft, m: MessageInput): Ask | undefined {
   return open
 }
 
-// Strict: only a bare amount, a plain yes or a bill name counts. Anything else is the group talking.
 function answer(d: Draft, a: Ask, m: MessageInput): boolean {
   const text = clean(m.text)
-  const now = current(d, m.at)
-  // The receipt comes from the question, never from the answer.
-  const asker = (media?: MediaRef): Cmd => ({ key: m.key, sender: m.sender, at: m.at, ...(media ? { media } : {}) })
-  switch (a.q) {
-    case 'amount':
-      return fillAmount(d, a, text, m)
-    case 'confirm': {
-      const bill = d.s.bills.find(b => b.id === a.billId)
-      if (!YES.has(normalize(text)) || !bill) return false
-      if (a.cmd === 'despago') return unpay(d, bill.id, a.month ?? now, m)
-      pay(d, bill, a.amount, a.month ?? now, asker(a.media))
-      return true
-    }
-    case 'bill': {
-      const r = resolve(text, d.s.bills, now, d.ctx.locale.decimal)
-      if (r.ok) pay(d, r.bill, r.amount, r.month ?? now, asker(a.media))
-      return r.ok
-    }
+  const yes = YES.has(normalize(text)) || THUMBS.test(m.text.trim())
+  if (a.q === 'amount') return fillAmount(d, a, text, m)
+  const asker: Cmd = { key: m.key, sender: m.sender, at: m.at, ...(a.media ? { media: a.media } : {}) }
+  const month = a.month ?? current(d, m.at)
+  if (a.q === 'confirm') return yes && confirmed(d, a, month, asker)
+  if (a.q === 'oneOff' && yes) {
+    pay(d, addOneOff(d, a), a.amount, month, asker)
+    return true
   }
+  const bill = (a.q === 'bill' ? chosen(d, text, a.choices) : undefined) ?? named(d, text, m.at)
+  if (bill) pay(d, bill.bill, bill.amount ?? a.amount, bill.month ?? month, asker)
+  return Boolean(bill)
+}
+
+function confirmed(d: Draft, a: Extract<Ask, { q: 'confirm' }>, month: string, m: Cmd): boolean {
+  const bill = d.s.bills.find(b => b.id === a.billId)
+  if (!bill) return false
+  if (a.cmd === 'despago') return unpay(d, bill.id, month, m)
+  pay(d, bill, a.amount, month, m)
+  return true
+}
+
+type Named = { bill: Bill; amount: number | null; month: string | null }
+
+function named(d: Draft, text: string, at: number): Named | undefined {
+  const r = resolve(text, d.s.bills, current(d, at), d.ctx.locale.decimal)
+  return r.ok ? r : undefined
 }
 
 function fillAmount(d: Draft, a: Extract<Ask, { q: 'amount' }>, text: string, m: MessageInput): boolean {
@@ -435,6 +474,21 @@ function onAmountRead(d: Draft, a: Extract<Input, { kind: 'amountRead' }>) {
   if (a.amount === null) askAmount(d, a.billId, a.month, a.key, p.by, a.at)
 }
 
+function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
+  const p = i.pick
+  const m: Cmd = { key: p.to, sender: p.sender, at: p.at }
+  const bill = p.bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
+  if (!bill) {
+    askWhich(d, p.bills, p.amount, p.month, { ...m, media: p.media })
+    return
+  }
+  const month = p.month ?? current(d, p.at)
+  pay(d, bill, p.amount ?? i.amount, month, m)
+  const paid = d.s.months[month]?.[bill.id]
+  if (paid && p.amount === null && i.amount !== null) paid.status = 'read'
+  if (paid?.amount === null) askAmount(d, bill.id, month, p.to, p.sender, p.at)
+}
+
 function onListPosted(d: Draft, messageId: string) {
   const prev = d.s.pinnedId
   d.s.pinnedId = messageId
@@ -460,6 +514,9 @@ export function decide(state: GroupState, input: Input, ctx: Ctx): Result {
       break
     case 'amountRead':
       onAmountRead(d, input)
+      break
+    case 'billPicked':
+      onBillPicked(d, input)
       break
     case 'listPosted':
       onListPosted(d, input.messageId)

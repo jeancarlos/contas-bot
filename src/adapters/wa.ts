@@ -17,6 +17,7 @@ import makeWASocket, {
   type WAVersion,
 } from '@whiskeysockets/baileys'
 import type { Logger } from 'pino'
+import { THUMBS } from '../core/decide.ts'
 import type { EditInput, MediaRef, MessageInput, MsgKey } from '../core/types.ts'
 import type { Wa } from '../shell/run.ts'
 import { waVersionOnce } from '../waVersion.ts'
@@ -161,13 +162,15 @@ export function gate(groups: Set<string>, cfg: Handlers): Handlers {
   }
 }
 
+const thumbsUp = (r: Content['reactionMessage']) => (r?.key?.fromMe && THUMBS.test(r.text ?? '') ? r.text : null)
+
 function textOf(c: Content): string {
   const raw =
     c.conversation ??
     c.extendedTextMessage?.text ??
     c.imageMessage?.caption ??
     c.documentMessage?.caption ??
-    (c.reactionMessage?.key?.fromMe ? c.reactionMessage.text : null) ??
+    thumbsUp(c.reactionMessage) ??
     ''
   return raw.slice(0, MAX_TEXT).replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
 }
@@ -185,12 +188,12 @@ function mediaOf(c: Content, id: string, msg: WAMessage, msgs: Messages): MediaR
   return undefined
 }
 
-function quotedOf(c: Content, remoteJid: string, msgs: Messages): MediaRef | undefined {
+function quotedOf(c: Content, remoteJid: string, id: string, msgs: Messages): MediaRef | undefined {
   const ctx = c.extendedTextMessage?.contextInfo ?? c.imageMessage?.contextInfo ?? c.documentMessage?.contextInfo
   const quoted = normalizeMessageContent(ctx?.quotedMessage)
   if (!ctx?.stanzaId || !quoted) return undefined
   const key = { remoteJid, id: ctx.stanzaId, participant: ctx.participant, fromMe: false }
-  return mediaOf(quoted, `${remoteJid}:${ctx.stanzaId}:quoted`, { key, message: ctx.quotedMessage }, msgs)
+  return mediaOf(quoted, `${remoteJid}:${id}:quoted`, { key, message: ctx.quotedMessage }, msgs)
 }
 
 const keyOf = (k: WAMessageKey, id: string, remoteJid: string): MsgKey => ({
@@ -207,7 +210,7 @@ export function toMessage(msg: WAMessage, msgs: Messages): MessageInput | null {
   if (!c || c.protocolMessage || !id || !remoteJid) return null
   const text = textOf(c)
   const media = mediaOf(c, `${remoteJid}:${id}`, msg, msgs)
-  const quoted = quotedOf(c, remoteJid, msgs)
+  const quoted = quotedOf(c, remoteJid, id, msgs)
   if (!text && !media && !quoted) return null
   return {
     kind: 'message',

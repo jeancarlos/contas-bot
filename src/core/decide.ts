@@ -30,7 +30,7 @@ const HANDLED_MAX = 500
 const NAME_MAX = 40
 const ASK_TTL = 10 * 60_000
 const YES = new Set(['sim', 's', 'yes', 'y', 'si', 'ok', 'isso'])
-const THUMBS = /^👍[\u{1F3FB}-\u{1F3FF}]?$/u
+export const THUMBS = /^👍[\u{1F3FB}-\u{1F3FF}]?$/u
 
 const reply = (d: Draft, to: MsgKey, msg: Msg) => d.fx.push({ kind: 'reply', to, msg })
 const active = (s: GroupState) => s.bills.filter(b => !b.removed)

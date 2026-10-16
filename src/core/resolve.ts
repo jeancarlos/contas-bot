@@ -5,7 +5,8 @@ import type { Bill } from './types.ts'
 
 export type Resolution =
   | { ok: true; bill: Bill; amount: number | null; month: string | null }
-  | { ok: false; why: 'missingBill' | 'pagoSyntax' | 'futureMonth'; amount: number | null }
+  | { ok: false; why: 'pagoSyntax' | 'futureMonth'; amount: number | null }
+  | { ok: false; why: 'missingBill'; amount: number | null; month: string | null }
   | { ok: false; why: 'suggest'; bill: Bill; amount: number | null; month: string | null }
   | { ok: false; why: 'notFound'; q: string }
   | { ok: false; why: 'onePerCommand'; bills: Bill[]; amount: number | null; month: string | null }
@@ -97,7 +98,7 @@ function finish(m: Match, amount: number | null, month: string | null): Resoluti
     case 'bill':
       return { ok: true, bill: m.bill, amount, month }
     case 'empty':
-      return { ok: false, why: 'missingBill', amount }
+      return { ok: false, why: 'missingBill', amount, month }
     case 'many':
       return { ok: false, why: 'onePerCommand', bills: m.bills, amount, month }
     case 'typo':

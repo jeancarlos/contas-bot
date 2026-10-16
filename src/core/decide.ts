@@ -128,7 +128,7 @@ function refuse(d: Draft, r: Failure, cmd: 'pago' | 'despago', m: Cmd, arg: stri
   if (r.why === 'suggest') confirm(d, cmd, r.bill, cmd === 'pago' ? r.amount : null, r.month, m)
   else if (cmd === 'despago') reply(d, m.key, failure(d, r, cmd))
   else if (r.why === 'onePerCommand') ambiguous(d, r.bills, r.amount, r.month, m)
-  else if (r.why === 'missingBill' && media) askWhich(d, active(d.s), r.amount, null, m)
+  else if (r.why === 'missingBill' && media) askWhich(d, active(d.s), r.amount, r.month, m)
   else if (r.why !== 'notFound' || !offerOneOff(d, arg, m)) reply(d, m.key, failure(d, r, cmd))
 }
 
@@ -405,7 +405,7 @@ function answer(d: Draft, a: Question, m: MessageInput): boolean {
   const yes = YES.has(normalize(text)) || THUMBS.test(m.text.trim())
   if (a.q === 'amount') return fillAmount(d, a, text, m)
   const asker: Cmd = { key: m.key, sender: m.sender, at: m.at, ...(a.media ? { media: a.media } : {}) }
-  const month = a.month ?? current(d, m.at)
+  const month = a.month ?? current(d, a.at)
   if (a.q === 'confirm') return yes && confirmed(d, a, month, asker)
   if (a.q === 'oneOff' && yes) {
     pay(d, addOneOff(d, a), a.amount, month, asker)

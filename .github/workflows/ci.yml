@@ -36,8 +36,8 @@ jobs:
             echo "::error::PRs must come from this repository (got: $HEAD_REPO)"
             exit 1
           }
-          [ "$HEAD" = develop ] || echo "$HEAD" | grep -Eq '^(feature|fix|chore)/[a-z0-9._-]+$' || {
-            echo "::error::PRs into develop must come from feature/*, fix/* or chore/* (got: $HEAD)"
+          [ "$HEAD" = develop ] || echo "$HEAD" | grep -Eq '^((feature|fix|chore)/[a-z0-9._-]+|dependabot/[A-Za-z0-9._/-]+)$' || {
+            echo "::error::PRs into develop must come from feature/*, fix/*, chore/* or dependabot/* (got: $HEAD)"
             exit 1
           }
 

@@ -42,12 +42,17 @@ const get = (d: HttpDeps, path: string) => handle(d, new URL(path, 'http://x'))
 
 test('renderMetrics exposes the four gauges', () => {
   const m = renderMetrics(deps({ connected: () => false }))
-  for (const t of ['whatsapp_connected', 'bills_unpaid', 'paid_amount', 'month_total'])
-    assert.ok(m.includes(`# TYPE contas_${t} gauge`))
+  const lines = m.split('\n')
+  for (const t of ['whatsapp_connected', 'bills_unpaid', 'paid_amount', 'month_paid']) {
+    const type = lines.indexOf(`# TYPE contas_${t} gauge`)
+    assert.ok(type > 0, t)
+    assert.match(lines[type - 1] ?? '', new RegExp(`^# HELP contas_${t} \\S.*$`))
+  }
+  assert.equal(lines.filter(l => l.startsWith('# HELP ')).length, 4)
   assert.ok(m.includes('contas_whatsapp_connected 0\n'))
   assert.ok(m.includes('contas_bills_unpaid{group="grupo"} 2\n'))
   assert.ok(m.includes('contas_paid_amount{group="grupo",bill="Luz"} 80.1\n'))
-  assert.equal(m.split('\n').filter(l => l.startsWith('contas_month_total{group="grupo"')).length, 24)
+  assert.equal(m.split('\n').filter(l => l.startsWith('contas_month_paid{group="grupo"')).length, 24)
 })
 
 test('escapes label values and html', () => {
@@ -221,7 +226,7 @@ test('paused paid bills stay out of totals and match the pinned list footer', ()
   const footer = render(listMsg(s, '2026-10'), d.locale).split('\n').at(-1) ?? ''
   assert.ok(footer.includes('1/3') && footer.includes('R$ 80,10'))
   const m = renderMetrics(d)
-  assert.ok(m.includes('contas_month_total{group="grupo",month="2026-10"} 80.1\n'))
+  assert.ok(m.includes('contas_month_paid{group="grupo",month="2026-10"} 80.1\n'))
   assert.ok(!m.includes('Net, Fibra'))
   assert.equal((JSON.parse(get(d, '/summary.json').body) as { groups: { total: number }[] }).groups[0]?.total, 80.1)
   assert.ok(!get(d, '/').body.includes('R$ 110,10'))

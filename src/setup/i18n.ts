@@ -1,4 +1,4 @@
-import type { Lang } from '../i18n.ts'
+import type { Lang } from '../core/types.ts'
 
 export type SetupText = {
   title: (v: string) => string

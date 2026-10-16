@@ -219,7 +219,7 @@ export function toMessage(msg: WAMessage, msgs: Messages): MessageInput | null {
   }
 }
 
-export function toEdit(u: WAMessageUpdate, recent: Recent): EditInput | null {
+export function toEdit(u: WAMessageUpdate, recent: Recent, now = Date.now): EditInput | null {
   const c = normalizeMessageContent(u.update.message?.editedMessage?.message)
   const { id, remoteJid } = u.key
   if (!c || !id || !remoteJid) return null
@@ -229,7 +229,7 @@ export function toEdit(u: WAMessageUpdate, recent: Recent): EditInput | null {
     key: keyOf(u.key, id, remoteJid),
     sender: original?.sender || u.key.participant || '',
     text: textOf(c),
-    at: millis(u.update.messageTimestamp),
+    at: Math.min(millis(u.update.messageTimestamp), now()),
     media: original?.media,
   }
 }

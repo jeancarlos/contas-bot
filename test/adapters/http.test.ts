@@ -166,3 +166,44 @@ test('startHttp serves, survives a throw and refuses non-GET', async () => {
     server.close()
   }
 })
+
+test('summary.json answers from the store while disconnected', () => {
+  const r = get(deps({ connected: () => false }), '/summary.json')
+  assert.equal(r.status, 200)
+  assert.equal(r.type, 'application/json')
+  const j = JSON.parse(r.body) as { month: string; currency: string; groups: { group: string }[] }
+  assert.equal(j.month, '2026-10')
+  assert.equal(j.currency, 'BRL')
+  assert.deepEqual(j.groups[0], {
+    group: 'grupo',
+    unpaid: 2,
+    total: 80.1,
+    bills: [
+      { name: 'Luz', paid: true, amount: 80.1, paused: false },
+      { name: 'Agua', paid: false, amount: null, paused: false },
+      { name: 'Gas', paid: false, amount: null, paused: false },
+      { name: 'Net, Fibra', paid: false, amount: null, paused: true },
+    ],
+  })
+})
+
+test('summary.json lists a removed bill only when paid this month', () => {
+  const s = state('Luz')
+  s.bills.push(
+    { id: 5, name: 'Velha', key: 'velha', paused: false, removed: true },
+    { id: 6, name: 'Morta', key: 'morta', paused: false, removed: true },
+  )
+  const month = s.months['2026-10']
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M3' }
+  const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
+  const j = JSON.parse(get(d, '/summary.json').body) as {
+    groups: { unpaid: number; bills: { name: string; paid: boolean }[] }[]
+  }
+  const bills = j.groups[0]?.bills ?? []
+  assert.deepEqual(
+    bills.find(b => b.name === 'Velha'),
+    { name: 'Velha', paid: true, amount: 10, paused: false },
+  )
+  assert.ok(!bills.some(b => b.name === 'Morta'))
+  assert.equal(j.groups[0]?.unpaid, 2)
+})

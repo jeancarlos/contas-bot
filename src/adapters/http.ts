@@ -98,6 +98,28 @@ function exportRows(d: HttpDeps, from: string, to: string) {
   )
 }
 
+function summary(d: HttpDeps) {
+  const current = d.currentMonth()
+  return {
+    month: current,
+    currency: d.locale.currency,
+    groups: groups(d).map(g => {
+      const t = monthTotals(g.state, [current])[0]
+      return {
+        group: g.id,
+        unpaid: t?.unpaid ?? 0,
+        total: (t?.total ?? 0) / 100,
+        bills: listMsg(g.state, current).items.map(i => ({
+          name: i.name,
+          paid: i.paid,
+          amount: i.amount === null ? null : i.amount / 100,
+          paused: i.paused,
+        })),
+      }
+    }),
+  }
+}
+
 const text = (status: number, type: string, body: string): Reply => ({ status, type, body })
 
 export function handle(d: HttpDeps, url: URL): Reply {
@@ -106,6 +128,8 @@ export function handle(d: HttpDeps, url: URL): Reply {
       return text(200, 'text/html; charset=utf-8', renderDashboard(d))
     case '/metrics':
       return text(200, 'text/plain; version=0.0.4; charset=utf-8', renderMetrics(d))
+    case '/summary.json':
+      return text(200, 'application/json', JSON.stringify(summary(d)))
     case '/export.csv':
     case '/export.json': {
       const r = range(d, url)

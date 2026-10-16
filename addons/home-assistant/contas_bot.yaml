@@ -1,0 +1,21 @@
+rest:
+  - resource: !secret contas_bot_summary_url
+    # seconds between polls; sensors go unavailable if the bot is down
+    scan_interval: 300
+    sensor:
+      - name: Contas a pagar
+        unique_id: contas_bot_unpaid
+        value_template: "{{ value_json.groups[0].unpaid }}"
+        # exposes the first group's bills and total as attributes
+        json_attributes_path: "$.groups[0]"
+        json_attributes:
+          - bills
+          - total
+        icon: mdi:receipt-text-clock
+      - name: Contas total do mês
+        unique_id: contas_bot_month_total
+        value_template: "{{ value_json.groups[0].total }}"
+        # fixed currency; must match BOT_CURRENCY
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:cash

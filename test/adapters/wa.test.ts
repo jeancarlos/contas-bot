@@ -622,14 +622,14 @@ test('quoted receipts get their own synthetic id and the message map keeps only 
     extendedTextMessage: { text: 'oi', contextInfo: { stanzaId: 'r9', quotedMessage: quoted } },
   })
   ev.fire('messages.upsert', { type: 'notify', messages: [reply] })
-  assert.ok(msgs.has('grupo@g.us:r9:quoted'))
+  assert.ok(msgs.has('grupo@g.us:q1:quoted'))
   const image = { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }
   ev.fire('messages.upsert', {
     type: 'notify',
     messages: Array.from({ length: 500 }, (_, i) => wam(`n${i}`, image)),
   })
   assert.equal(msgs.size, 500)
-  assert.equal(msgs.has('grupo@g.us:r9:quoted'), false)
+  assert.equal(msgs.has('grupo@g.us:q1:quoted'), false)
   assert.equal(msgs.has('grupo@g.us:n499'), true)
 })
 
@@ -837,6 +837,27 @@ test('a reaction, pin, poll vote or keep-in-chat from the asker does not cancel 
   }
 })
 
+test('only a 👍 reaction to a bot message reaches decide; any other reaction neither answers nor cancels', () => {
+  const react = (text: string, fromMe: boolean) =>
+    atOct('R2', { reactionMessage: { key: { remoteJid: G, fromMe, id: 'BOT-ASK' }, text, senderTimestampMs: OCT } })
+  for (const t of ['👍', '👍🏽', '👍🏿']) assert.equal(must(toMessage(react(t, true), new Map())).text, t)
+  for (const [t, fromMe] of [
+    ['❤️', true],
+    ['👎', true],
+    ['😂', true],
+    ['👍👍', true],
+    ['', true],
+    ['👍', false],
+  ] as const) {
+    assert.equal(toMessage(react(t, fromMe), new Map()), null, `${t} ${fromMe}`)
+    const msgs: Messages = new Map()
+    let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
+    s = step(s, react(t, fromMe), msgs)
+    s = step(s, atOct('Y1', { conversation: 'sim' }), msgs)
+    assert.equal(s.months['2026-10']?.[1]?.amount, 8000, `${t} ${fromMe}`)
+  }
+})
+
 test('a 👍 reaction to the bot question answers it', () => {
   const msgs: Messages = new Map()
   let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
@@ -862,7 +883,7 @@ test('an edit timestamp in the future is clamped to now', () => {
   assert.equal(must(toEdit(past, recent, () => OCT)).at, OCT - 60_000)
 })
 
-test('a message id reused by another member does not swap the stored receipt, own or quoted', async () => {
+test('a reused message id keeps the first stored receipt; replies quoting the same message each keep their own', async () => {
   const { ev, seen, msgs } = wired()
   const img = (url: string) => ({ url, directPath: '/v/t62/x', mediaKey: new Uint8Array(32), mimetype: 'image/jpeg' })
   ev.fire('messages.upsert', {
@@ -894,6 +915,8 @@ test('a message id reused by another member does not swap the stored receipt, ow
   })
   await download(must((seen[2] as MessageInput).quoted), msgs, ctx, dl)
   assert.match(got, /\/first$/)
+  await download(must((seen[3] as MessageInput).quoted), msgs, ctx, dl)
+  assert.match(got, /\/second$/)
 })
 
 test('a media-retry reupload pointing outside whatsapp.net is refused', async () => {

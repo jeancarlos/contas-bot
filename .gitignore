@@ -7,3 +7,4 @@ docker-compose.override.yml
 .superpowers/
 CHANGELOG.json
 dist/
+lcov.info

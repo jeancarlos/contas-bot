@@ -79,8 +79,13 @@ function open(path: string) {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA busy_timeout = 5000')
+  const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+  if (version > 1) {
+    db.close()
+    throw new Error(`${path} has schema ${version}, newer than this version of contas-bot understands (1)`)
+  }
   db.exec(SCHEMA)
-  db.exec('PRAGMA user_version = 1')
+  if (version === 0) db.exec('PRAGMA user_version = 1')
   const sql = {
     group: db.prepare('SELECT * FROM groups WHERE jid = ?'),
     groups: db.prepare('SELECT jid FROM groups ORDER BY jid'),

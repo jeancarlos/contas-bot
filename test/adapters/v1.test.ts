@@ -135,3 +135,16 @@ test('fromV1 merges bill lines that normalize to the same key', () => {
     ],
   )
 })
+
+test('fromV1 keeps only amounts above zero and below 1e12, anything else is no amount', () => {
+  const amounts: unknown[] = [0, -5, 1e12, 1e14, Number.MAX_VALUE, '12', true, 0.004, 259.59, 999_999_999_999.99]
+  const months = Object.fromEntries(
+    amounts.map((amount, i) => [`2026-${String(i + 1).padStart(2, '0')}`, { luz: { name: 'Luz', amount } }]),
+  )
+  const [g] = fromV1({ groups: { 'g@g.us': { _meta: { bills: ['Luz'] }, months } } })
+  assert.ok(g)
+  assert.deepEqual(
+    Object.values(g.state.months).map(m => m[1]?.amount ?? null),
+    [null, null, null, null, null, null, null, null, 25959, 99999999999999],
+  )
+})

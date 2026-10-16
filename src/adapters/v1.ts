@@ -9,7 +9,8 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null)
 
 function payment(p: Obj): Payment {
-  const amount = typeof p.amount === 'number' && Number.isFinite(p.amount) ? Math.round(p.amount * 100) : null
+  const amount =
+    typeof p.amount === 'number' && p.amount > 0 && p.amount < 1e12 ? Math.round(p.amount * 100) || null : null
   const paidAt = Date.parse(str(p.paid_at) ?? '')
   return {
     amount,

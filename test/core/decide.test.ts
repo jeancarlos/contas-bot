@@ -319,26 +319,35 @@ test('a tick in an earlier month than lastReset does nothing', () => {
 })
 
 test('join onboards a new group once: lastReset, the intro and the list, no demo bills', () => {
-  const r = decide(emptyState(), { kind: 'join', jid: 'g@g.us', at: OCT, startup: true }, ctx)
+  const r = decide(emptyState(), { kind: 'join', jid: 'g@g.us', at: OCT, startup: true, reading: [] }, ctx)
   assert.equal(r.state.lastReset, '2026-10')
   assert.deepEqual(r.state.bills, [])
   assert.deepEqual(r.effects, [
     { kind: 'send', msg: { k: 'intro' } },
     { kind: 'postList', msg: { k: 'list', month: '2026-10', items: [] } },
   ])
-  assert.deepEqual(decide(r.state, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false }, ctx).effects, [])
+  assert.deepEqual(
+    decide(r.state, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false, reading: [] }, ctx).effects,
+    [],
+  )
 })
 
 test('a startup join turns pending amounts into none once, quoting each receipt', () => {
   const m = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
   const k = m.kind === 'message' ? m.key : key()
   const pending = decide(state('Luz'), m, ctx).state
-  const r = decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true }, ctx)
+  const r = decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true, reading: [] }, ctx)
   assert.equal(r.state.months['2026-10']?.[1]?.status, 'none')
   assert.deepEqual(r.effects, [
     { kind: 'reply', to: { id: k.id, fromMe: false, remoteJid: 'g@g.us' }, msg: { k: 'noAmount' } },
   ])
-  assert.deepEqual(decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false }, ctx).effects, [])
+  assert.deepEqual(
+    decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false, reading: [] }, ctx).effects,
+    [],
+  )
+  const live = decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true, reading: [k.id] }, ctx)
+  assert.deepEqual(live.effects, [])
+  assert.equal(live.state.months['2026-10']?.[1]?.status, 'pending')
 })
 
 test('an edit of a /conta change gets the neutral wording, an edit of a payment the /despago hint', () => {

@@ -362,3 +362,45 @@ test('a failed commit while applying the picked bill sends one saveFailed quotin
   ])
   assert.equal(store.load(JID)?.months['2026-10'], undefined)
 })
+
+function gate<T>(value: T) {
+  let open = () => {}
+  const opened = new Promise<void>(resolve => {
+    open = resolve
+  })
+  return { open, wait: async () => opened.then(() => value) }
+}
+
+test('a backlog receipt read that resolves after the startup join keeps its amount and gets no noAmount', async () => {
+  const read = gate(80.1)
+  const { shell, store, calls } = setup({ state: bills('Luz'), meta: MIGRATED, llm: read.wait })
+  await shell.handle(JID, msg('/pago luz', { media: { mime: 'image/jpeg', handle: 'img' } }))
+  await shell.join(JID)
+  read.open()
+  await shell.idle()
+  assert.equal(store.load(JID)?.months['2026-10']?.[1]?.status, 'read')
+  assert.equal(store.load(JID)?.months['2026-10']?.[1]?.amount, 8010)
+  assert.equal(
+    calls.some(c => c.arg?.includes('não li o valor')),
+    false,
+  )
+})
+
+test('a slow pick is dropped after its sender typed a /pago, but survives their chat', async () => {
+  const late = gate({ index: 1, amount: 99 })
+  const slow = setup({ state: bills('Luz', 'Cartão Nu', 'Cartão Itaú'), pick: late.wait })
+  await slow.shell.handle(JID, msg('/pago cartão', { media: { mime: 'image/jpeg', handle: 'img' } }))
+  await slow.shell.handle(JID, msg('/pago cartão nu 120'))
+  late.open()
+  await slow.shell.idle()
+  const paid = slow.store.load(JID)?.months['2026-10']
+  assert.equal(paid?.[2]?.amount, 12000)
+  assert.equal(paid?.[3], undefined)
+  const chatty = gate({ index: 1, amount: 99 })
+  const kept = setup({ state: bills('Luz', 'Cartão Nu', 'Cartão Itaú'), pick: chatty.wait })
+  await kept.shell.handle(JID, msg('/pago cartão', { media: { mime: 'image/jpeg', handle: 'img' } }))
+  await kept.shell.handle(JID, msg('já mandei'))
+  chatty.open()
+  await kept.shell.idle()
+  assert.equal(kept.store.load(JID)?.months['2026-10']?.[3]?.amount, 9900)
+})

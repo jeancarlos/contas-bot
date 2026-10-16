@@ -79,6 +79,7 @@ export function makeShell(d: ShellDeps): Shell {
   const pending = new Set<Promise<void>>()
   const joined = new Set<string>()
   const asks = new Map<string, GroupState['asks']>()
+  const reading = new Set<{ jid: string; id: string }>()
   const unasked = (s: GroupState): GroupState => ({ ...s, asks: [] })
 
   const handle = (jid: string, input: Input) => box(jid, () => step(jid, input))
@@ -135,8 +136,14 @@ export function makeShell(d: ShellDeps): Shell {
   }
 
   async function readAmount(jid: string, fx: Extract<Effect, { kind: 'readAmount' }>) {
-    const amount = await Promise.race([readReceipt(jid, fx.media), after(d.readTimeoutMs ?? READ_TIMEOUT_MS)])
-    await handle(jid, { kind: 'amountRead', key: fx.to, month: fx.month, billId: fx.billId, amount, at: d.now() })
+    const read = { jid, id: fx.to.id }
+    reading.add(read)
+    try {
+      const amount = await Promise.race([readReceipt(jid, fx.media), after(d.readTimeoutMs ?? READ_TIMEOUT_MS)])
+      await handle(jid, { kind: 'amountRead', key: fx.to, month: fx.month, billId: fx.billId, amount, at: d.now() })
+    } finally {
+      reading.delete(read)
+    }
   }
 
   async function perform(jid: string, fx: Effect) {
@@ -254,7 +261,8 @@ export function makeShell(d: ShellDeps): Shell {
   async function joinNow(jid: string, startup: boolean) {
     const fresh = (d.store.load(jid)?.lastReset ?? null) === null
     if (!fresh) await migrate(jid)
-    await step(jid, { kind: 'join', jid, at: d.now(), startup })
+    const ids = [...reading].filter(r => r.jid === jid).map(r => r.id)
+    await step(jid, { kind: 'join', jid, at: d.now(), startup, reading: ids })
     const meta = d.store.meta(jid) ?? NO_META
     if (!fresh) await announce(jid, meta)
     else

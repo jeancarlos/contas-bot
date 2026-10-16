@@ -1,5 +1,5 @@
-import { type Command, type Conta, parseCommand, parseConta } from './commands.ts'
-import { findMoney } from './money.ts'
+import { type Command, type Conta, ONE_OFF, parseCommand, parseConta } from './commands.ts'
+import { findMoney, isCurrency } from './money.ts'
 import { monthOf, parseMonthToken } from './month.ts'
 import { oldest, type Resolution, resolve } from './resolve.ts'
 import { normalize } from './text.ts'
@@ -72,30 +72,96 @@ function payment(prev: Payment | undefined, amount: number | null, reading: bool
   return { ...base, amount: null, status: 'none' }
 }
 
+function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd) {
+  const paid = d.s.months[month] ?? {}
+  d.s.months[month] = paid
+  const prev = paid[bill.id]
+  const media = m.media ?? m.quoted
+  const reading = amount === null && media !== undefined && d.ctx.llm
+  paid[bill.id] = payment(prev, amount, reading, m)
+  d.fx.push({ kind: 'react', to: m.key })
+  if (prev) reply(d, m.key, { k: 'updated' })
+  if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: bill.id })
+  else showList(d, month, pinnedMonth(d, m.at), m.key)
+}
+
 function pago(d: Draft, arg: string, m: Cmd): boolean {
   const now = current(d, m.at)
   const r = resolve(arg, d.s.bills, now, d.ctx.locale.decimal)
-  if (!r.ok) {
-    reply(d, m.key, failure(d, r, 'pago'))
+  if (r.ok) {
+    pay(d, r.bill, r.amount, r.month ?? now, m)
+    return true
+  }
+  // Only after the bills: a bill named "Extra" is still paid as itself.
+  const [head = '', ...rest] = arg.split(' ')
+  if (ONE_OFF.has(normalize(head))) return oneOff(d, rest, m)
+  reply(d, m.key, failure(d, r, 'pago'))
+  return false
+}
+
+type OneOff = { name: string; key: string; amount: number | null; month: string | null }
+
+// Strict on purpose: anything but "<name> <amount> [month]" with a plain name is refused rather than saved as a
+// stray bill. A null amount is only accepted when a receipt will be read for it.
+function parseOneOff(tokens: readonly string[], now: string, decimal: ',' | '.', reading: boolean): OneOff | Msg {
+  const months = tokens.map(t => (t.includes('/') ? parseMonthToken(t, now) : null))
+  const dated = months.filter((x): x is string => x !== null && x >= oldest(now))
+  const month = dated[0] ?? null
+  if (dated.length > 1) return { k: 'oneOffSyntax' }
+  if (month && month > now) return { k: 'futureMonth' }
+  const rest = month ? tokens.filter((_, i) => months[i] !== month) : tokens
+  const { marked, bare } = findMoney(rest, decimal)
+  const hits = [...marked, ...bare]
+  const money = hits.length === 1 ? hits[0] : undefined
+  const nameToks = money ? [...rest.slice(0, money.start), ...rest.slice(money.end)] : rest
+  const name = nameToks.join(' ')
+  const key = normalize(name)
+  const atEnd = !money || money.start === 0 || money.end === rest.length
+  const plain = key !== '' && nameToks.every(t => !/\d/.test(t) && !isCurrency(t))
+  if (hits.length > 1 || !atEnd || !plain || !(money || reading)) return { k: 'oneOffSyntax' }
+  if (name.length > NAME_MAX) return { k: 'nameInvalid' }
+  return { name, key, amount: money?.cents ?? null, month }
+}
+
+// A name that is, or is close to, a bill is that bill misspelled, not a new expense.
+function clash(d: Draft, o: OneOff, now: string): Msg | null {
+  const r = resolve(o.name, d.s.bills, now, d.ctx.locale.decimal)
+  if (r.ok || r.why === 'suggest')
+    return { k: 'suggest', cmd: 'pago', bill: r.bill.name, amount: o.amount, month: o.month }
+  if (r.why === 'onePerCommand') return failure(d, r, 'pago')
+  return r.why === 'notFound' ? null : { k: 'oneOffSyntax' }
+}
+
+// A one-off is a removed bill: it is on the list of the month it was paid in, never in /conta or a later month.
+function oneOff(d: Draft, tokens: readonly string[], m: Cmd): boolean {
+  const now = current(d, m.at)
+  const o = parseOneOff(tokens, now, d.ctx.locale.decimal, Boolean(m.media ?? m.quoted) && d.ctx.llm)
+  const refusal = 'k' in o ? o : clash(d, o, now)
+  if (refusal) {
+    reply(d, m.key, refusal)
     return false
   }
-  const month = r.month ?? now
-  const paid = d.s.months[month] ?? {}
-  d.s.months[month] = paid
-  const prev = paid[r.bill.id]
-  const media = m.media ?? m.quoted
-  const reading = r.amount === null && media !== undefined && d.ctx.llm
-  paid[r.bill.id] = payment(prev, r.amount, reading, m)
-  d.fx.push({ kind: 'react', to: m.key })
-  if (prev) reply(d, m.key, { k: 'updated' })
-  if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: r.bill.id })
-  else showList(d, month, pinnedMonth(d, m.at), m.key)
+  if ('k' in o) return false
+  let bill = d.s.bills.filter(b => b.removed && b.key === o.key).at(-1)
+  if (bill) bill.paused = false
+  else {
+    bill = { id: d.s.nextBillId, name: o.name, key: o.key, paused: false, removed: true }
+    d.s.bills.push(bill)
+    d.s.nextBillId++
+  }
+  pay(d, bill, o.amount, o.month ?? now, m)
   return true
+}
+
+// Removed bills paid within reach (one-offs) can still be unpaid.
+function unpayable(s: GroupState, now: string): Bill[] {
+  const recent = Object.entries(s.months).filter(([k]) => k >= oldest(now))
+  return s.bills.map(b => (b.removed && recent.some(([, p]) => p[b.id]) ? { ...b, removed: false } : b))
 }
 
 function despago(d: Draft, arg: string, m: Cmd): boolean {
   const now = current(d, m.at)
-  const r = resolve(arg, d.s.bills, now, d.ctx.locale.decimal)
+  const r = resolve(arg, unpayable(d.s, now), now, d.ctx.locale.decimal)
   if (!r.ok) {
     reply(d, m.key, failure(d, r, 'despago'))
     return false

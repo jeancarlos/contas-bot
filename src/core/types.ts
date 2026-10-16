@@ -56,6 +56,7 @@ export type Msg =
   | { k: 'missingBill'; cmd: 'pago' | 'despago' }
   | { k: 'onePerCommand'; cmd: 'pago' | 'despago'; bills: string[] }
   | { k: 'pagoSyntax' }
+  | { k: 'oneOffSyntax' }
   | { k: 'futureMonth' }
   | { k: 'unknownCmd'; typed: string; suggestion: string | null }
   | { k: 'unknownSub'; typed: string; suggestion: string | null }

@@ -317,3 +317,93 @@ test('a tick in an earlier month than lastReset does nothing', () => {
   assert.deepEqual(r.effects, [])
   assert.equal(r.state.lastReset, '2026-11')
 })
+
+test('/pago avulsa pays a one-off: on that month list, never a permanent bill', () => {
+  const r = decide(state('Luz'), msg('/pago avulsa Farmácia R$ 45,90'), ctx)
+  const bill = r.state.bills.find(b => b.name === 'Farmácia')
+  assert.equal(bill?.removed, true)
+  assert.equal(r.state.months['2026-10']?.[bill?.id ?? 0]?.amount, 4590)
+  assert.deepEqual(kinds(r.effects), ['react', 'postList'])
+  const posted = r.effects.find(e => e.kind === 'postList')
+  assert.ok(posted?.kind === 'postList' && posted.msg.items.some(i => i.name === 'Farmácia' && i.paid))
+  const conta = decide(r.state, msg('/conta'), ctx).effects.find(e => e.kind === 'reply')
+  assert.deepEqual(conta?.kind === 'reply' && conta.msg, { k: 'bills', bills: [{ name: 'Luz', paused: false }] })
+  const nov = decide(r.state, { kind: 'tick', at: Date.UTC(2026, 10, 1, 12) }, ctx)
+  const next = nov.effects.find(e => e.kind === 'postList')
+  assert.deepEqual(next?.kind === 'postList' && next.msg.items.map(i => i.name), ['Luz'])
+})
+
+test('/pago avulsa takes the amount at either end, a past month, and reuses the one-off by name', () => {
+  let s = state('Luz')
+  s = decide(s, msg('/pago extra 30 uber'), ctx).state
+  s = decide(s, msg('/pago avulso Uber 25 09/2026'), ctx).state
+  const ids = s.bills.filter(b => b.key === 'uber').map(b => b.id)
+  assert.equal(ids.length, 1)
+  assert.equal(s.months['2026-10']?.[ids[0] ?? 0]?.amount, 3000)
+  assert.equal(s.months['2026-09']?.[ids[0] ?? 0]?.amount, 2500)
+  const again = decide(s, msg('/pago avulsa uber 40'), ctx)
+  assert.equal(again.state.months['2026-10']?.[ids[0] ?? 0]?.amount, 4000)
+  assert.deepEqual(replies(again.effects), ['updated'])
+})
+
+test('/pago avulsa refuses a misparsed name and creates nothing', () => {
+  const s = state('Luz', 'Cartão Nu', 'Cartão Itaú')
+  const cases: [string, string][] = [
+    ['/pago avulsa farmácia', 'oneOffSyntax'],
+    ['/pago avulsa 50', 'oneOffSyntax'],
+    ['/pago avulsa farmácia 2 50', 'oneOffSyntax'],
+    ['/pago avulsa farmácia R$ 50 R$ 10', 'oneOffSyntax'],
+    ['/pago avulsa farmácia R$', 'oneOffSyntax'],
+    ['/pago avulsa farmácia 50 09/2026 08/2026', 'oneOffSyntax'],
+    [`/pago avulsa ${'x'.repeat(41)} 50`, 'nameInvalid'],
+    ['/pago avulsa luz 50', 'suggest'],
+    ['/pago avulsa lux 50', 'suggest'],
+    ['/pago avulsa cartão 50', 'onePerCommand'],
+    ['/pago avulsa farmácia 50 12/2026', 'futureMonth'],
+  ]
+  for (const [text, k] of cases) {
+    const r = decide(s, msg(text), ctx)
+    assert.deepEqual(replies(r.effects), [k], text)
+    assert.deepEqual(r.state.bills, s.bills, text)
+    assert.deepEqual(r.state.months, {}, text)
+    assert.equal(r.state.handled.at(-1)?.changed, false, text)
+  }
+  const reply = decide(s, msg('/pago avulsa lux 50'), ctx).effects.find(e => e.kind === 'reply')
+  assert.deepEqual(reply?.kind === 'reply' && reply.msg, {
+    k: 'suggest',
+    cmd: 'pago',
+    bill: 'Luz',
+    amount: 5000,
+    month: null,
+  })
+})
+
+test('a bill whose name holds the one-off word is still paid as itself', () => {
+  const r = decide(state('Hora Extra'), msg('/pago hora extra 80'), ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.amount, 8000)
+  assert.equal(r.state.bills.length, 1)
+})
+
+test('/pago avulsa with a receipt and no typed amount reads it', () => {
+  const r = decide(state('Luz'), msg('/pago avulsa farmácia', { media: { mime: 'image/png', handle: 'h' } }), ctx)
+  const bill = r.state.bills.find(b => b.key === 'farmacia')
+  assert.equal(r.state.months['2026-10']?.[bill?.id ?? 0]?.status, 'pending')
+  assert.deepEqual(kinds(r.effects), ['react', 'readAmount'])
+})
+
+test('/despago undoes a one-off, which then leaves the list', () => {
+  const paid = decide(state('Luz'), msg('/pago avulsa farmácia 50'), ctx).state
+  const r = decide(paid, msg('/despago farmacia'), ctx)
+  assert.deepEqual(r.state.months['2026-10'], {})
+  const posted = r.effects.find(e => e.kind === 'postList')
+  assert.deepEqual(posted?.kind === 'postList' && posted.msg.items.map(i => i.name), ['Luz'])
+  assert.equal(r.state.handled.at(-1)?.changed, true)
+})
+
+test('a one-off later added with /conta becomes permanent and keeps its payment', () => {
+  const paid = decide(state('Luz'), msg('/pago avulsa farmácia 50'), ctx).state
+  const r = decide(paid, msg('/conta adiciona Farmácia'), ctx).state
+  const bill = r.bills.find(b => b.key === 'farmacia')
+  assert.equal(bill?.removed, false)
+  assert.equal(r.months['2026-10']?.[bill?.id ?? 0]?.amount, 5000)
+})

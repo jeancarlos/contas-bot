@@ -161,13 +161,15 @@ function textOf(c: Content): string {
 }
 
 function mediaOf(c: Content, id: string, msg: WAMessage, msgs: Messages): MediaRef | undefined {
-  const ref = (mime: string, size: Num): MediaRef => {
-    msgs.set(id, msg)
+  const ref = (mime: string, size: Num, message: Content): MediaRef => {
+    msgs.set(id, { key: msg.key, message })
     const handle: Handle = { id, size: toNumber(size) }
     return { mime, handle }
   }
-  if (c.imageMessage) return ref(c.imageMessage.mimetype || 'image/jpeg', c.imageMessage.fileLength)
-  if (c.documentMessage?.mimetype === 'application/pdf') return ref('application/pdf', c.documentMessage.fileLength)
+  const { imageMessage, documentMessage } = c
+  if (imageMessage) return ref(imageMessage.mimetype || 'image/jpeg', imageMessage.fileLength, { imageMessage })
+  if (documentMessage?.mimetype === 'application/pdf')
+    return ref('application/pdf', documentMessage.fileLength, { documentMessage })
   return undefined
 }
 
@@ -230,16 +232,26 @@ function remember(recent: Recent, msgs: Messages, m: MessageInput) {
   newest(msgs)
 }
 
+function trustedUrl(raw: string): URL | null {
+  try {
+    const u = new URL(raw)
+    const ok = u.protocol === 'https:' && !u.username && !u.password
+    return ok && (u.hostname === 'whatsapp.net' || u.hostname.endsWith('.whatsapp.net')) ? u : null
+  } catch {
+    return null
+  }
+}
+
 function trustedHost(msg: WAMessage): boolean {
   const c = normalizeMessageContent(msg.message)
-  const url = (c?.imageMessage ?? c?.documentMessage)?.url
-  if (!url) return true
-  try {
-    const host = new URL(url).hostname
-    return host === 'whatsapp.net' || host.endsWith('.whatsapp.net')
-  } catch {
-    return false
-  }
+  const media = c?.imageMessage ?? c?.documentMessage
+  const { url, directPath } = media ?? {}
+  if (!url && !directPath) return false
+  const given = url ? trustedUrl(url) : null
+  if (url && !given) return false
+  if (!directPath) return true
+  if (!directPath.startsWith('/') || directPath.includes('@')) return false
+  return trustedUrl(`https://${given?.host ?? 'mmg.whatsapp.net'}${directPath}`) !== null
 }
 
 export async function download(

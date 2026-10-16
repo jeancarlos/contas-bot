@@ -596,7 +596,12 @@ test('an unpaired bot without BOT_PHONE never asks for a pairing code', () => {
 
 test('a handle survives structuredClone and still downloads; an evicted message cannot be downloaded', async () => {
   const msgs: Messages = new Map()
-  const m = must(toMessage(wam('c1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }), msgs))
+  const m = must(
+    toMessage(
+      wam('c1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 10, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
   const dl = (async (msg: WAMessage) =>
     Readable.from([Buffer.from(msg.key.id ?? '')])) as unknown as typeof downloadMediaMessage
   const copy = structuredClone(must(m.media))
@@ -625,7 +630,12 @@ test('quoted receipts get their own synthetic id and the message map keeps only 
 
 test('the 16 MB cap holds on the bytes read, whatever size the sender declared', async () => {
   const msgs: Messages = new Map()
-  const m = must(toMessage(wam('s1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 0 } }), msgs))
+  const m = must(
+    toMessage(
+      wam('s1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 0, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
   let reads = 0
   const stream = Readable.from(
     (function* () {
@@ -643,7 +653,12 @@ test('the 16 MB cap holds on the bytes read, whatever size the sender declared',
 
 test('a small stream is concatenated into one buffer', async () => {
   const msgs: Messages = new Map()
-  const m = must(toMessage(wam('s2', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4 } }), msgs))
+  const m = must(
+    toMessage(
+      wam('s2', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
   const dl = (async () =>
     Readable.from([Buffer.from('ab'), Buffer.from('cd')])) as unknown as typeof downloadMediaMessage
   assert.equal((await download(must(m.media), msgs, ctx, dl)).toString(), 'abcd')
@@ -656,7 +671,8 @@ test('media from a host outside whatsapp.net is refused before any download', as
     ['not a url', false],
     ['https://mmg.whatsapp.net/x', true],
     ['https://media-gru1-1.cdn.whatsapp.net/x', true],
-    [undefined, true],
+    [undefined, false],
+    ['https://user:pw@mmg.whatsapp.net/x', false],
   ] as const) {
     const msgs: Messages = new Map()
     const m = must(toMessage(wam('h1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url } }), msgs))
@@ -669,5 +685,60 @@ test('media from a host outside whatsapp.net is refused before any download', as
     if (ok) assert.equal((await run).toString(), 'ok')
     else await assert.rejects(run, /host refused/)
     assert.equal(called, ok)
+  }
+})
+
+test('only the checked media object reaches the downloader, own or quoted', async () => {
+  const evil = 'https://evil.example/x'
+  const trusted = { mimetype: 'image/jpeg', fileLength: 4, url: 'https://mmg.whatsapp.net/x' }
+  const mixes: proto.IMessage[] = [
+    { imageMessage: trusted, videoMessage: { url: evil }, audioMessage: { url: evil } },
+    {
+      imageMessage: trusted,
+      documentMessage: { mimetype: 'application/pdf', url: evil },
+      stickerMessage: { url: evil },
+    },
+  ]
+  for (const mix of mixes) {
+    for (const quoted of [false, true]) {
+      const msgs: Messages = new Map()
+      const m = must(
+        toMessage(
+          wam(
+            'x1',
+            quoted ? { extendedTextMessage: { text: 'oi', contextInfo: { stanzaId: 'r1', quotedMessage: mix } } } : mix,
+          ),
+          msgs,
+        ),
+      )
+      const seen: string[][] = []
+      const dl = (async (msg: WAMessage) => {
+        seen.push(Object.keys(msg.message ?? {}))
+        return Readable.from([Buffer.from('ok')])
+      }) as unknown as typeof downloadMediaMessage
+      await download(must(quoted ? m.quoted : m.media), msgs, ctx, dl)
+      assert.deepEqual(seen, [['imageMessage']])
+    }
+  }
+})
+
+test('the URL that will actually be fetched is checked, directPath included', async () => {
+  const cases: [string | undefined, string | undefined, boolean][] = [
+    [undefined, '@evil.example/x', false],
+    ['https://mmg.whatsapp.net/x', '@evil.example/x', false],
+    ['https://mmg.whatsapp.net/x', '/v/t62.7118-24/abc', true],
+    [undefined, '/v/t62.7118-24/abc', true],
+    [undefined, 'v/abc', false],
+    ['https://evil.example/x', '/v/abc', false],
+  ]
+  for (const [url, directPath, ok] of cases) {
+    const msgs: Messages = new Map()
+    const m = must(
+      toMessage(wam('p1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url, directPath } }), msgs),
+    )
+    const dl = (async () => Readable.from([Buffer.from('ok')])) as unknown as typeof downloadMediaMessage
+    const run = download(must(m.media), msgs, ctx, dl)
+    if (ok) assert.equal((await run).toString(), 'ok')
+    else await assert.rejects(run, /host refused/)
   }
 })

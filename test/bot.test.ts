@@ -68,6 +68,9 @@ function fakeLlm(amount: number | null) {
       calls.push(`receipt:${mime}`)
       return amount
     },
+    async pickBill() {
+      return { index: null, amount: null }
+    },
   }
   return { llm, calls }
 }
@@ -1156,6 +1159,9 @@ const NO_AI: Llm = {
   enabled: false,
   async readAmount() {
     throw new Error('must not read without AI')
+  },
+  async pickBill() {
+    return { index: null, amount: null }
   },
 }
 const untouchable = {

@@ -40,6 +40,9 @@ const fakeLlm: Llm = {
   async readAmount() {
     return null
   },
+  async pickBill() {
+    return { index: null, amount: null }
+  },
 }
 
 const msg = (id: string, text: string): Incoming => ({

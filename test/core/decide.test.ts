@@ -762,3 +762,26 @@ test('a picked receipt cannot be edited into a second payment, and an edit befor
   assert.deepEqual(late.effects, [])
   assert.equal(late.state.months['2026-10']?.[3], undefined)
 })
+
+const paidList = (s: GroupState) =>
+  Object.entries(s.months).flatMap(([m, ps]) =>
+    Object.keys(ps).map(id => `${m}:${s.bills.find(b => b.id === Number(id))?.name}`),
+  )
+const run = (s: GroupState, ...inputs: Input[]) => inputs.reduce((st, i) => decide(st, i, ctx).state, s)
+const receipt = { media: { mime: 'image/png', handle: 'h' } }
+
+test('a receipt captioned with only a month asks which bill and pays that month', () => {
+  const s = run(state('Luz', 'Água'), msg('/pago setembro', receipt), msg('luz'))
+  assert.deepEqual(paidList(s), ['2026-09:Luz'])
+})
+
+test('an answer after midnight pays the month the question was asked in', () => {
+  const lastMinute = Date.UTC(2026, 10, 1, 2, 58)
+  const later = lastMinute + 3 * 60_000
+  const confirm = run(state('Luz'), msg('/pago lux 80', { at: lastMinute }), msg('sim', { at: later }))
+  assert.deepEqual(paidList(confirm), ['2026-10:Luz'])
+  const which = run(state('Luz', 'Água'), msg('/pago', { ...receipt, at: lastMinute }), msg('luz', { at: later }))
+  assert.deepEqual(paidList(which), ['2026-10:Luz'])
+  const oneOff = run(state('Luz'), msg('/pago pizza 50', { at: lastMinute }), msg('sim', { at: later }))
+  assert.deepEqual(paidList(oneOff), ['2026-10:pizza'])
+})

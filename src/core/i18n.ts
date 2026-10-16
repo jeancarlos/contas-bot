@@ -55,7 +55,7 @@ function renderList(m: ListMsg, loc: Locale): string {
   return lines.join('\n')
 }
 
-function suggestion(m: Extract<Msg, { k: 'suggest' }>, loc: Locale): string {
+function suggestion(m: Extract<Msg, { k: 'suggest' | 'askConfirm' }>, loc: Locale): string {
   const [y, mm] = (m.month ?? '').split('-')
   const parts = [`/${WORDS[loc.lang].cmd[m.cmd]}`, m.bill.toLowerCase()]
   if (m.amount !== null) parts.push(plainAmount(m.amount, loc))
@@ -96,6 +96,7 @@ const ptBR: Catalog = {
       '',
       '/pago <conta> [valor] [mês/ano] — marca como paga',
       '   ex: /pago luz · /pago cartão nu 6.237,60 · /pago luz 80 09/2026',
+      '/pago avulsa <nome> <valor> — gasto extra, só na lista do mês',
       '/despago <conta> [mês/ano] — desmarca',
       '/lista — reposta e fixa a lista do mês',
       '/conta — gerencia as contas',
@@ -110,6 +111,7 @@ const ptBR: Catalog = {
   onePerCommand: m =>
     `um /${WORDS['pt-BR'].cmd[m.cmd]} por conta: ${m.bills.map(b => `/${WORDS['pt-BR'].cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'um valor e um mês por comando: /pago <conta> [valor] [mês/ano]',
+  oneOffSyntax: () => 'gasto avulso: /pago avulsa <nome> <valor> [mês/ano], sem números no nome',
   futureMonth: () => 'esse mês ainda não chegou',
   unknownCmd: m =>
     m.suggestion
@@ -118,6 +120,10 @@ const ptBR: Catalog = {
   unknownSub: m =>
     m.suggestion ? `não conheço "${m.typed}", você quis dizer /conta ${m.suggestion}?` : CONTA_HELP['pt-BR'],
   updated: () => 'atualizado',
+  askAmount: m => `não consegui ler o valor de ${m.bill}. Qual foi? Responda só o valor, ex: 80,00`,
+  askConfirm: (m, loc) => `você quis dizer \`${suggestion(m, loc)}\`? Responda *sim* pra confirmar.`,
+  askBill: m => `qual conta? Responda o nome: ${m.names.join(', ')}`,
+  askOneOff: m => `não achei "${m.name}". Responda *sim* pra lançar como avulsa, ou o nome da conta.`,
   noAmount: () => 'não li o valor do comprovante, marquei sem valor',
   editIgnored: () => 'edição não altera pagamento: use /despago',
   nameTaken: m => `já existe uma conta "${m.name}"`,
@@ -133,6 +139,7 @@ const en: Catalog = {
       '',
       '/paid <bill> [amount] [month/year] — mark as paid',
       '   e.g. /paid power · /paid credit card 6,237.60 · /paid power 80 09/2026',
+      '/paid extra <name> <amount> — one-off expense, only on that month list',
       '/unpaid <bill> [month/year] — unmark',
       "/list — repost and pin this month's list",
       '/bill — manage the bills',
@@ -147,6 +154,7 @@ const en: Catalog = {
   onePerCommand: m =>
     `one /${WORDS.en.cmd[m.cmd]} per bill: ${m.bills.map(b => `/${WORDS.en.cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'one amount and one month per command: /paid <bill> [amount] [month/year]',
+  oneOffSyntax: () => 'one-off expense: /paid extra <name> <amount> [month/year], no numbers in the name',
   futureMonth: () => "that month hasn't come yet",
   unknownCmd: m =>
     m.suggestion
@@ -154,6 +162,10 @@ const en: Catalog = {
       : "I don't know that command. /help lists them all.",
   unknownSub: m => (m.suggestion ? `I don't know "${m.typed}", did you mean /bill ${m.suggestion}?` : CONTA_HELP.en),
   updated: () => 'updated',
+  askAmount: m => `couldn't read the amount for ${m.bill}. How much was it? Reply with just the amount, e.g. 80.00`,
+  askConfirm: (m, loc) => `did you mean \`${suggestion(m, loc)}\`? Reply *yes* to confirm.`,
+  askBill: m => `which bill? Reply with its name: ${m.names.join(', ')}`,
+  askOneOff: m => `couldn't find "${m.name}". Reply *yes* to record it as a one-off, or with the bill name.`,
   noAmount: () => "couldn't read the amount on the receipt, marked without one",
   editIgnored: () => "an edit doesn't change a payment: use /unpaid",
   nameTaken: m => `there is already a bill "${m.name}"`,
@@ -169,6 +181,7 @@ const es: Catalog = {
       '',
       '/pagado <cuenta> [monto] [mes/año] — marca como pagada',
       '   ej: /pagado luz · /pagado tarjeta 6.237,60 · /pagado luz 80 09/2026',
+      '/pagado extra <nombre> <monto> — gasto suelto, solo en la lista del mes',
       '/despagado <cuenta> [mes/año] — desmarca',
       '/lista — vuelve a publicar y fijar la lista del mes',
       '/cuenta — gestiona las cuentas',
@@ -183,6 +196,7 @@ const es: Catalog = {
   onePerCommand: m =>
     `un /${WORDS.es.cmd[m.cmd]} por cuenta: ${m.bills.map(b => `/${WORDS.es.cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'un monto y un mes por comando: /pagado <cuenta> [monto] [mes/año]',
+  oneOffSyntax: () => 'gasto suelto: /pagado extra <nombre> <monto> [mes/año], sin números en el nombre',
   futureMonth: () => 'ese mes todavía no llegó',
   unknownCmd: m =>
     m.suggestion
@@ -190,6 +204,11 @@ const es: Catalog = {
       : 'no conozco ese comando. /ayuda los muestra todos.',
   unknownSub: m => (m.suggestion ? `no conozco "${m.typed}", ¿quisiste decir /cuenta ${m.suggestion}?` : CONTA_HELP.es),
   updated: () => 'actualizado',
+  askAmount: m => `no pude leer el monto de ${m.bill}. ¿Cuánto fue? Responde solo el monto, ej: 80,00`,
+  askConfirm: (m, loc) => `¿quisiste decir \`${suggestion(m, loc)}\`? Responde *sí* para confirmar.`,
+  askBill: m => `¿qué cuenta? Responde el nombre: ${m.names.join(', ')}`,
+  askOneOff: m =>
+    `no encontré "${m.name}". Responde *sí* para registrarlo como gasto suelto, o el nombre de la cuenta.`,
   noAmount: () => 'no leí el monto del comprobante, la marqué sin monto',
   editIgnored: () => 'una edición no cambia el pago: usa /despagado',
   nameTaken: m => `ya existe una cuenta "${m.name}"`,

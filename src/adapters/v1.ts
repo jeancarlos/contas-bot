@@ -69,6 +69,7 @@ function group(jid: string, g: Obj): ImportedGroup {
       handled: handled.map(id => ({ id, changed: true, warned: false })),
       pinnedId: isObj(meta.pinned) ? str(meta.pinned.id) : null,
       lastReset: str(meta.last_reset),
+      asks: [],
     },
     meta: { invite: str(meta.invite), announcedVersion: str(meta.announced_version), descriptionMigrated: false },
   }

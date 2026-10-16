@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http'
+import { isIP } from 'node:net'
 import { listMsg } from '../core/decide.ts'
 import { formatMoney, WORDS } from '../core/i18n.ts'
 import { monthTitle } from '../core/month.ts'
@@ -13,6 +14,7 @@ export type HttpDeps = {
   served(): string[]
   connected(): boolean
   log: { warn(o: object, m?: string): void }
+  hosts?: string[]
 }
 type Reply = { status: number; type: string; body: string }
 
@@ -179,7 +181,21 @@ export function handle(d: HttpDeps, url: URL): Reply {
   }
 }
 
-function route(d: HttpDeps, method: string | undefined, raw: string | undefined): Reply {
+const hostName = (h: string) =>
+  h
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, '')
+    .replace(/^\[(.*)\]$/, '$1')
+
+function hostOk(d: HttpDeps, host: string | undefined): boolean {
+  const name = hostName(host ?? '')
+  if (name === '') return false
+  return !name.includes('.') || isIP(name) !== 0 || (d.hosts ?? []).some(h => hostName(h) === name)
+}
+
+function route(d: HttpDeps, method: string | undefined, raw: string | undefined, host: string | undefined): Reply {
+  if (!hostOk(d, host)) return text(421, 'text/plain; charset=utf-8', 'misdirected request\n')
   if (method !== 'GET') return text(405, 'text/plain; charset=utf-8', 'method not allowed\n')
   let url: URL
   try {
@@ -197,7 +213,7 @@ function route(d: HttpDeps, method: string | undefined, raw: string | undefined)
 
 export function startHttp(d: HttpDeps, port: number): Promise<Server> {
   const server = createServer((req, res) => {
-    const r = route(d, req.method, req.url)
+    const r = route(d, req.method, req.url, req.headers.host)
     res.writeHead(r.status, { ...HEADERS, 'content-type': r.type })
     res.end(r.body)
   })

@@ -117,10 +117,11 @@ test('a request never writes the store', () => {
   for (const p of ['/', '/metrics', '/export.csv', '/export.json']) assert.equal(get(d, p).status, 200)
 })
 
-function rawGet(server: Server, target: string): Promise<string> {
+function rawGet(server: Server, target: string, host: string | null = 'x'): Promise<string> {
   return new Promise((resolve, reject) => {
+    const header = host === null ? '' : `host: ${host}\r\n`
     const sock = connect((server.address() as AddressInfo).port, '127.0.0.1', () =>
-      sock.write(`GET ${target} HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n`),
+      sock.write(`GET ${target} HTTP/1.1\r\n${header}connection: close\r\n\r\n`),
     )
     let out = ''
     sock.on('data', c => {
@@ -262,4 +263,28 @@ test('httpPort: unset, empty and 0 are off silently; invalid is off with one war
   assert.equal(httpPort('8080', log), 8080)
   for (const bad of ['abc', '-1', '65536', '80.5', '1e3']) assert.equal(httpPort(bad, log), 0)
   assert.equal(warns.length, 5)
+})
+
+test('only an IP, a dotless name or a listed host gets an answer, so DNS rebinding reads nothing', async () => {
+  const server = await startHttp(deps({ hosts: ['contas.casa.lan', ' Painel.Example:8443 '] }), 0)
+  try {
+    const status = async (host: string | null) => (await rawGet(server, '/export.csv', host)).slice(9, 12)
+    for (const host of [
+      '127.0.0.1',
+      '127.0.0.1:8080',
+      '192.168.1.20:8080',
+      '[::1]:8080',
+      'localhost',
+      'contas-bot:8080',
+      'contas.casa.lan',
+      'CONTAS.casa.lan:8080',
+      'painel.example',
+    ])
+      assert.equal(await status(host), '200', host)
+    for (const host of ['rebind.attacker.example:8080', 'casa.lan', 'contas.casa.lan.evil.example', 'localhost.'])
+      assert.equal(await status(host), '421', host)
+    assert.equal(await status(null), '400')
+  } finally {
+    server.close()
+  }
 })

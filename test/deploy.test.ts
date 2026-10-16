@@ -27,3 +27,8 @@ test('the example config and the defaults point at no private endpoint or model'
   assert.doesNotMatch(example, /192\.168\.|cx\//)
   assert.doesNotMatch(read('src/shell/index.ts'), /192\.168\.|cx\//)
 })
+
+test('the example config documents the dashboard host allowlist', () => {
+  assert.match(read('.env.example'), /^# .*\n^HTTP_HOSTS=$/m)
+  assert.match(read('src/shell/index.ts'), /env\('HTTP_HOSTS'\)/)
+})

@@ -21,6 +21,7 @@ const label = (v: string) => v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').repla
 const html = (v: string) =>
   v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 const csvCell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
+const safe = (v: string) => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v)
 const monthIndex = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5))
 
 function groups(d: HttpDeps) {
@@ -66,7 +67,7 @@ function renderDashboard(d: HttpDeps): string {
         .filter(i => !i.paused && i.paid)
         .map(i => li('p', '✅', i.amount === null ? i.name : `${i.name} — ${formatMoney(i.amount, loc)}`)),
       ...items.filter(i => !i.paused && !i.paid).map(i => li('u', '⬜', i.name)),
-      ...items.filter(i => i.paused).map(i => li('z', '⏸️', i.name)),
+      ...items.filter(i => i.paused).map(i => li('z', '\u23F8\uFE0F', i.name)),
     ].join('')
     const rows = monthTotals(g.state, lastMonths(current, 12))
       .reverse()
@@ -116,10 +117,10 @@ export function handle(d: HttpDeps, url: URL): Reply {
         [
           x.group,
           x.month,
-          x.bill,
+          safe(x.bill),
           x.amount === null ? '' : String(x.amount),
           x.status,
-          x.by,
+          safe(x.by),
           new Date(x.paidAt).toISOString(),
         ]
           .map(csvCell)
@@ -132,22 +133,36 @@ export function handle(d: HttpDeps, url: URL): Reply {
   }
 }
 
+const HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
+
+function route(d: HttpDeps, method: string | undefined, raw: string | undefined): Reply {
+  if (method !== 'GET') return text(405, 'text/plain; charset=utf-8', 'method not allowed\n')
+  let url: URL
+  try {
+    url = new URL(raw ?? '/', 'http://localhost')
+  } catch {
+    return text(400, 'text/plain; charset=utf-8', 'bad url\n')
+  }
+  try {
+    return handle(d, url)
+  } catch (err) {
+    d.log.warn({ err, url: raw }, 'http handler failed')
+    return text(500, 'text/plain; charset=utf-8', 'internal error\n')
+  }
+}
+
 export function startHttp(d: HttpDeps, port: number): Promise<Server> {
   const server = createServer((req, res) => {
-    let r: Reply
-    if (req.method !== 'GET') r = text(405, 'text/plain; charset=utf-8', 'method not allowed\n')
-    else
-      try {
-        r = handle(d, new URL(req.url ?? '/', 'http://localhost'))
-      } catch (err) {
-        d.log.warn({ err, url: req.url }, 'http handler failed')
-        r = text(500, 'text/plain; charset=utf-8', 'internal error\n')
-      }
-    res.writeHead(r.status, { 'content-type': r.type })
+    const r = route(d, req.method, req.url)
+    res.writeHead(r.status, { ...HEADERS, 'content-type': r.type })
     res.end(r.body)
   })
   return new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(port, '0.0.0.0', () => resolve(server))
+    server.listen(port, '0.0.0.0', () => {
+      server.off('error', reject)
+      server.on('error', err => d.log.warn({ err }, 'http server error'))
+      resolve(server)
+    })
   })
 }

@@ -953,3 +953,9 @@ test('an amount with more than two decimals is refused, never rounded into a pay
     )
   }
 })
+
+test('a lookalike bill name with a zero-width space is refused as taken', () => {
+  const r = decide(state('Luz'), msg(`/conta adiciona Lu${String.fromCodePoint(0x200b)}z`), ctx)
+  assert.deepEqual(replies(r.effects), ['nameTaken'])
+  assert.equal(r.state.bills.length, 1)
+})

@@ -785,3 +785,14 @@ test('an answer after midnight pays the month the question was asked in', () => 
   const oneOff = run(state('Luz'), msg('/pago pizza 50', { at: lastMinute }), msg('sim', { at: later }))
   assert.deepEqual(paidList(oneOff), ['2026-10:pizza'])
 })
+
+test('a no closes the question and pays nothing, even when it prefixes a bill name', () => {
+  for (const no of ['n', 'no', 'não', 'nao', 'NOPE']) {
+    const oneOff = run(state('Luz', 'Netflix'), msg('/pago pizza 50'), msg(no))
+    assert.deepEqual(paidList(oneOff), [], no)
+    assert.deepEqual(oneOff.asks, [], no)
+    const which = run(state('Cartão Nu', 'Cartão C6', 'Notebook'), msg('/pago cartao 80'), msg(no))
+    assert.deepEqual(paidList(which), [], no)
+    assert.deepEqual(which.asks, [], no)
+  }
+})

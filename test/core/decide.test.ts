@@ -1003,3 +1003,26 @@ test('a re-sent receipt whose read fails keeps the amount already recorded and a
     assert.deepEqual([read?.amount, read?.status], [9000, 'read'])
   }
 })
+
+test('typo suggestions and the bare slash answer in the group language', () => {
+  const langs = {
+    'pt-BR': ctx,
+    en: { ...ctx, locale: { ...ctx.locale, lang: 'en', decimal: '.' } },
+    es: { ...ctx, locale: { ...ctx.locale, lang: 'es' } },
+  } as const satisfies Record<string, Ctx>
+  const said = (c: Ctx, text: string) =>
+    decide(state('Luz'), msg(text), c).effects.flatMap(e => (e.kind === 'reply' ? [render(e.msg, c.locale)] : []))
+  const cases: [Ctx, string, string][] = [
+    [langs['pt-BR'], '/pgao luz', '/pago?'],
+    [langs['pt-BR'], '/hlep', '/ajuda?'],
+    [langs.en, '/hlep', '/help?'],
+    [langs.en, '/pgao luz', '/paid?'],
+    [langs.es, '/ajdua', '/ayuda?'],
+    [langs['pt-BR'], '/conta pasua luz', '/conta pausa?'],
+    [langs.en, '/conta pasua luz', '/bill pause?'],
+    [langs.es, '/conta renmoear a = b', '/cuenta renombra?'],
+  ]
+  for (const [c, text, want] of cases) assert.ok(said(c, text)[0]?.includes(want), `${text}: ${said(c, text)}`)
+  assert.deepEqual(said(ctx, '/'), [render({ k: 'unknownCmd', typed: 'xyz', suggestion: null }, ctx.locale)])
+  assert.deepEqual(said(ctx, '/xyz luz'), said(ctx, '/'))
+})

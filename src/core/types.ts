@@ -1,3 +1,5 @@
+import type { CommandName, SubName } from './commands.ts'
+
 export type Lang = 'pt-BR' | 'en' | 'es'
 export type Locale = { lang: Lang; currency: string; decimal: ',' | '.'; timeZone: string }
 
@@ -86,8 +88,8 @@ export type Msg =
   | { k: 'pagoSyntax' }
   | { k: 'oneOffSyntax' }
   | { k: 'futureMonth' }
-  | { k: 'unknownCmd'; typed: string; suggestion: string | null }
-  | { k: 'unknownSub'; typed: string; suggestion: string | null }
+  | { k: 'unknownCmd'; typed: string; suggestion: CommandName | null }
+  | { k: 'unknownSub'; typed: string; suggestion: SubName | null }
   | { k: 'updated' }
   | { k: 'askAmount'; bill: string }
   | { k: 'askConfirm'; cmd: 'pago' | 'despago'; bill: string; amount: number | null; month: string | null }

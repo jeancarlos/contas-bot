@@ -17,6 +17,7 @@ export type Ask = { who: string; at: number } & (
     }
   | { q: 'bill'; choices: number[]; amount: number | null; month: string | null; media?: MediaRef }
   | { q: 'oneOff'; name: string; key: string; amount: number | null; month: string | null; media?: MediaRef }
+  | { q: 'pick'; messageId: string; touched: number[] }
 )
 export type GroupState = {
   bills: Bill[]

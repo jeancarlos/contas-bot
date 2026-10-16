@@ -643,3 +643,79 @@ test('a typed thumbs up confirms', () => {
   assert.equal(decide(asked, msg('👍🏽'), ctx).state.months['2026-10']?.[1]?.amount, 8000)
   assert.equal(decide(asked, msg('👍'), ctx).state.months['2026-10']?.[1]?.amount, 8000)
 })
+
+function picking(s: GroupState) {
+  const receipt = msg('/pago cartão', { media: { mime: 'image/png', handle: 'h' } })
+  const asked = decide(s, receipt, ctx)
+  const fx = asked.effects.find(e => e.kind === 'pickBill')
+  if (fx?.kind !== 'pickBill') throw new Error('no pickBill')
+  const { kind: _, ...pick } = fx
+  const picked = (st: GroupState, billId: number, amount: number | null) =>
+    decide(st, { kind: 'billPicked', pick, billId, amount }, ctx)
+  return { state: asked.state, receipt, picked }
+}
+
+const cards = () => state('Luz', 'Cartão Nu', 'Cartão Itaú')
+
+test('a late pick is dropped once its sender sent a newer command, even one for another bill', () => {
+  const p = picking(cards())
+  const typed = decide(p.state, msg('/pago cartão nu 120'), ctx).state
+  const r = p.picked(typed, 3, 9900)
+  assert.deepEqual(r.effects, [])
+  assert.equal(r.state.months['2026-10']?.[3], undefined)
+  assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
+  const listed = p.picked(decide(p.state, msg('/lista'), ctx).state, 3, 9900)
+  assert.deepEqual(listed.state.months, {})
+})
+
+test('a late pick never overwrites a payment of the chosen bill typed after the receipt', () => {
+  for (const by of [msg, other]) {
+    const p = picking(cards())
+    const typed = decide(p.state, by('/pago cartão nu 120'), ctx).state
+    const r = p.picked(typed, 2, 9900)
+    assert.deepEqual(r.effects, [])
+    assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
+    assert.equal(r.state.months['2026-10']?.[2]?.status, 'typed')
+  }
+})
+
+test('a late pick never undoes a /despago of the chosen bill sent after the receipt', () => {
+  for (const by of [msg, other]) {
+    const s = cards()
+    s.months['2026-10'] = { 2: { amount: 5000, status: 'typed', by: 'Gabi', paidAt: OCT - 1000, messageId: 'old' } }
+    const p = picking(s)
+    const undone = decide(p.state, by('/despago cartão nu'), ctx).state
+    const r = p.picked(undone, 2, 9900)
+    assert.deepEqual(r.effects, [])
+    assert.equal(r.state.months['2026-10']?.[2], undefined)
+  }
+})
+
+test('chat in between keeps the pick, another member paying a different bill too', () => {
+  const p = picking(cards())
+  const chat = decide(p.state, msg('mandei o comprovante'), ctx).state
+  const busy = decide(chat, other('/pago luz 80'), ctx).state
+  const r = p.picked(busy, 3, 9900)
+  assert.equal(r.state.months['2026-10']?.[3]?.amount, 9900)
+  assert.equal(r.state.months['2026-10']?.[3]?.status, 'read')
+  assert.deepEqual(r.state.asks, [])
+})
+
+test('a picked receipt cannot be edited into a second payment, and an edit before the pick cancels it', () => {
+  const p = picking(cards())
+  const edit = (text: string): Input => ({
+    kind: 'edit',
+    key: p.receipt.kind === 'message' ? p.receipt.key : key(),
+    sender: 'Gabi',
+    text,
+    at: OCT,
+  })
+  const paid = p.picked(p.state, 3, 9900).state
+  const again = decide(paid, edit('/pago cartão nu'), ctx)
+  assert.deepEqual(replies(again.effects), ['editIgnored'])
+  assert.equal(again.state.months['2026-10']?.[2], undefined)
+  const edited = decide(p.state, edit('/pago cartão nu 120'), ctx).state
+  const late = p.picked(edited, 3, 9900)
+  assert.deepEqual(late.effects, [])
+  assert.equal(late.state.months['2026-10']?.[3], undefined)
+})

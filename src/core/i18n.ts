@@ -96,6 +96,7 @@ const ptBR: Catalog = {
       '',
       '/pago <conta> [valor] [mês/ano] — marca como paga',
       '   ex: /pago luz · /pago cartão nu 6.237,60 · /pago luz 80 09/2026',
+      '/pago avulsa <nome> <valor> — gasto extra, só na lista do mês',
       '/despago <conta> [mês/ano] — desmarca',
       '/lista — reposta e fixa a lista do mês',
       '/conta — gerencia as contas',
@@ -110,6 +111,7 @@ const ptBR: Catalog = {
   onePerCommand: m =>
     `um /${WORDS['pt-BR'].cmd[m.cmd]} por conta: ${m.bills.map(b => `/${WORDS['pt-BR'].cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'um valor e um mês por comando: /pago <conta> [valor] [mês/ano]',
+  oneOffSyntax: () => 'gasto avulso: /pago avulsa <nome> <valor> [mês/ano], sem números no nome',
   futureMonth: () => 'esse mês ainda não chegou',
   unknownCmd: m =>
     m.suggestion
@@ -133,6 +135,7 @@ const en: Catalog = {
       '',
       '/paid <bill> [amount] [month/year] — mark as paid',
       '   e.g. /paid power · /paid credit card 6,237.60 · /paid power 80 09/2026',
+      '/paid extra <name> <amount> — one-off expense, only on that month list',
       '/unpaid <bill> [month/year] — unmark',
       "/list — repost and pin this month's list",
       '/bill — manage the bills',
@@ -147,6 +150,7 @@ const en: Catalog = {
   onePerCommand: m =>
     `one /${WORDS.en.cmd[m.cmd]} per bill: ${m.bills.map(b => `/${WORDS.en.cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'one amount and one month per command: /paid <bill> [amount] [month/year]',
+  oneOffSyntax: () => 'one-off expense: /paid extra <name> <amount> [month/year], no numbers in the name',
   futureMonth: () => "that month hasn't come yet",
   unknownCmd: m =>
     m.suggestion
@@ -169,6 +173,7 @@ const es: Catalog = {
       '',
       '/pagado <cuenta> [monto] [mes/año] — marca como pagada',
       '   ej: /pagado luz · /pagado tarjeta 6.237,60 · /pagado luz 80 09/2026',
+      '/pagado extra <nombre> <monto> — gasto suelto, solo en la lista del mes',
       '/despagado <cuenta> [mes/año] — desmarca',
       '/lista — vuelve a publicar y fijar la lista del mes',
       '/cuenta — gestiona las cuentas',
@@ -183,6 +188,7 @@ const es: Catalog = {
   onePerCommand: m =>
     `un /${WORDS.es.cmd[m.cmd]} por cuenta: ${m.bills.map(b => `/${WORDS.es.cmd[m.cmd]} ${b.toLowerCase()}`).join(' · ')}`,
   pagoSyntax: () => 'un monto y un mes por comando: /pagado <cuenta> [monto] [mes/año]',
+  oneOffSyntax: () => 'gasto suelto: /pagado extra <nombre> <monto> [mes/año], sin números en el nombre',
   futureMonth: () => 'ese mes todavía no llegó',
   unknownCmd: m =>
     m.suggestion

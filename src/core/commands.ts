@@ -9,6 +9,9 @@ export const COMMANDS = {
 } as const
 export type CommandName = keyof typeof COMMANDS
 
+// '/pago avulsa <name> <amount>' pays a one-off expense instead of a bill.
+export const ONE_OFF = new Set(['avulsa', 'avulso', 'extra'])
+
 export const SUBCOMMANDS = {
   add: ['adiciona', 'adicionar', 'add', 'agrega', 'agregar'],
   remove: ['remove', 'remover', 'elimina', 'eliminar'],

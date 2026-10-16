@@ -17,6 +17,7 @@ export type Ask = { who: string; at: number } & (
     }
   | { q: 'bill'; choices: number[]; amount: number | null; month: string | null; media?: MediaRef }
   | { q: 'oneOff'; name: string; key: string; amount: number | null; month: string | null; media?: MediaRef }
+  | { q: 'pick'; messageId: string; touched: number[] }
 )
 export type GroupState = {
   bills: Bill[]
@@ -50,7 +51,7 @@ export type MessageInput = {
   media?: MediaRef
   quoted?: MediaRef
 }
-export type EditInput = { kind: 'edit'; key: MsgKey; sender: string; text: string; at: number }
+export type EditInput = { kind: 'edit'; key: MsgKey; sender: string; text: string; at: number; media?: MediaRef }
 
 export type Input =
   | MessageInput
@@ -59,6 +60,7 @@ export type Input =
   | { kind: 'billPicked'; pick: PickBill; billId: number | null; amount: number | null }
   | { kind: 'listPosted'; messageId: string }
   | { kind: 'tick'; at: number }
+  | { kind: 'join'; jid: string; at: number; startup: boolean; reading: string[] }
 
 export type PickBill = {
   to: MsgKey
@@ -92,12 +94,18 @@ export type Msg =
   | { k: 'askBill'; names: string[] }
   | { k: 'askOneOff'; name: string }
   | { k: 'noAmount' }
-  | { k: 'editIgnored' }
+  | { k: 'editIgnored'; payment: boolean }
   | { k: 'nameTaken'; name: string }
   | { k: 'nameInvalid' }
+  | { k: 'intro' }
+  | { k: 'saveFailed' }
+  | { k: 'descriptionNotice' }
+  | { k: 'descLine' }
+  | { k: 'moreChanges'; n: number }
 
 export type Effect =
   | { kind: 'reply'; to: MsgKey; msg: Msg }
+  | { kind: 'send'; msg: Msg }
   | { kind: 'postList'; msg: ListMsg }
   | { kind: 'react'; to: MsgKey }
   | { kind: 'pin'; messageId: string }

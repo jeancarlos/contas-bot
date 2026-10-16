@@ -666,15 +666,53 @@ function picking(s: GroupState) {
 
 const cards = () => state('Luz', 'Cartão Nu', 'Cartão Itaú')
 
-test('a late pick is dropped once its sender sent a newer command, even one for another bill', () => {
+test('a late pick is dropped once its sender retyped a /pago without a receipt, even for another bill', () => {
   const p = picking(cards())
   const typed = decide(p.state, msg('/pago cartão nu 120'), ctx).state
   const r = p.picked(typed, 3, 9900)
   assert.deepEqual(r.effects, [])
   assert.equal(r.state.months['2026-10']?.[3], undefined)
   assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
-  const listed = p.picked(decide(p.state, msg('/lista'), ctx).state, 3, 9900)
-  assert.deepEqual(listed.state.months, {})
+  const undone = p.picked(decide(p.state, msg('/despago luz'), ctx).state, 3, 9900)
+  assert.equal(undone.state.months['2026-10']?.[3], undefined)
+})
+
+test('other commands from the sender keep their pending pick', () => {
+  for (const text of ['/lista', '/ajuda', '/conta', '/pago luz 80']) {
+    const p = picking(cards())
+    const media = text.startsWith('/pago') ? { media: { mime: 'image/png', handle: 'h2' } } : {}
+    const r = p.picked(decide(p.state, msg(text, media), ctx).state, 3, 9900)
+    assert.equal(r.state.months['2026-10']?.[3]?.amount, 9900, text)
+  }
+})
+
+test('two ambiguous receipts from one sender are both paid when their picks resolve', () => {
+  const first = picking(cards())
+  const second = msg('/pago cartão', { media: { mime: 'image/png', handle: 'h2' } })
+  const asked = decide(first.state, second, ctx)
+  const fx = asked.effects.find(e => e.kind === 'pickBill')
+  if (fx?.kind !== 'pickBill') throw new Error('no pickBill')
+  const { kind: _, ...pick } = fx
+  assert.equal(asked.state.asks.filter(a => a.q === 'pick').length, 2)
+  const one = first.picked(asked.state, 2, 12000).state
+  const both = decide(one, { kind: 'billPicked', pick, billId: 3, amount: 9900 }, ctx).state
+  assert.equal(both.months['2026-10']?.[2]?.amount, 12000)
+  assert.equal(both.months['2026-10']?.[3]?.amount, 9900)
+  assert.deepEqual(both.asks, [])
+})
+
+test('an open question and a pending pick from the same sender coexist', () => {
+  const p = picking(cards())
+  const asked = decide(p.state, msg('/pago', { media: { mime: 'image/png', handle: 'h2' } }), ctx)
+  assert.deepEqual(replies(asked.effects), ['askBill'])
+  assert.deepEqual(
+    asked.state.asks.map(a => a.q),
+    ['pick', 'bill'],
+  )
+  const answered = decide(asked.state, msg('luz'), ctx).state
+  assert.equal(answered.months['2026-10']?.[1]?.status, 'pending')
+  const r = p.picked(answered, 3, 9900)
+  assert.equal(r.state.months['2026-10']?.[3]?.amount, 9900)
 })
 
 test('a late pick never overwrites a payment of the chosen bill typed after the receipt', () => {

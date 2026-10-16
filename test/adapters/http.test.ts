@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import type { AddressInfo } from 'node:net'
+import type { Server } from 'node:http'
+import { type AddressInfo, connect } from 'node:net'
 import { test } from 'node:test'
 import { handle, type HttpDeps, renderMetrics, startHttp } from '../../src/adapters/http.ts'
 import { makeLocale } from '../../src/core/i18n.ts'
@@ -59,7 +60,7 @@ test('escapes label values and html', () => {
 test('dashboard shows the list and has no scripts or forms', () => {
   const page = get(deps(), '/').body
   assert.ok(page.includes('<html lang="pt-BR">') && page.includes('<title>contas-bot</title>'))
-  assert.ok(page.includes('✅ Luz — R$ 80,10') && page.includes('⬜ Agua') && page.includes('⏸️ Net, Fibra'))
+  assert.ok(page.includes('✅ Luz — R$ 80,10') && page.includes('⬜ Agua') && page.includes('\u23F8\uFE0F Net, Fibra'))
   assert.ok(!/<script|<form/.test(page))
 })
 
@@ -91,6 +92,17 @@ test('csv header, quoting and json rows', () => {
   })
 })
 
+test('csv neutralises spreadsheet formulas', () => {
+  const d = deps()
+  const s = state('=HYPERLINK("x")')
+  s.months['2026-10'] = { 1: { amount: 100, status: 'typed', by: '+1', paidAt: AT, messageId: 'M' } }
+  const csv = get(
+    { ...d, store: { groups: () => ['grupo@g.us'], load: () => s } },
+    '/export.csv?from=2026-10&to=2026-10',
+  ).body
+  assert.ok(csv.includes('grupo,2026-10,"\'=HYPERLINK(""x"")",1,typed,\'+1,'))
+})
+
 test('a request never writes the store', () => {
   const inner = deps().store
   const guard = new Proxy(inner, {
@@ -102,6 +114,20 @@ test('a request never writes the store', () => {
   const d = deps({ store: guard })
   for (const p of ['/', '/metrics', '/export.csv', '/export.json']) assert.equal(get(d, p).status, 200)
 })
+
+function rawGet(server: Server, target: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const sock = connect((server.address() as AddressInfo).port, '127.0.0.1', () =>
+      sock.write(`GET ${target} HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n`),
+    )
+    let out = ''
+    sock.on('data', c => {
+      out += c
+    })
+    sock.on('end', () => resolve(out))
+    sock.on('error', reject)
+  })
+}
 
 test('startHttp serves, survives a throw and refuses non-GET', async () => {
   const warns: object[] = []
@@ -130,6 +156,12 @@ test('startHttp serves, survives a throw and refuses non-GET', async () => {
     boom = false
     assert.equal((await fetch(`${url}/metrics`)).status, 200)
     assert.equal((await fetch(`${url}/metrics`, { method: 'POST' })).status, 405)
+    const ok = await fetch(`${url}/metrics`)
+    assert.equal(ok.headers.get('cache-control'), 'no-store')
+    assert.equal(ok.headers.get('x-content-type-options'), 'nosniff')
+    const bad = await rawGet(server, 'http://[')
+    assert.match(bad, /^HTTP\/1\.1 400/)
+    assert.equal(warns.length, 1)
   } finally {
     server.close()
   }

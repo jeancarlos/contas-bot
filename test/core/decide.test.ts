@@ -904,3 +904,29 @@ test('a second one-off with the same name in the same month adds its amount, wit
   assert.equal(reading.months['2026-10']?.[2]?.amount, 6000)
   assert.equal(reading.months['2026-10']?.[2]?.status, 'typed')
 })
+
+test('an input whose time is outside any calendar is dropped without effects instead of throwing', () => {
+  const s = run(state('Luz', 'Cartão Nu', 'Cartão C6'), msg('/pago luz', receipt))
+  const pick = {
+    to: key(),
+    sender: 'Ana',
+    media: receipt.media,
+    month: null,
+    amount: null,
+    bills: [{ id: 2, name: 'Cartão Nu' }],
+  }
+  for (const at of [1e19, -1e19, Number.NaN, Number.POSITIVE_INFINITY, 32_503_680_000_000]) {
+    const inputs: Input[] = [
+      msg('/pago luz 80', { at }),
+      { kind: 'edit', key: key(), sender: 'Ana', text: '/lista', at },
+      { kind: 'amountRead', key: key(), month: '2026-10', billId: 1, amount: null, at },
+      { kind: 'billPicked', pick: { ...pick, at }, billId: 2, amount: 100 },
+      { kind: 'tick', at },
+      { kind: 'join', jid: 'g@g.us', at, startup: true, reading: [] },
+    ]
+    for (const i of inputs) {
+      const r = decide(s, i, ctx)
+      assert.deepEqual(r, { state: s, effects: [] }, `${i.kind} ${at}`)
+    }
+  }
+})

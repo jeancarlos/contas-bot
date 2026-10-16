@@ -1,10 +1,12 @@
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import pino from 'pino'
+import { startHttp } from '../adapters/http.ts'
 import { openStore } from '../adapters/store.ts'
 import { connectWa, parseGroupJids } from '../adapters/wa.ts'
 import { loadGif, loadReleases } from '../announce.ts'
 import { makeLocale } from '../core/i18n.ts'
+import { monthOf } from '../core/month.ts'
 import { makeLlm } from '../llm.ts'
 import { pdfToPng } from '../pdf.ts'
 import { cachedGroups, makeShell, type Wa } from './run.ts'
@@ -49,6 +51,24 @@ else log.info({ groups: [...groups], inviteCodes }, 'serving groups')
 const cached = cachedGroups(store, inviteCodes)
 for (const jid of cached.jids) groups.add(jid)
 
+let connected = false
+const httpPort = Number(env('HTTP_PORT', '8080'))
+if (httpPort > 0) {
+  startHttp(
+    {
+      store,
+      locale,
+      currentMonth: () => monthOf(Date.now(), locale.timeZone),
+      connected: () => connected,
+      log,
+    },
+    httpPort,
+  ).then(
+    () => log.info({ port: httpPort }, 'http server listening'),
+    err => log.error({ err }, 'http server failed to start, continuing without it'),
+  )
+}
+
 let wa: { forGroup(jid: string): Wa } | undefined
 const shell = makeShell({
   store,
@@ -81,6 +101,9 @@ wa = await connectWa({
     for (const jid of jids) join(jid)
   },
   onJoined: join,
+  onStatus: c => {
+    connected = c
+  },
   onInput: (jid, input) => {
     shell.handle(jid, input).catch(failed('input handling failed', jid))
   },

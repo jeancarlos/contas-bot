@@ -8,6 +8,8 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     env_file: .env
+    expose:
+      - "8080"
     environment:
       - AUTH_DIR=/app/auth
       - STATE_FILE=/app/data/state.json

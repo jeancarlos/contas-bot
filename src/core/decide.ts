@@ -27,7 +27,7 @@ type Question = Exclude<Ask, { q: 'pick' }>
 type Picking = Extract<Ask, { q: 'pick' }>
 
 const HANDLED_MAX = 500
-const NAME_MAX = 40
+export const NAME_MAX = 40
 const ASK_TTL = 10 * 60_000
 const YEAR_3000 = 32_503_680_000_000
 const YES = new Set(['sim', 's', 'yes', 'y', 'si', 'ok', 'isso'])

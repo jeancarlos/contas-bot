@@ -78,3 +78,20 @@ test('the image upgrades its OS packages and ships without npm', () => {
   )
   assert.match(dockerfile, /^USER node$/m)
 })
+
+test('the branch-name check accepts feature, fix, chore and dependabot branches only', () => {
+  const ci = read('.github/workflows/ci.yml')
+  const pattern = /\[ "\$HEAD" = develop \] \|\| echo "\$HEAD" \| grep -Eq '([^']+)'/.exec(ci)?.[1]
+  assert.ok(pattern)
+  const ok = new RegExp(pattern)
+  for (const b of [
+    'feature/x',
+    'fix/audit',
+    'chore/a.b-c_d',
+    'dependabot/npm_and_yarn/sharp-0.35.5',
+    'dependabot/github_actions/actions/checkout-4.2.2',
+  ])
+    assert.ok(ok.test(b), b)
+  for (const b of ['main', 'hotfix/x', 'feature/X Y', 'dependabot', 'dependabot/', 'my-dependabot/x', 'fix/a;b'])
+    assert.ok(!ok.test(b), b)
+})

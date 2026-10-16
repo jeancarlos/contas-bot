@@ -1,0 +1,621 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import type { downloadMediaMessage, proto, WAMessage } from '@whiskeysockets/baileys'
+import pino from 'pino'
+import {
+  download,
+  gate,
+  handleOpen,
+  logJoinedGroup,
+  pairingAction,
+  parseGroupJids,
+  participantsIncludeSelf,
+  type Messages,
+  type Recent,
+  resolveInviteCodes,
+  resolveOpenJids,
+  toMessage,
+  wireGroupEvents,
+} from '../../src/adapters/wa.ts'
+import type { EditInput, MessageInput } from '../../src/core/types.ts'
+
+const G = 'grupo@g.us'
+const P = 'membro@s.whatsapp.net'
+const TS = 1791000000
+const must = <T>(v: T | null | undefined): T => {
+  assert.ok(v != null)
+  return v
+}
+const wam = (id: string, message: proto.IMessage, extra: Partial<WAMessage> = {}): WAMessage => ({
+  key: { id, remoteJid: G, fromMe: false, participant: P },
+  message,
+  pushName: 'Gabi',
+  messageTimestamp: TS,
+  ...extra,
+})
+const silent = pino({ level: 'silent' })
+const noop = {
+  onJoined() {},
+  onInput() {},
+  onRemoved() {},
+}
+
+function fakeEmitter() {
+  const handlers = new Map<string, (arg: unknown) => void>()
+  return {
+    on: (event: string, handler: (arg: unknown) => void) => {
+      handlers.set(event, handler)
+    },
+    fire: (event: string, arg: unknown) => must(handlers.get(event))(arg),
+  }
+}
+
+function wired(groups = 'grupo@g.us') {
+  const ev = fakeEmitter()
+  const seen: (MessageInput | EditInput)[] = []
+  const recent: Recent = new Map()
+  const msgs: Messages = new Map()
+  const on = { ...noop, onInput: (_jid: string, input: MessageInput | EditInput) => seen.push(input) }
+  wireGroupEvents(ev, on, () => [], { groups: parseGroupJids(groups).jids, log: { info() {} }, recent, msgs })
+  return { ev, seen, msgs }
+}
+
+test('a receipt over 16 MB is refused before it is downloaded', async () => {
+  const big = 16 * 1024 * 1024 + 1
+  for (const message of [
+    { imageMessage: { mimetype: 'image/jpeg', fileLength: big } },
+    { documentMessage: { mimetype: 'application/pdf', fileLength: big } },
+  ]) {
+    const msgs: Messages = new Map()
+    const m = must(toMessage(wam('m1', message), msgs))
+    const dl = (async () => Buffer.from('never')) as unknown as typeof downloadMediaMessage
+    await assert.rejects(
+      download(must(m.media), msgs, { reuploadRequest: async x => x, logger: silent }, dl),
+      /too large/,
+    )
+  }
+})
+
+test('an offline append batch becomes message inputs with the WhatsApp timestamp in milliseconds', () => {
+  const { ev, seen } = wired()
+  ev.fire('messages.upsert', {
+    type: 'append',
+    messages: [
+      wam('a1', { conversation: '/pago luz' }),
+      wam('a2', { extendedTextMessage: { text: '/pago   água  80' } }, { messageTimestamp: TS + 60 }),
+    ],
+  })
+  assert.deepEqual(
+    seen.map(i => [i.kind, i.key.id, i.text, i.at, i.sender]),
+    [
+      ['message', 'a1', '/pago luz', TS * 1000, 'Gabi'],
+      ['message', 'a2', '/pago água 80', (TS + 60) * 1000, 'Gabi'],
+    ],
+  )
+})
+
+test('an edit arrives from messages.update with the original id and media; its own upsert is not a message', () => {
+  const { ev, seen } = wired()
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [wam('r1', { imageMessage: { mimetype: 'image/jpeg', caption: '/pago lux', fileLength: 1000 } })],
+  })
+  const protocol = {
+    editedMessage: {
+      message: {
+        protocolMessage: { type: 14, key: { id: 'r1' }, editedMessage: { imageMessage: { caption: '/pago luz' } } },
+      },
+    },
+  }
+  ev.fire('messages.upsert', { type: 'notify', messages: [wam('e1', protocol, { pushName: 'Gabi' })] })
+  ev.fire('messages.update', [
+    { key: { remoteJid: G, id: 'r1', fromMe: false, participant: P }, update: { status: 4 } },
+    {
+      key: { remoteJid: G, id: 'r1', fromMe: false, participant: P },
+      update: {
+        message: { editedMessage: { message: { imageMessage: { caption: '/pago luz' } } } },
+        messageTimestamp: TS + 100,
+      },
+    },
+  ])
+  assert.deepEqual(
+    seen.map(i => [i.kind, i.key.id, i.text]),
+    [
+      ['message', 'r1', '/pago lux'],
+      ['edit', 'r1', '/pago luz'],
+    ],
+  )
+  const edit = must(seen[1])
+  assert.equal(edit.at, (TS + 100) * 1000)
+  assert.equal(edit.sender, 'Gabi')
+  assert.equal(edit.media?.mime, 'image/jpeg')
+})
+
+test('a reply quoting an image carries the quoted receipt, downloaded with a re-upload request', async () => {
+  const quoted = { imageMessage: { mimetype: 'image/jpeg', fileLength: 1000, url: 'https://media.example/x' } }
+  const reply = wam('q1', {
+    extendedTextMessage: {
+      text: '/pago luz',
+      contextInfo: { stanzaId: 'r9', participant: 'outro@s.whatsapp.net', quotedMessage: quoted },
+    },
+  })
+  const msgs: Messages = new Map()
+  const m = must(toMessage(reply, msgs))
+  assert.equal(m.media, undefined)
+  assert.equal(m.quoted?.mime, 'image/jpeg')
+  const reuploadRequest = async (x: WAMessage) => x
+  const got: { key: unknown; reupload: unknown }[] = []
+  const dl = (async (msg: WAMessage, _type: string, _o: unknown, ctx?: { reuploadRequest: unknown }) => {
+    got.push({ key: msg.key, reupload: ctx?.reuploadRequest })
+    return Buffer.from('img')
+  }) as unknown as typeof downloadMediaMessage
+  assert.equal((await download(must(m.quoted), msgs, { reuploadRequest, logger: silent }, dl)).toString(), 'img')
+  assert.deepEqual(got, [
+    {
+      key: { remoteJid: G, id: 'r9', participant: 'outro@s.whatsapp.net', fromMe: false },
+      reupload: reuploadRequest,
+    },
+  ])
+})
+
+test('a captioned PDF is a receipt, any other document is not', () => {
+  const pdf = must(
+    toMessage(
+      wam('d1', {
+        documentWithCaptionMessage: {
+          message: { documentMessage: { mimetype: 'application/pdf', caption: '/pago luz', fileLength: 2000 } },
+        },
+      }),
+      new Map(),
+    ),
+  )
+  assert.equal(pdf.text, '/pago luz')
+  assert.equal(pdf.media?.mime, 'application/pdf')
+  const zip = must(
+    toMessage(wam('d2', { documentMessage: { mimetype: 'application/zip', caption: '/pago luz' } }), new Map()),
+  )
+  assert.equal(zip.text, '/pago luz')
+  assert.equal(zip.media, undefined)
+})
+
+test('a forwarded image with a /pago caption is a receipt like any other', () => {
+  const fwd = must(
+    toMessage(
+      wam('f1', {
+        imageMessage: {
+          mimetype: 'image/jpeg',
+          caption: '/pago luz',
+          fileLength: 3000,
+          contextInfo: { isForwarded: true, forwardingScore: 1 },
+        },
+      }),
+      new Map(),
+    ),
+  )
+  assert.equal(fwd.text, '/pago luz')
+  assert.equal(fwd.media?.mime, 'image/jpeg')
+  assert.equal(fwd.quoted, undefined)
+})
+
+test('edits only remember the media of the newest 500 messages', () => {
+  const { ev, seen } = wired()
+  const image = { imageMessage: { mimetype: 'image/jpeg', caption: 'foto', fileLength: 10 } }
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: Array.from({ length: 501 }, (_, i) => wam(`m${i}`, image)),
+  })
+  const edit = (id: string) => ({
+    key: { remoteJid: G, id, fromMe: false, participant: P },
+    update: { message: { editedMessage: { message: { conversation: '/pago luz' } } } },
+  })
+  ev.fire('messages.update', [edit('m0'), edit('m500')])
+  const edits = seen.filter(i => i.kind === 'edit')
+  assert.deepEqual(
+    edits.map(e => [e.key.id, e.media?.mime, e.sender]),
+    [
+      ['m0', undefined, P],
+      ['m500', 'image/jpeg', 'Gabi'],
+    ],
+  )
+})
+
+test('parseGroupJids trims, drops empties and adds the @g.us suffix', () => {
+  assert.deepEqual([...parseGroupJids(' 123-456@g.us , 789 ,, ').jids], ['123-456@g.us', '789@g.us'])
+  const empty = parseGroupJids('')
+  assert.equal(empty.jids.size, 0)
+  assert.equal(empty.inviteCodes.length, 0)
+})
+
+test('GROUP_INVITE_LINKS unset or empty yields an empty allowlist without throwing', () => {
+  const original = process.env.GROUP_INVITE_LINKS
+  try {
+    delete process.env.GROUP_INVITE_LINKS
+    const unset = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
+    assert.equal(unset.jids.size, 0)
+    assert.equal(unset.inviteCodes.length, 0)
+    process.env.GROUP_INVITE_LINKS = ''
+    const empty = parseGroupJids(process.env.GROUP_INVITE_LINKS ?? '')
+    assert.equal(empty.jids.size, 0)
+    assert.equal(empty.inviteCodes.length, 0)
+  } finally {
+    if (original === undefined) delete process.env.GROUP_INVITE_LINKS
+    else process.env.GROUP_INVITE_LINKS = original
+  }
+})
+
+test('parseGroupJids rejects a jid that is not a group jid, but still normalizes bare digits', () => {
+  assert.throws(
+    () => parseGroupJids('123@s.whatsapp.net'),
+    /GROUP_INVITE_LINKS: not a group jid or invite link: 123@s\.whatsapp\.net/,
+  )
+  assert.deepEqual([...parseGroupJids('456').jids], ['456@g.us'])
+})
+
+test('parseGroupJids splits a mixed value into jids and invite codes, and still throws on a junk entry', () => {
+  const { jids, inviteCodes } = parseGroupJids('456, mine@g.us, https://chat.whatsapp.com/AbCdEf123')
+  assert.deepEqual([...jids], ['456@g.us', 'mine@g.us'])
+  assert.deepEqual(inviteCodes, ['AbCdEf123'])
+  assert.throws(() => parseGroupJids('not-a-jid'), /GROUP_INVITE_LINKS: not a group jid or invite link: not-a-jid/)
+})
+
+test('parseGroupJids extracts the invite code past a trailing slash and a query string', () => {
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCdEf123/').inviteCodes, ['AbCdEf123'])
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCdEf123?mode=ac_t').inviteCodes, ['AbCdEf123'])
+})
+
+test('parseGroupJids matches an uppercase host and suffix case-insensitively, but keeps the invite code case as-is', () => {
+  assert.deepEqual(parseGroupJids('https://Chat.WhatsApp.com/AbCd123').inviteCodes, ['AbCd123'])
+  assert.deepEqual([...parseGroupJids('120363@G.US').jids], ['120363@G.US'])
+})
+
+test('parseGroupJids strips a #fragment and rejects a link with no path segment after the host', () => {
+  assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCd123#frag').inviteCodes, ['AbCd123'])
+  for (const entry of ['https://chat.whatsapp.com/', 'chat.whatsapp.com']) {
+    assert.throws(
+      () => parseGroupJids(entry),
+      new RegExp(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry.replace(/[.]/g, '\\.')}`),
+    )
+  }
+})
+
+test('gate passes through jids on the allowlist and swallows the rest', async () => {
+  const seen: string[] = []
+  const spy = {
+    onOpen: (jids: string[]) => {
+      seen.push(`open:${jids.join('|')}`)
+    },
+    onJoined: (jid: string) => {
+      seen.push(`joined:${jid}`)
+    },
+    onInput: (jid: string) => {
+      seen.push(`input:${jid}`)
+    },
+    onRemoved: (jid: string) => {
+      seen.push(`removed:${jid}`)
+    },
+  }
+  const g = gate(parseGroupJids('mine@g.us').jids, spy)
+  const m = must(toMessage(wam('m1', { conversation: 'oi' }), new Map()))
+  g.onOpen(['mine@g.us', 'theirs@g.us'])
+  g.onJoined('theirs@g.us')
+  g.onJoined('mine@g.us')
+  g.onInput('theirs@g.us', m)
+  g.onInput('mine@g.us', m)
+  await g.onRemoved('theirs@g.us')
+  await g.onRemoved('mine@g.us')
+  assert.deepEqual(seen, ['open:mine@g.us', 'joined:mine@g.us', 'input:mine@g.us', 'removed:mine@g.us'])
+  seen.length = 0
+  const shut = gate(parseGroupJids('').jids, spy)
+  shut.onOpen(['mine@g.us', 'theirs@g.us'])
+  shut.onJoined('mine@g.us')
+  shut.onInput('mine@g.us', m)
+  await shut.onRemoved('mine@g.us')
+  assert.deepEqual(seen, ['open:'])
+})
+
+test('resolveOpenJids resolves to the configured jids even when group discovery fails', async () => {
+  const warnings: unknown[] = []
+  const cfg = {
+    groups: parseGroupJids('mine@g.us,other@g.us').jids,
+    log: { info() {}, warn: (o: unknown) => warnings.push(o) },
+  }
+  const s = {
+    groupFetchAllParticipating: async () => {
+      throw new Error('socket dropped')
+    },
+  }
+  const jids = await resolveOpenJids(s, cfg)
+  assert.deepEqual(jids.sort(), ['mine@g.us', 'other@g.us'])
+  assert.equal(warnings.length, 1)
+})
+
+test('resolveOpenJids narrows to groups the bot is actually a member of when discovery succeeds', async () => {
+  const cfg = { groups: parseGroupJids('mine@g.us,notjoined@g.us').jids, log: { info() {}, warn() {} } }
+  const s = { groupFetchAllParticipating: async () => ({ 'mine@g.us': { id: 'mine@g.us', subject: 'Mine' } }) }
+  assert.deepEqual(await resolveOpenJids(s, cfg), ['mine@g.us'])
+})
+
+test('logJoinedGroup logs the jid, subject and allowlist membership (groups.upsert path)', () => {
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
+  logJoinedGroup(cfg, 'new@g.us', 'New Group')
+  assert.deepEqual(infos, [{ jid: 'new@g.us', subject: 'New Group', mine: false }])
+})
+
+test('logJoinedGroup logs without a subject when called with just a jid (group-participants.update path)', () => {
+  const infos: unknown[] = []
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info: (o: unknown) => infos.push(o) } }
+  logJoinedGroup(cfg, 'mine@g.us')
+  assert.deepEqual(infos, [{ jid: 'mine@g.us', subject: undefined, mine: true }])
+})
+
+test('resolveInviteCodes adds the resolved jid to the Set, and the gate then lets it through', async () => {
+  const { jids } = parseGroupJids('')
+  const cfg = { groups: jids, log: { info() {}, warn() {} } }
+  const s = { groupGetInviteInfo: async () => ({ id: 'new@g.us', subject: 'New Group' }) }
+  const seen: string[] = []
+  const g = gate(jids, {
+    onOpen() {},
+    onJoined: (jid: string) => {
+      seen.push(jid)
+    },
+    onInput() {},
+    onRemoved() {},
+  })
+  g.onJoined('new@g.us')
+  assert.deepEqual(seen, [])
+  await resolveInviteCodes(s, cfg, ['AbCdEf123'])
+  assert.deepEqual([...jids], ['new@g.us'])
+  g.onJoined('new@g.us')
+  assert.deepEqual(seen, ['new@g.us'])
+})
+
+test('a rejecting groupGetInviteInfo leaves the Set unchanged, logs a warning, and does not block a second code', async () => {
+  const { jids } = parseGroupJids('')
+  const infos: unknown[] = []
+  const warnings: unknown[] = []
+  const cfg = { groups: jids, log: { info: (o: unknown) => infos.push(o), warn: (o: unknown) => warnings.push(o) } }
+  const s = {
+    groupGetInviteInfo: async (code: string) => {
+      if (code === 'bad') throw new Error('invite revoked')
+      return { id: 'good@g.us', subject: 'Good Group' }
+    },
+  }
+  await resolveInviteCodes(s, cfg, ['bad', 'good'])
+  assert.deepEqual([...jids], ['good@g.us'])
+  assert.equal(warnings.length, 1)
+  assert.equal(infos.length, 1)
+})
+
+test('resolveInviteCodes drops a resolved code, so a reconnect cannot re-add a group the bot left', async () => {
+  const { jids } = parseGroupJids('')
+  const cfg = { groups: jids, log: { info() {}, warn() {} } }
+  const s = { groupGetInviteInfo: async () => ({ id: 'new@g.us', subject: 'New Group' }) }
+  const codes = ['AbCdEf123']
+  await resolveInviteCodes(s, cfg, codes)
+  assert.deepEqual(codes, [])
+  jids.delete('new@g.us')
+  await resolveInviteCodes(s, cfg, codes)
+  assert.deepEqual([...jids], [])
+})
+
+test('participantsIncludeSelf is true when the bot is among the participants, by id, phoneNumber or lid', () => {
+  const me = ['bot@s.whatsapp.net', 'bot@lid']
+  assert.equal(participantsIncludeSelf(me, [{ id: 'bot@s.whatsapp.net' }]), true)
+  assert.equal(participantsIncludeSelf(me, [{ phoneNumber: 'bot@s.whatsapp.net' }]), true)
+  assert.equal(participantsIncludeSelf(me, [{ lid: 'bot@lid' }]), true)
+})
+
+test('participantsIncludeSelf is false when the participants are somebody else', () => {
+  const me = ['bot@s.whatsapp.net', 'bot@lid']
+  assert.equal(participantsIncludeSelf(me, [{ id: 'gabi@s.whatsapp.net' }]), false)
+  assert.equal(participantsIncludeSelf(me, []), false)
+})
+
+test('a remove event naming the bot fires onRemoved through gate only for an allowlisted group', async () => {
+  const seen: string[] = []
+  const g = gate(parseGroupJids('mine@g.us').jids, {
+    onOpen() {},
+    ...noop,
+    onRemoved: (jid: string) => {
+      seen.push(jid)
+    },
+  })
+  const me = ['bot@s.whatsapp.net']
+  const removedByBot = [{ id: 'bot@s.whatsapp.net' }]
+  if (participantsIncludeSelf(me, removedByBot)) await g.onRemoved('mine@g.us')
+  if (participantsIncludeSelf(me, removedByBot)) await g.onRemoved('theirs@g.us')
+  assert.deepEqual(seen, ['mine@g.us'])
+})
+
+test('a remove event naming somebody else never reaches onRemoved', async () => {
+  const seen: string[] = []
+  const g = gate(parseGroupJids('mine@g.us').jids, {
+    onOpen() {},
+    ...noop,
+    onRemoved: (jid: string) => {
+      seen.push(jid)
+    },
+  })
+  const me = ['bot@s.whatsapp.net']
+  if (participantsIncludeSelf(me, [{ id: 'gabi@s.whatsapp.net' }])) await g.onRemoved('mine@g.us')
+  assert.deepEqual(seen, [])
+})
+
+test('wireGroupEvents: messages.upsert reaches onInput for a notify or offline (append) message in a served group; not for another type, an unserved group, or a non-group jid; still delivers a fromMe message unchanged', () => {
+  const { ev, seen } = wired('mine@g.us')
+  const at = (remoteJid: string, fromMe = false): WAMessage => ({
+    key: { id: 'm1', remoteJid, fromMe },
+    message: { conversation: 'oi' },
+  })
+  ev.fire('messages.upsert', { messages: [at('mine@g.us')], type: 'history' })
+  ev.fire('messages.upsert', { messages: [at('theirs@g.us')], type: 'notify' })
+  ev.fire('messages.upsert', { messages: [at('mine@s.whatsapp.net')], type: 'notify' })
+  assert.equal(seen.length, 0)
+  ev.fire('messages.upsert', { messages: [at('mine@g.us', true)], type: 'notify' })
+  ev.fire('messages.upsert', { messages: [at('mine@g.us')], type: 'append' })
+  assert.deepEqual(
+    seen.map(i => [i.key.remoteJid, i.key.fromMe]),
+    [
+      ['mine@g.us', true],
+      ['mine@g.us', false],
+    ],
+  )
+})
+
+test('wireGroupEvents: group-participants.update reaches onJoined on add-self and onRemoved on remove-self, but not for somebody else or for promote/demote/modify', () => {
+  const ev = fakeEmitter()
+  const joined: string[] = []
+  const removed: string[] = []
+  const on = {
+    ...noop,
+    onJoined: (jid: string) => {
+      joined.push(jid)
+    },
+    onRemoved: (jid: string) => {
+      removed.push(jid)
+    },
+  }
+  const cfg = { groups: parseGroupJids('mine@g.us').jids, log: { info() {} }, recent: new Map(), msgs: new Map() }
+  wireGroupEvents(ev, on, () => ['bot@s.whatsapp.net'], cfg)
+  ev.fire('group-participants.update', {
+    id: 'mine@g.us',
+    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    action: 'add',
+  })
+  ev.fire('group-participants.update', {
+    id: 'mine@g.us',
+    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    action: 'remove',
+  })
+  for (const action of ['promote', 'demote', 'modify']) {
+    ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action })
+  }
+  assert.deepEqual(joined, [])
+  assert.deepEqual(removed, [])
+  ev.fire('group-participants.update', { id: 'mine@g.us', participants: [{ id: 'bot@s.whatsapp.net' }], action: 'add' })
+  assert.deepEqual(joined, ['mine@g.us'])
+  ev.fire('group-participants.update', {
+    id: 'mine@g.us',
+    participants: [{ id: 'bot@s.whatsapp.net' }],
+    action: 'remove',
+  })
+  assert.deepEqual(removed, ['mine@g.us'])
+})
+
+test('wireGroupEvents: groups.upsert reaches onJoined for each group and logs the jid', () => {
+  const ev = fakeEmitter()
+  const joined: string[] = []
+  const infos: unknown[] = []
+  const on = {
+    ...noop,
+    onJoined: (jid: string) => {
+      joined.push(jid)
+    },
+  }
+  const cfg = {
+    groups: parseGroupJids('b@g.us').jids,
+    log: { info: (o: unknown) => infos.push(o) },
+    recent: new Map(),
+    msgs: new Map(),
+  }
+  wireGroupEvents(ev, on, () => [], cfg)
+  ev.fire('groups.upsert', [
+    { id: 'a@g.us', subject: 'A' },
+    { id: 'b@g.us', subject: 'B' },
+  ])
+  assert.deepEqual(joined, ['a@g.us', 'b@g.us'])
+  assert.deepEqual(infos, [
+    { jid: 'a@g.us', subject: 'A', mine: false },
+    { jid: 'b@g.us', subject: 'B', mine: true },
+  ])
+})
+
+test('handleOpen logs every fetched group, resolves invite codes, and calls onOpen', async () => {
+  const infos: unknown[] = []
+  const resolved: string[] = []
+  const opened: string[][] = []
+  const cfg = {
+    groups: parseGroupJids('mine@g.us').jids,
+    inviteCodes: ['AbCdEf123'],
+    log: { info: (o: unknown) => infos.push(o), warn() {} },
+  }
+  const s = {
+    groupFetchAllParticipating: async () => ({
+      'mine@g.us': { id: 'mine@g.us', subject: 'Mine' },
+      'new@g.us': { id: 'new@g.us', subject: 'New' },
+    }),
+    groupGetInviteInfo: async (code: string) => {
+      resolved.push(code)
+      return { id: 'new@g.us', subject: 'New Group' }
+    },
+  }
+  await handleOpen(s, cfg, jids => {
+    opened.push(jids)
+  })
+  assert.equal(infos[0], 'whatsapp connected')
+  assert.deepEqual(resolved, ['AbCdEf123'])
+  assert.deepEqual([...cfg.groups], ['mine@g.us', 'new@g.us'])
+  assert.deepEqual(opened, [['mine@g.us', 'new@g.us']])
+  const groupLogs = infos.filter((o: unknown) => o && typeof o === 'object' && 'mine' in o)
+  assert.deepEqual(groupLogs, [
+    { jid: 'mine@g.us', subject: 'Mine', mine: true },
+    { jid: 'new@g.us', subject: 'New', mine: true },
+  ])
+})
+
+test('handleOpen still calls onOpen when groupFetchAllParticipating rejects', async () => {
+  const warnings: unknown[] = []
+  const cfg = {
+    groups: parseGroupJids('mine@g.us').jids,
+    inviteCodes: [] as string[],
+    log: { info() {}, warn: (o: unknown) => warnings.push(o) },
+  }
+  const s = {
+    groupFetchAllParticipating: async () => {
+      throw new Error('socket dropped')
+    },
+    groupGetInviteInfo: async () => {
+      throw new Error('must not be called')
+    },
+  }
+  const opened: string[][] = []
+  await handleOpen(s, cfg, jids => {
+    opened.push(jids)
+  })
+  assert.deepEqual(opened, [['mine@g.us']])
+  assert.equal(warnings.length, 1)
+})
+
+test('an unpaired bot without BOT_PHONE never asks for a pairing code', () => {
+  assert.equal(pairingAction(''), 'unpaired')
+  assert.equal(pairingAction('5511900000000'), 'code')
+})
+
+test('a handle survives structuredClone and still downloads; an evicted message cannot be downloaded', async () => {
+  const msgs: Messages = new Map()
+  const m = must(toMessage(wam('c1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }), msgs))
+  const dl = (async (msg: WAMessage) => Buffer.from(msg.key.id ?? '')) as unknown as typeof downloadMediaMessage
+  const copy = structuredClone(must(m.media))
+  assert.equal((await download(copy, msgs, { reuploadRequest: async x => x, logger: silent }, dl)).toString(), 'c1')
+  msgs.clear()
+  await assert.rejects(download(copy, msgs, { reuploadRequest: async x => x, logger: silent }, dl), /receipt expired/)
+})
+
+test('quoted receipts get their own synthetic id and the message map keeps only the newest 500', () => {
+  const { ev, msgs } = wired()
+  const quoted = { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }
+  const reply = wam('q1', {
+    extendedTextMessage: { text: 'oi', contextInfo: { stanzaId: 'r9', quotedMessage: quoted } },
+  })
+  ev.fire('messages.upsert', { type: 'notify', messages: [reply] })
+  assert.ok(msgs.has('r9:quoted'))
+  const image = { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: Array.from({ length: 500 }, (_, i) => wam(`n${i}`, image)),
+  })
+  assert.equal(msgs.size, 500)
+  assert.equal(msgs.has('r9:quoted'), false)
+  assert.equal(msgs.has('n499'), true)
+})

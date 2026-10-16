@@ -19,13 +19,13 @@ test('valid feat passes', () => {
 test('empty trailer fails', () => {
   const e = lintCommitMessage(ok.replace('o bot anuncia versões novas no grupo', ''))
   assert.equal(e.length, 1)
-  assert.match(e[0], /Changelog-pt-BR/)
+  assert.match(e[0] ?? '', /Changelog-pt-BR/)
 })
 
 test('too-long trailer fails', () => {
   const e = lintCommitMessage(ok.replace('o bot anuncia versões novas no grupo', 'x'.repeat(73)))
   assert.equal(e.length, 1)
-  assert.match(e[0], /Changelog-pt-BR/)
+  assert.match(e[0] ?? '', /Changelog-pt-BR/)
 })
 
 test('fix with scope passes, breaking feat with scope too', () => {

@@ -66,3 +66,14 @@ test('a configured but unpaired folder skips the questions (repair) and keeps .e
   assert.equal(r.status, 0, r.stderr)
   assert.equal(await readFile(join(dir, '.env'), 'utf8'), 'BOT_LANG=es\nPAIRING_MODE=qr\n')
 })
+
+test('a fresh install allows the empty history once; an install over existing data does not', async () => {
+  const fresh = await mkdtemp(join(tmpdir(), 'setup-'))
+  assert.equal(run(fresh, answers).status, 0)
+  assert.match(await readFile(join(fresh, '.env'), 'utf8'), /^ALLOW_EMPTY_STATE=1$/m)
+  const moved = await mkdtemp(join(tmpdir(), 'setup-'))
+  await mkdir(join(moved, 'data'))
+  await writeFile(join(moved, 'data', 'state.json'), '{"groups":{}}')
+  assert.equal(run(moved, answers).status, 0)
+  assert.doesNotMatch(await readFile(join(moved, '.env'), 'utf8'), /ALLOW_EMPTY_STATE/)
+})

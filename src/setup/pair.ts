@@ -47,42 +47,45 @@ export async function pair(
       s.ev.on('creds.update', () => {
         saveCreds().catch(() => {})
       })
-      s.ev.on('connection.update', u => {
-        if (u.qr && mode === 'qr')
-          renderQr(u.qr).then(
-            ascii => on.qr(ascii, u.qr as string),
+      const finish = (ok: boolean) => {
+        stop()
+        resolve(ok)
+      }
+      const showQr = (qr: string) => {
+        if (mode === 'qr') {
+          renderQr(qr).then(
+            ascii => on.qr(ascii, qr),
             () => {},
           )
-        if (u.qr && mode === 'code' && !asked) {
-          asked = true
-          s.requestPairingCode(phone).then(on.code, stop)
+          return
         }
+        if (asked) return
+        asked = true
+        s.requestPairingCode(phone).then(on.code, stop)
+      }
+      const closed = (code: number | undefined) => {
+        const next = nextStep(done, restarted, code)
+        if (next === 'restart') {
+          restarted = true
+          start()
+        }
+        if (next === 'failed')
+          emptyDir(authDir).then(
+            () => resolve(false),
+            () => resolve(false),
+          )
+      }
+      s.ev.on('connection.update', u => {
+        if (u.qr) showQr(u.qr)
         if (u.connection === 'open') {
           done = true
           saveCreds().then(
-            () => {
-              stop()
-              resolve(true)
-            },
-            () => {
-              stop()
-              resolve(false)
-            },
+            () => finish(true),
+            () => finish(false),
           )
         }
-        if (u.connection === 'close') {
-          const code = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode
-          const next = nextStep(done, restarted, code)
-          if (next === 'restart') {
-            restarted = true
-            start()
-          }
-          if (next === 'failed')
-            emptyDir(authDir).then(
-              () => resolve(false),
-              () => resolve(false),
-            )
-        }
+        if (u.connection === 'close')
+          closed((u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode)
       })
     }
     start()

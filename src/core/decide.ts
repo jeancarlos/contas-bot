@@ -23,6 +23,8 @@ export type Result = { state: GroupState; effects: Effect[] }
 type Draft = { s: GroupState; fx: Effect[]; ctx: Ctx }
 type Cmd = Pick<MessageInput, 'key' | 'sender' | 'at' | 'media' | 'quoted'>
 type Failure = Extract<Resolution, { ok: false }>
+type Question = Exclude<Ask, { q: 'pick' }>
+type Picking = Extract<Ask, { q: 'pick' }>
 
 const HANDLED_MAX = 500
 const NAME_MAX = 40
@@ -39,8 +41,8 @@ const pinnedMonth = (d: Draft, at: number) => {
 }
 const who = (key: MsgKey, sender: string) => key.participant ?? sender
 
-function ask(d: Draft, a: Ask, to: MsgKey, msg: Msg) {
-  d.s.asks = [...d.s.asks.filter(x => x.who !== a.who), a]
+function ask(d: Draft, a: Question, to: MsgKey, msg: Msg) {
+  d.s.asks = [...d.s.asks.filter(x => x.who !== a.who || x.q === 'pick'), a]
   reply(d, to, msg)
 }
 
@@ -51,7 +53,7 @@ function askAmount(d: Draft, billId: number, month: string, key: MsgKey, by: str
 
 function confirm(d: Draft, cmd: 'pago' | 'despago', bill: Bill, amount: number | null, month: string | null, m: Cmd) {
   const media = cmd === 'pago' ? (m.media ?? m.quoted) : undefined
-  const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'confirm', cmd, billId: bill.id, amount, month }
+  const a: Question = { who: who(m.key, m.sender), at: m.at, q: 'confirm', cmd, billId: bill.id, amount, month }
   if (media) a.media = media
   ask(d, a, m.key, { k: 'askConfirm', cmd, bill: bill.name, amount, month })
 }
@@ -61,7 +63,7 @@ type Choice = { id: number; name: string }
 function askWhich(d: Draft, bills: readonly Choice[], amount: number | null, month: string | null, m: Cmd) {
   const media = m.media ?? m.quoted
   const choices = bills.map(b => b.id)
-  const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'bill', choices, amount, month }
+  const a: Question = { who: who(m.key, m.sender), at: m.at, q: 'bill', choices, amount, month }
   if (media) a.media = media
   ask(d, a, m.key, { k: 'askBill', names: bills.map(b => b.name) })
 }
@@ -79,9 +81,16 @@ function chosen(d: Draft, text: string, choices: readonly number[]): Named | und
 function ambiguous(d: Draft, bills: readonly Bill[], amount: number | null, month: string | null, m: Cmd) {
   const media = m.media ?? m.quoted
   const choices = bills.map(b => ({ id: b.id, name: b.name }))
-  if (media && d.ctx.llm)
-    d.fx.push({ kind: 'pickBill', to: m.key, sender: m.sender, at: m.at, media, month, amount, bills: choices })
-  else askWhich(d, choices, amount, month, m)
+  if (!media || !d.ctx.llm) {
+    askWhich(d, choices, amount, month, m)
+    return
+  }
+  d.s.asks.push({ who: who(m.key, m.sender), at: m.at, q: 'pick', messageId: m.key.id, touched: [] })
+  d.fx.push({ kind: 'pickBill', to: m.key, sender: m.sender, at: m.at, media, month, amount, bills: choices })
+}
+
+function touch(d: Draft, billId: number) {
+  for (const a of d.s.asks) if (a.q === 'pick') a.touched.push(billId)
 }
 
 export function listMsg(s: GroupState, month: string): ListMsg {
@@ -139,6 +148,7 @@ function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd)
   const reading = amount === null && media !== undefined && d.ctx.llm
   const p = payment(prev, amount, reading, m)
   paid[bill.id] = p
+  touch(d, bill.id)
   d.fx.push({ kind: 'react', to: m.key })
   if (prev) reply(d, m.key, { k: 'updated' })
   if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: bill.id })
@@ -218,7 +228,7 @@ function offerOneOff(d: Draft, arg: string, m: Cmd): boolean {
   const tokens = arg.split(' ').filter(Boolean)
   const o = parseOneOff(tokens, current(d, m.at), d.ctx.locale.decimal, Boolean(media))
   if ('k' in o) return false
-  const a: Ask = { who: who(m.key, m.sender), at: m.at, q: 'oneOff', ...o }
+  const a: Question = { who: who(m.key, m.sender), at: m.at, q: 'oneOff', ...o }
   if (media) a.media = media
   ask(d, a, m.key, { k: 'askOneOff', name: o.name })
   return true
@@ -243,15 +253,16 @@ function unpay(d: Draft, billId: number, month: string, m: Cmd): boolean {
   const paid = d.s.months[month]
   const had = Boolean(paid?.[billId])
   if (paid) delete paid[billId]
+  touch(d, billId)
   d.fx.push({ kind: 'react', to: m.key })
   showList(d, month, pinnedMonth(d, m.at), m.key)
   return had
 }
 
-function findBill(d: Draft, name: string, to: MsgKey): Bill | null {
+function findBill(d: Draft, name: string, to: MsgKey, exact: boolean): Bill | null {
   const q = normalize(name)
   const bills = active(d.s)
-  const prefixed = bills.filter(b => b.key.startsWith(q))
+  const prefixed = exact ? [] : bills.filter(b => b.key.startsWith(q))
   const bill = bills.find(b => b.key === q) ?? (prefixed.length === 1 ? prefixed[0] : undefined)
   if (q && bill) return bill
   reply(d, to, { k: 'notFound', q: name, names: bills.map(b => b.name) })
@@ -310,7 +321,7 @@ function addBill(d: Draft, name: string, m: Cmd): boolean {
 }
 
 function renameBill(d: Draft, from: string, to: string, key: MsgKey): boolean {
-  const bill = findBill(d, from, key)
+  const bill = findBill(d, from, key, true)
   if (!bill) return false
   const newKey = validName(d, to, key, bill)
   if (!newKey) return false
@@ -328,7 +339,7 @@ function changeBill(d: Draft, c: Conta, m: Cmd): boolean {
     case 'remove':
     case 'pause':
     case 'resume': {
-      const bill = findBill(d, c.name, m.key)
+      const bill = findBill(d, c.name, m.key, c.sub === 'remove')
       if (!bill) return false
       if (c.sub === 'remove') bill.removed = true
       else bill.paused = c.sub === 'pause'
@@ -381,15 +392,15 @@ function remember(s: GroupState, id: string, changed: boolean, warned = false) {
   if (s.handled.length > HANDLED_MAX) s.handled.splice(0, s.handled.length - HANDLED_MAX)
 }
 
-function takeAsk(d: Draft, m: MessageInput): Ask | undefined {
+function takeAsk(d: Draft, m: MessageInput, retype: boolean): Question | undefined {
   const by = who(m.key, m.sender)
-  const live = (x: Ask) => m.at - x.at <= ASK_TTL
-  const open = d.s.asks.find(x => x.who === by && live(x))
-  d.s.asks = d.s.asks.filter(x => x.who !== by && live(x))
+  const live = (x: Ask) => x.q === 'pick' || m.at - x.at <= ASK_TTL
+  const open = d.s.asks.find((x): x is Question => x.who === by && x.q !== 'pick' && live(x))
+  d.s.asks = d.s.asks.filter(x => live(x) && (x.who !== by || (x.q === 'pick' && !retype)))
   return open
 }
 
-function answer(d: Draft, a: Ask, m: MessageInput): boolean {
+function answer(d: Draft, a: Question, m: MessageInput): boolean {
   const text = clean(m.text)
   const yes = YES.has(normalize(text)) || THUMBS.test(m.text.trim())
   if (a.q === 'amount') return fillAmount(d, a, text, m)
@@ -436,8 +447,9 @@ function fillAmount(d: Draft, a: Extract<Ask, { q: 'amount' }>, text: string, m:
 
 function onMessage(d: Draft, m: MessageInput) {
   if (m.key.fromMe || d.s.handled.some(h => h.id === m.key.id)) return
-  const open = takeAsk(d, m)
   const c = parseCommand(m.text)
+  const retype = (c?.cmd === 'pago' || c?.cmd === 'despago') && !(m.media ?? m.quoted)
+  const open = takeAsk(d, m, retype)
   if (c) remember(d.s, m.key.id, run(d, c, m))
   else if (open && answer(d, open, m)) remember(d.s, m.key.id, true)
 }
@@ -450,11 +462,12 @@ function onEdit(d: Draft, e: EditInput) {
   const h = d.s.handled.find(x => x.id === e.key.id)
   if (h ? h.changed : paidBy(d.s, e.key.id)) {
     if (h?.warned) return
-    reply(d, e.key, { k: 'editIgnored' })
+    reply(d, e.key, { k: 'editIgnored', payment: paidBy(d.s, e.key.id) })
     if (h) h.warned = true
     else remember(d.s, e.key.id, true, true)
     return
   }
+  d.s.asks = d.s.asks.filter(x => x.q !== 'pick' || x.messageId !== e.key.id)
   const c = parseCommand(e.text)
   if (!c) return
   const changed = run(d, c, e)
@@ -476,14 +489,20 @@ function onAmountRead(d: Draft, a: Extract<Input, { kind: 'amountRead' }>) {
 
 function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
   const p = i.pick
+  const open = d.s.asks.find((x): x is Picking => x.q === 'pick' && x.messageId === p.to.id)
+  d.s.asks = d.s.asks.filter(x => x !== open)
+  if (!open) return
   const m: Cmd = { key: p.to, sender: p.sender, at: p.at }
   const bill = p.bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
   if (!bill) {
     askWhich(d, p.bills, p.amount, p.month, { ...m, media: p.media })
     return
   }
+  if (open.touched.includes(bill.id)) return
   const month = p.month ?? current(d, p.at)
   pay(d, bill, p.amount ?? i.amount, month, m)
+  const h = d.s.handled.find(x => x.id === p.to.id)
+  if (h) h.changed = true
   const paid = d.s.months[month]?.[bill.id]
   if (paid && p.amount === null && i.amount !== null) paid.status = 'read'
   if (paid?.amount === null) askAmount(d, bill.id, month, p.to, p.sender, p.at)
@@ -501,6 +520,23 @@ function onTick(d: Draft, at: number) {
   if (d.s.lastReset === null || month <= d.s.lastReset) return
   d.s.lastReset = month
   d.fx.push({ kind: 'postList', msg: listMsg(d.s, month) })
+}
+
+function onJoin(d: Draft, j: Extract<Input, { kind: 'join' }>) {
+  if (d.s.lastReset === null) {
+    const month = current(d, j.at)
+    d.s.lastReset = month
+    d.fx.push({ kind: 'send', msg: { k: 'intro' } })
+    d.fx.push({ kind: 'postList', msg: listMsg(d.s, month) })
+  }
+  if (!j.startup) return
+  for (const month of Object.values(d.s.months)) {
+    for (const p of Object.values(month)) {
+      if (p.status !== 'pending' || j.reading.includes(p.messageId)) continue
+      p.status = 'none'
+      reply(d, { id: p.messageId, fromMe: false, remoteJid: j.jid }, { k: 'noAmount' })
+    }
+  }
 }
 
 export function decide(state: GroupState, input: Input, ctx: Ctx): Result {
@@ -523,6 +559,9 @@ export function decide(state: GroupState, input: Input, ctx: Ctx): Result {
       break
     case 'tick':
       onTick(d, input.at)
+      break
+    case 'join':
+      onJoin(d, input)
       break
   }
   return { state: d.s, effects: d.fx }

@@ -24,6 +24,7 @@ import {
   envSafe,
   type Answers,
 } from '../src/setup/core.ts'
+import { SETUP_TEXT } from '../src/setup/i18n.ts'
 
 const base: Answers = {
   lang: 'pt-BR',
@@ -42,7 +43,7 @@ test('normalizePhone accepts the ways people type a number', () => {
   assert.equal(normalizePhone('+55 (11) 90000-0000'), '5511900000000')
   assert.equal(normalizePhone('55.11.9000.00000'), '5511900000000')
   assert.equal(normalizePhone('123'), null)
-  assert.equal(normalizePhone('55 49 abc'), null)
+  assert.equal(normalizePhone('55 11 abc'), null)
 })
 
 test('validGroup accepts jids, lists and links like the bot', () => {
@@ -309,4 +310,12 @@ test('allowEmpty: only without history, and only on a fresh install or with the 
   assert.equal(allowEmpty(true, false, {}), false)
   assert.equal(allowEmpty(true, false, { ALLOW_EMPTY_STATE: '0' }), false)
   assert.equal(allowEmpty(false, true, { ALLOW_EMPTY_STATE: '1' }), false)
+})
+
+test('the phone examples are placeholders that normalize like a real number', () => {
+  for (const tx of Object.values(SETUP_TEXT)) {
+    const example = /\+[\d ().-]+$/.exec(tx.phoneInvalid)?.[0] ?? ''
+    assert.ok(normalizePhone(example), example)
+  }
+  assert.match(SETUP_TEXT['pt-BR'].phoneInvalid, /\+55 11 90000-0000$/)
 })

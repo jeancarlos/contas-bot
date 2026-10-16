@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { test } from 'node:test'
-import type { downloadMediaMessage, proto, WAMessage } from '@whiskeysockets/baileys'
+import type { downloadMediaMessage, proto, WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import {
   download,
@@ -16,6 +16,7 @@ import {
   resolveInviteCodes,
   reportStatus,
   resolveOpenJids,
+  toEdit,
   toMessage,
   wireGroupEvents,
 } from '../../src/adapters/wa.ts'
@@ -844,4 +845,18 @@ test('a 👍 reaction to the bot question answers it', () => {
   assert.equal(must(toMessage(reaction, msgs)).text, '👍')
   s = step(s, reaction, msgs)
   assert.equal(s.months['2026-10']?.[1]?.amount, 8000)
+})
+
+test('an edit timestamp in the future is clamped to now', () => {
+  const recent: Recent = new Map()
+  const future = Math.floor(Date.UTC(2031, 0, 15) / 1000)
+  const u: WAMessageUpdate = {
+    key: { remoteJid: G, id: 'E1', fromMe: false, participant: P },
+    update: { message: { editedMessage: { message: { conversation: '/pago luz 80' } } }, messageTimestamp: future },
+  }
+  assert.equal(must(toEdit(u, recent, () => OCT)).at, OCT)
+  const s = decide(billsState('Luz'), must(toEdit(u, recent, () => OCT)), ctxPt).state
+  assert.deepEqual(Object.keys(s.months), ['2026-10'])
+  const past = { ...u, update: { ...u.update, messageTimestamp: OCT / 1000 - 60 } }
+  assert.equal(must(toEdit(past, recent, () => OCT)).at, OCT - 60_000)
 })

@@ -5,7 +5,6 @@ export type Bill = { id: number; name: string; key: string; paused: boolean; rem
 export type AmountStatus = 'typed' | 'read' | 'pending' | 'none'
 export type Payment = { amount: number | null; status: AmountStatus; by: string; paidAt: number; messageId: string }
 export type Handled = { id: string; changed: boolean; warned: boolean }
-// A question the bot is waiting on: only the asker's next plain message can answer it.
 export type Ask = { who: string; at: number } & (
   | { q: 'amount'; month: string; billId: number; messageId: string }
   | {
@@ -16,7 +15,8 @@ export type Ask = { who: string; at: number } & (
       month: string | null
       media?: MediaRef
     }
-  | { q: 'bill'; media: MediaRef }
+  | { q: 'bill'; choices: number[]; amount: number | null; month: string | null; media?: MediaRef }
+  | { q: 'oneOff'; name: string; key: string; amount: number | null; month: string | null; media?: MediaRef }
 )
 export type GroupState = {
   bills: Bill[]
@@ -25,7 +25,6 @@ export type GroupState = {
   handled: Handled[]
   pinnedId: string | null
   lastReset: string | null
-  // ponytail: in memory only (a MediaRef cannot be stored), so a restart drops open questions; persist if that bites.
   asks: Ask[]
 }
 
@@ -40,7 +39,6 @@ export const emptyState = (): GroupState => ({
 })
 
 export type MsgKey = { id: string; fromMe: boolean; remoteJid: string; participant?: string }
-// The handle rides in state while a question is open, so it must survive structuredClone.
 export type MediaRef = { mime: string; handle: unknown }
 
 export type MessageInput = {
@@ -58,8 +56,19 @@ export type Input =
   | MessageInput
   | EditInput
   | { kind: 'amountRead'; key: MsgKey; month: string; billId: number; amount: number | null; at: number }
+  | { kind: 'billPicked'; pick: PickBill; billId: number | null; amount: number | null }
   | { kind: 'listPosted'; messageId: string }
   | { kind: 'tick'; at: number }
+
+export type PickBill = {
+  to: MsgKey
+  sender: string
+  at: number
+  media: MediaRef
+  month: string | null
+  amount: number | null
+  bills: { id: number; name: string }[]
+}
 
 export type ListItem = { name: string; paused: boolean; paid: boolean; amount: number | null }
 export type ListMsg = { k: 'list'; month: string; items: ListItem[] }
@@ -81,6 +90,8 @@ export type Msg =
   | { k: 'askAmount'; bill: string }
   | { k: 'askConfirm'; cmd: 'pago' | 'despago'; bill: string; amount: number | null; month: string | null }
   | { k: 'askBill'; names: string[] }
+  | { k: 'askOneOff'; name: string }
+  | { k: 'noAmount' }
   | { k: 'editIgnored' }
   | { k: 'nameTaken'; name: string }
   | { k: 'nameInvalid' }
@@ -92,3 +103,4 @@ export type Effect =
   | { kind: 'pin'; messageId: string }
   | { kind: 'unpin'; messageId: string }
   | { kind: 'readAmount'; to: MsgKey; media: MediaRef; month: string; billId: number }
+  | ({ kind: 'pickBill' } & PickBill)

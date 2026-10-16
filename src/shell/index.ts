@@ -47,7 +47,7 @@ if (groups.size === 0 && inviteCodes.length === 0)
   log.warn(
     'serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_INVITE_LINKS and restart',
   )
-else log.info({ groups: [...groups], inviteCodes }, 'serving groups')
+else log.info({ groups: [...groups], inviteLinks: inviteCodes.length }, 'serving groups')
 const cached = cachedGroups(store, inviteCodes)
 for (const jid of cached.jids) groups.add(jid)
 

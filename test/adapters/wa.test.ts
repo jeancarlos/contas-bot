@@ -1006,3 +1006,32 @@ test('a download takes an abort signal: refused up front, handed to Baileys, and
   assert.equal(given, abort.signal)
   assert.equal(stream.destroyed, true)
 })
+
+test('an abort also cuts the steps before the stream: the download call and a media re-upload', async () => {
+  const msgs: Messages = new Map()
+  const m = must(
+    toMessage(
+      wam('A2', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
+  const stuckDl = (async () => new Promise(() => {})) as unknown as typeof downloadMediaMessage
+  const viaReupload = (async (
+    msg: WAMessage,
+    _t: string,
+    _o: unknown,
+    c: { reuploadRequest(x: WAMessage): Promise<WAMessage> },
+  ) => {
+    await c.reuploadRequest(msg)
+    return Readable.from([Buffer.from('x')])
+  }) as unknown as typeof downloadMediaMessage
+  const stuckReupload = { reuploadRequest: () => new Promise<WAMessage>(() => {}), logger: silent }
+  for (const [dl, c] of [
+    [stuckDl, ctx],
+    [viaReupload, stuckReupload],
+  ] as const) {
+    const abort = new AbortController()
+    setTimeout(() => abort.abort(new Error('receipt read timed out')), 5)
+    await assert.rejects(download(must(m.media), msgs, c, dl, abort.signal), /timed out/)
+  }
+})

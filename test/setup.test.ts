@@ -21,6 +21,7 @@ import {
   missingAnswers,
   probeAi,
   allowEmpty,
+  envSafe,
   type Answers,
 } from '../src/setup/core.ts'
 
@@ -267,6 +268,39 @@ test('savedIds reuses numeric PUID/PGID and falls back otherwise', () => {
   assert.deepEqual(savedIds({ PUID: '1234', PGID: '99' }, 1000, 1001), [1234, 99])
   assert.deepEqual(savedIds({ PUID: 'x' }, 1000, 1001), [1000, 1001])
   assert.deepEqual(savedIds({}, 1000, 1001), [1000, 1001])
+})
+
+test('values that compose would expand or cut are single-quoted and read back unchanged', () => {
+  const tricky = 'sk-ab$HOME-x #tail'
+  const a: Answers = { ...base, ai: 'custom', llmUrl: 'http://h:1/v1?a=$X', llmKey: tricky, visionModel: 'm #1' }
+  const text = buildEnv(a, 1000, 1000)
+  assert.match(text, /^LLM_API_KEY='sk-ab\$HOME-x #tail'$/m)
+  assert.match(text, /^LLM_VISION_MODEL='m #1'$/m)
+  assert.match(text, /^LLM_BASE_URL='http:\/\/h:1\/v1\?a=\$X'$/m)
+  assert.match(text, /^BOT_LANG=pt-BR$/m)
+  assert.match(text, /^TZ=America\/Sao_Paulo$/m)
+  const env = parseEnv(text)
+  assert.equal(env.LLM_API_KEY, tricky)
+  const back = answersFromDotenv(env)
+  assert.equal(back.llmKey, tricky)
+  assert.equal(back.llmUrl, 'http://h:1/v1?a=$X')
+  assert.equal(back.visionModel, 'm #1')
+  assert.equal(parseEnv("A='x'\nB=''\nC='\nD=it's").A, 'x')
+  assert.deepEqual(parseEnv("B=''\nC='\nD=it's"), { B: '', C: "'", D: "it's" })
+})
+
+test('a value with a single quote or a line break is refused at the prompt and never written', () => {
+  assert.equal(envSafe('sk-ab$HOME #x'), true)
+  assert.equal(envSafe("it's"), false)
+  assert.equal(envSafe('a\nb'), false)
+  assert.equal(envSafe('a\rb'), false)
+  assert.throws(() => buildEnv({ ...base, llmKey: "it's" }, 1, 1), /LLM_API_KEY/)
+  assert.throws(
+    () => buildEnv({ ...base, ai: 'custom', llmUrl: 'http://h', visionModel: 'a\nb' }, 1, 1),
+    /LLM_VISION_MODEL/,
+  )
+  assert.equal(answersFromEnv({ CONTAS_BOT_LLM_KEY: "it's" }).llmKey, undefined)
+  assert.equal(answersFromEnv({ CONTAS_BOT_VISION_MODEL: "it's" }).visionModel, undefined)
 })
 
 test('allowEmpty: only without history, and only on a fresh install or with the saved consent', () => {

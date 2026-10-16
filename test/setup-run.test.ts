@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -116,4 +116,16 @@ test('an update with no history but a saved consent goes ahead and keeps the con
   assert.equal(r.status, 0, r.stderr)
   assert.match(await readFile(join(dir, '.env'), 'utf8'), /^ALLOW_EMPTY_STATE=1$/m)
   assert.match(await readFile(join(dir, 'docker-compose.yml'), 'utf8'), /contas-bot:2\.0\.0/)
+})
+
+test('data/ is private to the owner, on install and on update of an older folder', async () => {
+  const fresh = await mkdtemp(join(tmpdir(), 'setup-'))
+  assert.equal(run(fresh, answers).status, 0)
+  assert.equal((await stat(join(fresh, 'data'))).mode & 0o777, 0o700)
+  const old = await mkdtemp(join(tmpdir(), 'setup-'))
+  await paired1x(old, 'BOT_LANG=en\n')
+  await history(old)
+  await chmod(join(old, 'data'), 0o755)
+  assert.equal(run(old, {}).status, 0)
+  assert.equal((await stat(join(old, 'data'))).mode & 0o777, 0o700)
 })

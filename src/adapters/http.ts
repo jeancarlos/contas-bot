@@ -3,13 +3,14 @@ import { listMsg } from '../core/decide.ts'
 import { formatMoney, WORDS } from '../core/i18n.ts'
 import { monthTitle } from '../core/month.ts'
 import { lastMonths, monthTotals, paymentRows, slug } from '../core/report.ts'
-import type { Locale } from '../core/types.ts'
+import type { GroupState, Locale } from '../core/types.ts'
 import type { Store } from './store.ts'
 
 export type HttpDeps = {
   store: Pick<Store, 'groups' | 'load'>
   locale: Locale
   currentMonth(): string
+  served(): string[]
   connected(): boolean
   log: { warn(o: object, m?: string): void }
 }
@@ -17,6 +18,20 @@ type Reply = { status: number; type: string; body: string }
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 const MAX_SPAN = 120
+const HEADERS = {
+  'cache-control': 'no-store',
+  'x-content-type-options': 'nosniff',
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+}
+
+export function httpPort(raw: string | undefined, log: HttpDeps['log']): number {
+  const v = (raw ?? '').trim()
+  if (v === '' || v === '0') return 0
+  const n = Number(v)
+  if (/^\d+$/.test(v) && n >= 1 && n <= 65535) return n
+  log.warn({ HTTP_PORT: v }, 'HTTP_PORT is not a port from 1 to 65535: http server off')
+  return 0
+}
 const label = (v: string) => v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
 const html = (v: string) =>
   v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
@@ -26,11 +41,21 @@ const monthIndex = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5)
 
 function groups(d: HttpDeps) {
   const out = []
-  for (const jid of d.store.groups()) {
+  const served = new Set(d.served())
+  for (const jid of d.store.groups().filter(j => served.has(j))) {
     const state = d.store.load(jid)
     if (state) out.push({ id: slug(jid), state })
   }
   return out
+}
+
+function paidLines(g: { id: string; state: GroupState }, current: string): string[] {
+  const paid = new Map<string, number>()
+  for (const i of listMsg(g.state, current).items)
+    if (i.paid && !i.paused && i.amount !== null) paid.set(i.name, (paid.get(i.name) ?? 0) + i.amount)
+  return [...paid].map(
+    ([name, cents]) => `contas_paid_amount{group="${label(g.id)}",bill="${label(name)}"} ${String(cents / 100)}`,
+  )
 }
 
 export function renderMetrics(d: HttpDeps): string {
@@ -44,10 +69,7 @@ export function renderMetrics(d: HttpDeps): string {
     lines.push(`contas_bills_unpaid{group="${label(g.id)}"} ${unpaid}`)
   }
   lines.push('# TYPE contas_paid_amount gauge')
-  for (const g of gs)
-    for (const i of listMsg(g.state, current).items)
-      if (i.paid && i.amount !== null)
-        lines.push(`contas_paid_amount{group="${label(g.id)}",bill="${label(i.name)}"} ${String(i.amount / 100)}`)
+  for (const g of gs) lines.push(...paidLines(g, current))
   lines.push('# TYPE contas_month_total gauge')
   for (const g of gs)
     for (const t of monthTotals(g.state, months))
@@ -82,8 +104,8 @@ function renderDashboard(d: HttpDeps): string {
 
 function range(d: HttpDeps, url: URL): { from: string; to: string } | null {
   const current = d.currentMonth()
-  const from = url.searchParams.get('from') ?? lastMonths(current, 24)[0] ?? current
   const to = url.searchParams.get('to') ?? current
+  const from = url.searchParams.get('from') ?? (MONTH.test(to) ? lastMonths(to, 24)[0] : undefined) ?? current
   if (!MONTH.test(from) || !MONTH.test(to) || from > to) return null
   return monthIndex(to) - monthIndex(from) > MAX_SPAN ? null : { from, to }
 }
@@ -156,8 +178,6 @@ export function handle(d: HttpDeps, url: URL): Reply {
       return text(404, 'text/plain; charset=utf-8', 'not found\n')
   }
 }
-
-const HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
 
 function route(d: HttpDeps, method: string | undefined, raw: string | undefined): Reply {
   if (method !== 'GET') return text(405, 'text/plain; charset=utf-8', 'method not allowed\n')

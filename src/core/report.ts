@@ -23,12 +23,13 @@ export function lastMonths(current: string, n: number): string[] {
 
 export function monthTotals(state: GroupState, months: readonly string[]): MonthTotal[] {
   return months.map(month => {
-    const items = listMsg(state, month).items
+    const active = listMsg(state, month).items.filter(i => !i.paused)
+    const done = active.filter(i => i.paid)
     return {
       month,
-      total: items.reduce((sum, i) => sum + (i.amount ?? 0), 0),
-      paid: items.filter(i => i.paid).length,
-      unpaid: items.filter(i => !i.paid && !i.paused).length,
+      total: done.reduce((sum, i) => sum + (i.amount ?? 0), 0),
+      paid: done.length,
+      unpaid: active.length - done.length,
     }
   })
 }

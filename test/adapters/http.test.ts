@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
 import { type AddressInfo, connect } from 'node:net'
 import { test } from 'node:test'
-import { handle, type HttpDeps, renderMetrics, startHttp } from '../../src/adapters/http.ts'
-import { makeLocale } from '../../src/core/i18n.ts'
+import { handle, type HttpDeps, httpPort, renderMetrics, startHttp } from '../../src/adapters/http.ts'
+import { listMsg } from '../../src/core/decide.ts'
+import { makeLocale, render } from '../../src/core/i18n.ts'
 import type { GroupState } from '../../src/core/types.ts'
 
 const AT = Date.UTC(2026, 9, 5, 12)
@@ -33,6 +34,7 @@ function deps(over: Partial<HttpDeps> = {}, luz = 'Luz'): HttpDeps {
     currentMonth: () => '2026-10',
     connected: () => true,
     log: { warn: () => {} },
+    served: () => Object.keys(data),
     ...over,
   }
 }
@@ -159,6 +161,8 @@ test('startHttp serves, survives a throw and refuses non-GET', async () => {
     const ok = await fetch(`${url}/metrics`)
     assert.equal(ok.headers.get('cache-control'), 'no-store')
     assert.equal(ok.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(ok.headers.get('content-security-policy'), "default-src 'none'; style-src 'unsafe-inline'")
+    assert.equal((await fetch(`${url}/summary.json`)).headers.get('cache-control'), 'no-store')
     const bad = await rawGet(server, 'http://[')
     assert.match(bad, /^HTTP\/1\.1 400/)
     assert.equal(warns.length, 1)
@@ -206,4 +210,56 @@ test('summary.json lists a removed bill only when paid this month', () => {
   )
   assert.ok(!bills.some(b => b.name === 'Morta'))
   assert.equal(j.groups[0]?.unpaid, 2)
+})
+
+test('paused paid bills stay out of totals and match the pinned list footer', () => {
+  const s = state('Luz')
+  const month = s.months['2026-10']
+  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M4' }
+  const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
+  const footer = render(listMsg(s, '2026-10'), d.locale).split('\n').at(-1) ?? ''
+  assert.ok(footer.includes('1/3') && footer.includes('R$ 80,10'))
+  const m = renderMetrics(d)
+  assert.ok(m.includes('contas_month_total{group="grupo",month="2026-10"} 80.1\n'))
+  assert.ok(!m.includes('Net, Fibra'))
+  assert.equal((JSON.parse(get(d, '/summary.json').body) as { groups: { total: number }[] }).groups[0]?.total, 80.1)
+  assert.ok(!get(d, '/').body.includes('R$ 110,10'))
+})
+
+test('groups the bot does not serve appear on no route', () => {
+  const d = deps({ served: () => ['grupo@g.us'] })
+  assert.ok(!renderMetrics(d).includes('outro'))
+  assert.ok(!get(d, '/summary.json').body.includes('outro'))
+  assert.ok(!get(d, '/').body.includes('outro'))
+  assert.ok(!get(d, '/export.json?from=2026-09').body.includes('outro'))
+  assert.ok(get(d, '/export.json?from=2026-09').body.includes('grupo'))
+})
+
+test('same-name bills in one month emit a single summed paid_amount sample', () => {
+  const s = state('Luz')
+  s.bills.push({ id: 5, name: 'Luz', key: 'luz', paused: false, removed: true })
+  const month = s.months['2026-10']
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M5' }
+  const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
+  const lines = renderMetrics(d)
+    .split('\n')
+    .filter(l => l.startsWith('contas_paid_amount{group="grupo",bill="Luz"'))
+  assert.deepEqual(lines, ['contas_paid_amount{group="grupo",bill="Luz"} 90.1'])
+})
+
+test('export with only a to older than 24 months defaults from to 24 months before it', () => {
+  assert.equal(get(deps(), '/export.json?to=2020-05').status, 200)
+})
+
+test('httpPort: unset, empty and 0 are off silently; invalid is off with one warning', () => {
+  const warns: object[] = []
+  const log = { warn: (o: object) => warns.push(o) }
+  assert.deepEqual(
+    [undefined, '', '0', ' '].map(v => httpPort(v, log)),
+    [0, 0, 0, 0],
+  )
+  assert.equal(warns.length, 0)
+  assert.equal(httpPort('8080', log), 8080)
+  for (const bad of ['abc', '-1', '65536', '80.5', '1e3']) assert.equal(httpPort(bad, log), 0)
+  assert.equal(warns.length, 5)
 })

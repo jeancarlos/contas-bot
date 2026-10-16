@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import pino from 'pino'
-import { startHttp } from '../adapters/http.ts'
+import { httpPort, startHttp } from '../adapters/http.ts'
 import { openStore } from '../adapters/store.ts'
 import { connectWa, parseGroupJids } from '../adapters/wa.ts'
 import { loadGif, loadReleases } from '../announce.ts'
@@ -52,19 +52,20 @@ const cached = cachedGroups(store, inviteCodes)
 for (const jid of cached.jids) groups.add(jid)
 
 let connected = false
-const httpPort = Number(env('HTTP_PORT', '8080'))
-if (httpPort > 0) {
+const port = httpPort(env('HTTP_PORT'), log)
+if (port > 0) {
   startHttp(
     {
       store,
       locale,
       currentMonth: () => monthOf(Date.now(), locale.timeZone),
+      served: () => [...groups],
       connected: () => connected,
       log,
     },
-    httpPort,
+    port,
   ).then(
-    () => log.info({ port: httpPort }, 'http server listening'),
+    () => log.info({ port }, 'http server listening'),
     err => log.error({ err }, 'http server failed to start, continuing without it'),
   )
 }

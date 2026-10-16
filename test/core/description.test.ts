@@ -94,7 +94,7 @@ function imported(): GroupState {
   ]
   s.nextBillId = 4
   s.lastReset = '2026-10'
-  s.months = { '2026-09': { 2: { amount: 5000, status: 'typed', by: 'Gabi', paidAt: 1, messageId: 'x' } } }
+  s.months = { '2026-09': { 2: { amount: 5000, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'x' } } }
   return s
 }
 

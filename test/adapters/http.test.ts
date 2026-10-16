@@ -17,8 +17,8 @@ const state = (name: string): GroupState => ({
   ],
   nextBillId: 5,
   months: {
-    '2026-10': { 1: { amount: 8010, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M1' } },
-    '2026-09': { 4: { amount: null, status: 'none', by: 'Gabi', paidAt: AT, messageId: 'M2' } },
+    '2026-10': { 1: { amount: 8010, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M1' } },
+    '2026-09': { 4: { amount: null, status: 'none', by: 'Ana', paidAt: AT, messageId: 'M2' } },
   },
   handled: [],
   pinnedId: null,
@@ -79,8 +79,8 @@ test('csv header, quoting and json rows', () => {
   assert.equal(csv.status, 200)
   const lines = csv.body.trimEnd().split('\r\n')
   assert.equal(lines[0], 'group,month,bill,amount,status,paid_by,paid_at')
-  assert.ok(lines.includes('grupo,2026-10,Luz,80.1,typed,Gabi,2026-10-05T12:00:00.000Z'))
-  assert.ok(lines.includes('grupo,2026-09,"Net, Fibra",,none,Gabi,2026-10-05T12:00:00.000Z'))
+  assert.ok(lines.includes('grupo,2026-10,Luz,80.1,typed,Ana,2026-10-05T12:00:00.000Z'))
+  assert.ok(lines.includes('grupo,2026-09,"Net, Fibra",,none,Ana,2026-10-05T12:00:00.000Z'))
   const rows = JSON.parse(get(d, '/export.json').body)
   assert.deepEqual(rows[1], {
     group: 'grupo',
@@ -88,7 +88,7 @@ test('csv header, quoting and json rows', () => {
     bill: 'Luz',
     amountCents: 8010,
     status: 'typed',
-    by: 'Gabi',
+    by: 'Ana',
     paidAt: AT,
     amount: 80.1,
   })
@@ -199,7 +199,7 @@ test('summary.json lists a removed bill only when paid this month', () => {
     { id: 6, name: 'Morta', key: 'morta', paused: false, removed: true },
   )
   const month = s.months['2026-10']
-  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M3' }
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M3' }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const j = JSON.parse(get(d, '/summary.json').body) as {
     groups: { unpaid: number; bills: { name: string; paid: boolean }[] }[]
@@ -216,7 +216,7 @@ test('summary.json lists a removed bill only when paid this month', () => {
 test('paused paid bills stay out of totals and match the pinned list footer', () => {
   const s = state('Luz')
   const month = s.months['2026-10']
-  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M4' }
+  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M4' }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const footer = render(listMsg(s, '2026-10'), d.locale).split('\n').at(-1) ?? ''
   assert.ok(footer.includes('1/3') && footer.includes('R$ 80,10'))
@@ -240,7 +240,7 @@ test('same-name bills in one month emit a single summed paid_amount sample', () 
   const s = state('Luz')
   s.bills.push({ id: 5, name: 'Luz', key: 'luz', paused: false, removed: true })
   const month = s.months['2026-10']
-  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M5' }
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M5' }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const lines = renderMetrics(d)
     .split('\n')

@@ -131,7 +131,7 @@ let seq = 0
 const msg = (text: string, extra: Partial<Extract<Input, { kind: 'message' }>> = {}) => ({
   kind: 'message' as const,
   key: { id: `m${++seq}`, fromMe: false, remoteJid: JID, participant: 'p@s.whatsapp.net' },
-  sender: 'Gabi',
+  sender: 'Ana',
   text,
   at: OCT,
   ...extra,
@@ -259,7 +259,7 @@ test('a new release is announced once to an existing group, as a gif with a text
 
 test('only the first join after a start turns pending amounts into none, quoting the receipt', async () => {
   const s = bills('Luz')
-  s.months['2026-10'] = { 1: { amount: null, status: 'pending', by: 'Gabi', paidAt: OCT, messageId: 'r1' } }
+  s.months['2026-10'] = { 1: { amount: null, status: 'pending', by: 'Ana', paidAt: OCT, messageId: 'r1' } }
   const { shell, store, calls } = setup({ state: s, meta: MIGRATED })
   await shell.join(JID)
   await shell.idle()

@@ -35,7 +35,7 @@ const must = <T>(v: T | null | undefined): T => {
 const wam = (id: string, message: proto.IMessage, extra: Partial<WAMessage> = {}): WAMessage => ({
   key: { id, remoteJid: G, fromMe: false, participant: P },
   message,
-  pushName: 'Gabi',
+  pushName: 'Ana',
   messageTimestamp: TS,
   ...extra,
 })
@@ -95,8 +95,8 @@ test('an offline append batch becomes message inputs with the WhatsApp timestamp
   assert.deepEqual(
     seen.map(i => [i.kind, i.key.id, i.text, i.at, i.sender]),
     [
-      ['message', 'a1', '/pago luz', TS * 1000, 'Gabi'],
-      ['message', 'a2', '/pago água 80', (TS + 60) * 1000, 'Gabi'],
+      ['message', 'a1', '/pago luz', TS * 1000, 'Ana'],
+      ['message', 'a2', '/pago água 80', (TS + 60) * 1000, 'Ana'],
     ],
   )
 })
@@ -114,7 +114,7 @@ test('an edit arrives from messages.update with the original id and media; its o
       },
     },
   }
-  ev.fire('messages.upsert', { type: 'notify', messages: [wam('e1', protocol, { pushName: 'Gabi' })] })
+  ev.fire('messages.upsert', { type: 'notify', messages: [wam('e1', protocol, { pushName: 'Ana' })] })
   ev.fire('messages.update', [
     { key: { remoteJid: G, id: 'r1', fromMe: false, participant: P }, update: { status: 4 } },
     {
@@ -134,7 +134,7 @@ test('an edit arrives from messages.update with the original id and media; its o
   )
   const edit = must(seen[1])
   assert.equal(edit.at, (TS + 100) * 1000)
-  assert.equal(edit.sender, 'Gabi')
+  assert.equal(edit.sender, 'Ana')
   assert.equal(edit.media?.mime, 'image/jpeg')
 })
 
@@ -221,7 +221,7 @@ test('edits only remember the media of the newest 500 messages', () => {
     edits.map(e => [e.key.id, e.media?.mime, e.sender]),
     [
       ['m0', undefined, P],
-      ['m500', 'image/jpeg', 'Gabi'],
+      ['m500', 'image/jpeg', 'Ana'],
     ],
   )
 })
@@ -415,7 +415,7 @@ test('participantsIncludeSelf is true when the bot is among the participants, by
 
 test('participantsIncludeSelf is false when the participants are somebody else', () => {
   const me = ['bot@s.whatsapp.net', 'bot@lid']
-  assert.equal(participantsIncludeSelf(me, [{ id: 'gabi@s.whatsapp.net' }]), false)
+  assert.equal(participantsIncludeSelf(me, [{ id: 'ana@s.whatsapp.net' }]), false)
   assert.equal(participantsIncludeSelf(me, []), false)
 })
 
@@ -445,7 +445,7 @@ test('a remove event naming somebody else never reaches onRemoved', async () => 
     },
   })
   const me = ['bot@s.whatsapp.net']
-  if (participantsIncludeSelf(me, [{ id: 'gabi@s.whatsapp.net' }])) await g.onRemoved('mine@g.us')
+  if (participantsIncludeSelf(me, [{ id: 'ana@s.whatsapp.net' }])) await g.onRemoved('mine@g.us')
   assert.deepEqual(seen, [])
 })
 
@@ -487,12 +487,12 @@ test('wireGroupEvents: group-participants.update reaches onJoined on add-self an
   wireGroupEvents(ev, on, () => ['bot@s.whatsapp.net'], cfg)
   ev.fire('group-participants.update', {
     id: 'mine@g.us',
-    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    participants: [{ id: 'ana@s.whatsapp.net' }],
     action: 'add',
   })
   ev.fire('group-participants.update', {
     id: 'mine@g.us',
-    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    participants: [{ id: 'ana@s.whatsapp.net' }],
     action: 'remove',
   })
   for (const action of ['promote', 'demote', 'modify']) {

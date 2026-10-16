@@ -37,7 +37,7 @@ const gif = () =>
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),
-  visionModel: env('LLM_VISION_MODEL', 'cx/gpt-5.5'),
+  visionModel: env('LLM_VISION_MODEL', 'gpt-4o-mini'),
   currency: locale.currency,
 })
 if (!llm.enabled) log.warn('no LLM_BASE_URL: receipts are only paid when their caption names the bill')

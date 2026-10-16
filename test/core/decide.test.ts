@@ -318,6 +318,84 @@ test('a tick in an earlier month than lastReset does nothing', () => {
   assert.equal(r.state.lastReset, '2026-11')
 })
 
+test('join onboards a new group once: lastReset, the intro and the list, no demo bills', () => {
+  const r = decide(emptyState(), { kind: 'join', jid: 'g@g.us', at: OCT, startup: true }, ctx)
+  assert.equal(r.state.lastReset, '2026-10')
+  assert.deepEqual(r.state.bills, [])
+  assert.deepEqual(r.effects, [
+    { kind: 'send', msg: { k: 'intro' } },
+    { kind: 'postList', msg: { k: 'list', month: '2026-10', items: [] } },
+  ])
+  assert.deepEqual(decide(r.state, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false }, ctx).effects, [])
+})
+
+test('a startup join turns pending amounts into none once, quoting each receipt', () => {
+  const m = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
+  const k = m.kind === 'message' ? m.key : key()
+  const pending = decide(state('Luz'), m, ctx).state
+  const r = decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true }, ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.status, 'none')
+  assert.deepEqual(r.effects, [
+    { kind: 'reply', to: { id: k.id, fromMe: false, remoteJid: 'g@g.us' }, msg: { k: 'noAmount' } },
+  ])
+  assert.deepEqual(decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false }, ctx).effects, [])
+})
+
+test('an edit of a /conta change gets the neutral wording, an edit of a payment the /despago hint', () => {
+  const add = msg('/conta adiciona Gás')
+  const addKey = add.kind === 'message' ? add.key : key()
+  const added = decide(state('Luz'), add, ctx).state
+  const editAdd = decide(
+    added,
+    { kind: 'edit', key: addKey, sender: 'Gabi', text: '/conta adiciona Gas', at: OCT },
+    ctx,
+  )
+  assert.deepEqual(
+    editAdd.effects.flatMap(e => (e.kind === 'reply' ? [e.msg] : [])),
+    [{ k: 'editIgnored', payment: false }],
+  )
+  const pay = msg('/pago luz 80')
+  const payKey = pay.kind === 'message' ? pay.key : key()
+  const paid = decide(state('Luz'), pay, ctx).state
+  const editPay = decide(paid, { kind: 'edit', key: payKey, sender: 'Gabi', text: '/pago luz 90', at: OCT }, ctx)
+  assert.deepEqual(
+    editPay.effects.flatMap(e => (e.kind === 'reply' ? [e.msg] : [])),
+    [{ k: 'editIgnored', payment: true }],
+  )
+})
+
+test('an edited receipt caption is read like the original receipt', () => {
+  const media = { mime: 'image/png', handle: 'h' }
+  const typo = msg('/pago lux', { media })
+  const k = typo.kind === 'message' ? typo.key : key()
+  const after = decide(state('Luz'), typo, ctx).state
+  const r = decide(after, { kind: 'edit', key: k, sender: 'Gabi', text: '/pago luz', at: OCT, media }, ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.status, 'pending')
+  assert.deepEqual(kinds(r.effects), ['react', 'readAmount'])
+})
+
+test('/conta remove and renomeia need the exact name, pausa and continua take a unique prefix', () => {
+  let s = state('Luz', 'Internet')
+  const step = (text: string) => {
+    const r = decide(s, msg(text), ctx)
+    s = r.state
+    return replies(r.effects)
+  }
+  assert.deepEqual(step('/conta remove inter'), ['notFound'])
+  assert.deepEqual(step('/conta renomeia inter = Net'), ['notFound'])
+  assert.deepEqual(
+    s.bills.map(b => [b.name, b.removed]),
+    [
+      ['Luz', false],
+      ['Internet', false],
+    ],
+  )
+  assert.deepEqual(step('/conta pausa inter'), ['bills'])
+  assert.equal(s.bills[1]?.paused, true)
+  assert.deepEqual(step('/conta remove INTERNET'), ['bills'])
+  assert.equal(s.bills[1]?.removed, true)
+})
+
 test('/pago avulsa pays a one-off: on that month list, never a permanent bill', () => {
   const r = decide(state('Luz'), msg('/pago avulsa Farmácia R$ 45,90'), ctx)
   const bill = r.state.bills.find(b => b.name === 'Farmácia')

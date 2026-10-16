@@ -248,10 +248,10 @@ function unpay(d: Draft, billId: number, month: string, m: Cmd): boolean {
   return had
 }
 
-function findBill(d: Draft, name: string, to: MsgKey): Bill | null {
+function findBill(d: Draft, name: string, to: MsgKey, exact: boolean): Bill | null {
   const q = normalize(name)
   const bills = active(d.s)
-  const prefixed = bills.filter(b => b.key.startsWith(q))
+  const prefixed = exact ? [] : bills.filter(b => b.key.startsWith(q))
   const bill = bills.find(b => b.key === q) ?? (prefixed.length === 1 ? prefixed[0] : undefined)
   if (q && bill) return bill
   reply(d, to, { k: 'notFound', q: name, names: bills.map(b => b.name) })
@@ -310,7 +310,7 @@ function addBill(d: Draft, name: string, m: Cmd): boolean {
 }
 
 function renameBill(d: Draft, from: string, to: string, key: MsgKey): boolean {
-  const bill = findBill(d, from, key)
+  const bill = findBill(d, from, key, true)
   if (!bill) return false
   const newKey = validName(d, to, key, bill)
   if (!newKey) return false
@@ -328,7 +328,7 @@ function changeBill(d: Draft, c: Conta, m: Cmd): boolean {
     case 'remove':
     case 'pause':
     case 'resume': {
-      const bill = findBill(d, c.name, m.key)
+      const bill = findBill(d, c.name, m.key, c.sub === 'remove')
       if (!bill) return false
       if (c.sub === 'remove') bill.removed = true
       else bill.paused = c.sub === 'pause'
@@ -450,7 +450,7 @@ function onEdit(d: Draft, e: EditInput) {
   const h = d.s.handled.find(x => x.id === e.key.id)
   if (h ? h.changed : paidBy(d.s, e.key.id)) {
     if (h?.warned) return
-    reply(d, e.key, { k: 'editIgnored' })
+    reply(d, e.key, { k: 'editIgnored', payment: paidBy(d.s, e.key.id) })
     if (h) h.warned = true
     else remember(d.s, e.key.id, true, true)
     return
@@ -503,6 +503,23 @@ function onTick(d: Draft, at: number) {
   d.fx.push({ kind: 'postList', msg: listMsg(d.s, month) })
 }
 
+function onJoin(d: Draft, j: Extract<Input, { kind: 'join' }>) {
+  if (d.s.lastReset === null) {
+    const month = current(d, j.at)
+    d.s.lastReset = month
+    d.fx.push({ kind: 'send', msg: { k: 'intro' } })
+    d.fx.push({ kind: 'postList', msg: listMsg(d.s, month) })
+  }
+  if (!j.startup) return
+  for (const month of Object.values(d.s.months)) {
+    for (const p of Object.values(month)) {
+      if (p.status !== 'pending') continue
+      p.status = 'none'
+      reply(d, { id: p.messageId, fromMe: false, remoteJid: j.jid }, { k: 'noAmount' })
+    }
+  }
+}
+
 export function decide(state: GroupState, input: Input, ctx: Ctx): Result {
   const d: Draft = { s: structuredClone(state), fx: [], ctx }
   switch (input.kind) {
@@ -523,6 +540,9 @@ export function decide(state: GroupState, input: Input, ctx: Ctx): Result {
       break
     case 'tick':
       onTick(d, input.at)
+      break
+    case 'join':
+      onJoin(d, input)
       break
   }
   return { state: d.s, effects: d.fx }

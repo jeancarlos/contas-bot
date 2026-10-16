@@ -125,9 +125,28 @@ const ptBR: Catalog = {
   askBill: m => `qual conta? Responda o nome: ${m.names.join(', ')}`,
   askOneOff: m => `não achei "${m.name}". Responda *sim* pra lançar como avulsa, ou o nome da conta.`,
   noAmount: () => 'não li o valor do comprovante, marquei sem valor',
-  editIgnored: () => 'edição não altera pagamento: use /despago',
+  editIgnored: m =>
+    m.payment ? 'edição não altera pagamento: use /despago' : 'edição não refaz o comando: mande um novo',
   nameTaken: m => `já existe uma conta "${m.name}"`,
   nameInvalid: () => 'nome de conta vazio ou com mais de 40 caracteres',
+  intro: () =>
+    [
+      '👋 Oi! Eu sou o *contas-bot*, cuido da lista de contas do mês deste grupo.',
+      '',
+      '🧾 Cadastre as contas: /conta adiciona luz',
+      '📎 Pagou? Manda o comprovante (foto ou PDF) com a legenda /pago luz: eu marco e leio o valor.',
+      '📝 Sem comprovante: /pago luz 231,45',
+      '🤫 Só respondo a comandos: o resto da conversa eu ignoro.',
+      '📌 A lista fica sempre fixada, com o total do mês.',
+      '📅 Todo dia 1º começo uma lista nova.',
+      '',
+      '/ajuda mostra todos os comandos.',
+    ].join('\n'),
+  saveFailed: () => 'não consegui salvar, tenta de novo',
+  descriptionNotice: () =>
+    'não consegui editar a descrição do grupo: alguém apaga de lá a parte antiga do contas-bot? As contas agora ficam em /conta.',
+  descLine: () => '📋 contas: /conta · /lista · /ajuda',
+  moreChanges: m => `…e mais ${m.n}`,
 }
 
 const en: Catalog = {
@@ -167,9 +186,28 @@ const en: Catalog = {
   askBill: m => `which bill? Reply with its name: ${m.names.join(', ')}`,
   askOneOff: m => `couldn't find "${m.name}". Reply *yes* to record it as a one-off, or with the bill name.`,
   noAmount: () => "couldn't read the amount on the receipt, marked without one",
-  editIgnored: () => "an edit doesn't change a payment: use /unpaid",
+  editIgnored: m =>
+    m.payment ? "an edit doesn't change a payment: use /unpaid" : "an edit doesn't redo the command: send a new one",
   nameTaken: m => `there is already a bill "${m.name}"`,
   nameInvalid: () => 'bill name is empty or longer than 40 characters',
+  intro: () =>
+    [
+      "👋 Hi! I'm *contas-bot*, I keep this group's monthly bill list.",
+      '',
+      '🧾 Add the bills: /bill add power',
+      '📎 Paid something? Send the receipt (photo or PDF) captioned /paid power: I tick it and read the amount.',
+      '📝 No receipt: /paid power 231.45',
+      '🤫 I only answer commands: I ignore the rest of the chat.',
+      '📌 The list is always pinned, with the month total.',
+      '📅 Every 1st of the month I start a fresh list.',
+      '',
+      '/help shows every command.',
+    ].join('\n'),
+  saveFailed: () => "couldn't save, try again",
+  descriptionNotice: () =>
+    "I couldn't edit the group description: could someone delete the old contas-bot part there? Bills now live in /bill.",
+  descLine: () => '📋 bills: /bill · /list · /help',
+  moreChanges: m => `…and ${m.n} more`,
 }
 
 const es: Catalog = {
@@ -210,9 +248,28 @@ const es: Catalog = {
   askOneOff: m =>
     `no encontré "${m.name}". Responde *sí* para registrarlo como gasto suelto, o el nombre de la cuenta.`,
   noAmount: () => 'no leí el monto del comprobante, la marqué sin monto',
-  editIgnored: () => 'una edición no cambia el pago: usa /despagado',
+  editIgnored: m =>
+    m.payment ? 'una edición no cambia el pago: usa /despagado' : 'una edición no rehace el comando: envía uno nuevo',
   nameTaken: m => `ya existe una cuenta "${m.name}"`,
   nameInvalid: () => 'nombre de cuenta vacío o con más de 40 caracteres',
+  intro: () =>
+    [
+      '👋 ¡Hola! Soy *contas-bot*, llevo la lista de cuentas del mes de este grupo.',
+      '',
+      '🧾 Agrega las cuentas: /cuenta agrega luz',
+      '📎 ¿Pagaste algo? Manda el comprobante (foto o PDF) con el texto /pagado luz: la marco y leo el monto.',
+      '📝 Sin comprobante: /pagado luz 231,45',
+      '🤫 Solo respondo a comandos: el resto de la conversación lo ignoro.',
+      '📌 La lista queda siempre fijada, con el total del mes.',
+      '📅 Cada día 1 empiezo una lista nueva.',
+      '',
+      '/ayuda muestra todos los comandos.',
+    ].join('\n'),
+  saveFailed: () => 'no pude guardar, intenta de nuevo',
+  descriptionNotice: () =>
+    'no pude editar la descripción del grupo: ¿alguien borra de ahí la parte vieja de contas-bot? Las cuentas ahora están en /cuenta.',
+  descLine: () => '📋 cuentas: /cuenta · /lista · /ayuda',
+  moreChanges: m => `…y ${m.n} más`,
 }
 
 const CATALOGS: Record<Lang, Catalog> = { 'pt-BR': ptBR, en, es }
@@ -220,4 +277,30 @@ const CATALOGS: Record<Lang, Catalog> = { 'pt-BR': ptBR, en, es }
 export function render(msg: Msg, loc: Locale): string {
   const fn = CATALOGS[loc.lang][msg.k] as (m: Msg, l: Locale) => string
   return fn(msg, loc)
+}
+
+const isLang = (s: string): s is Lang => Object.hasOwn(CATALOGS, s)
+
+function validZone(tz: string): boolean {
+  if (!tz) return false
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function makeLocale(lang: string, currency: string, timeZone: string): Locale {
+  if (!isLang(lang)) throw new Error(`unsupported BOT_LANG "${lang}": use pt-BR, en or es`)
+  if (!/^[A-Za-z]{3}$/.test(currency))
+    throw new Error(`invalid BOT_CURRENCY "${currency}": use an ISO 4217 code like BRL, USD, EUR`)
+  const decimal =
+    new Intl.NumberFormat(lang).formatToParts(1.5).find(p => p.type === 'decimal')?.value === '.' ? '.' : ','
+  return {
+    lang,
+    currency: currency.toUpperCase(),
+    decimal,
+    timeZone: validZone(timeZone) ? timeZone : 'America/Sao_Paulo',
+  }
 }

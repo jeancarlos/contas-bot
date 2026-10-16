@@ -44,6 +44,8 @@ export type ShellDeps = {
   version: string
   announce?: { releases: Release[] | null; gif(): Promise<Buffer | null> }
   readTimeoutMs?: number
+  readGraceMs?: number
+  readWaitMs?: number
 }
 export type Shell = {
   handle(jid: string, input: Input): Promise<void>
@@ -56,8 +58,10 @@ export type Shell = {
 const NO_META: GroupMeta = { invite: null, announcedVersion: null, descriptionMigrated: false }
 const READ_TIMEOUT_MS = 90_000
 const RECEIPT_LANES = 2
+const LANE_GRACE_MS = 15_000
+const LANE_WAIT_MS = 600_000
 
-export function lanes(n: number) {
+export function lanes(n: number, limits = { graceMs: LANE_GRACE_MS, waitMs: LANE_WAIT_MS }) {
   let free = n
   const queues = new Map<string, (() => void)[]>()
   const release = () => {
@@ -71,26 +75,52 @@ export function lanes(n: number) {
     if (queue?.length) queues.set(group, queue)
     next()
   }
+  const leave = (group: string, go: () => void) => {
+    const queue = (queues.get(group) ?? []).filter(x => x !== go)
+    if (queue.length) queues.set(group, queue)
+    else queues.delete(group)
+  }
   const turn = (group: string) => {
     if (free > 0) {
       free--
-      return Promise.resolve()
+      return Promise.resolve(true)
     }
-    return new Promise<void>(resolve => {
-      queues.set(group, [...(queues.get(group) ?? []), resolve])
+    return new Promise<boolean>(resolve => {
+      const go = () => {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      const timer = setTimeout(() => {
+        leave(group, go)
+        resolve(false)
+      }, limits.waitMs)
+      queues.set(group, [...(queues.get(group) ?? []), go])
     })
   }
-  return async <T>(group: string, ms: number, work: (signal: AbortSignal) => Promise<T>): Promise<T | null> => {
-    await turn(group)
+  return async <T>(
+    group: string,
+    ms: number,
+    work: (signal: AbortSignal) => Promise<T>,
+    stuck?: () => void,
+  ): Promise<T | null> => {
+    if (!(await turn(group))) return null
     const abort = new AbortController()
-    const timer = setTimeout(() => abort.abort(new Error('receipt read timed out')), ms)
-    const deadline = new Promise<null>(resolve => abort.signal.addEventListener('abort', () => resolve(null)))
-    const running = work(abort.signal)
-    const settle = () => {
+    let held = true
+    const done = () => {
+      if (!held) return
+      held = false
       clearTimeout(timer)
+      clearTimeout(grace)
       release()
     }
-    void running.then(settle, settle)
+    const timer = setTimeout(() => abort.abort(new Error('receipt read timed out')), ms)
+    const grace = setTimeout(() => {
+      stuck?.()
+      done()
+    }, ms + limits.graceMs)
+    const deadline = new Promise<null>(resolve => abort.signal.addEventListener('abort', () => resolve(null)))
+    const running = work(abort.signal)
+    void running.then(done, done)
     return Promise.race([running, deadline])
   }
 }
@@ -119,9 +149,14 @@ export function makeShell(d: ShellDeps): Shell {
   const asks = new Map<string, GroupState['asks']>()
   const reading = new Set<{ jid: string; id: string }>()
   const unasked = (s: GroupState): GroupState => ({ ...s, asks: [] })
-  const lane = lanes(RECEIPT_LANES)
-  const bounded = <T>(jid: string, work: (signal: AbortSignal) => Promise<T>) =>
-    lane(jid, d.readTimeoutMs ?? READ_TIMEOUT_MS, work)
+  const lane = lanes(RECEIPT_LANES, {
+    graceMs: d.readGraceMs ?? LANE_GRACE_MS,
+    waitMs: d.readWaitMs ?? LANE_WAIT_MS,
+  })
+  const bounded = <T>(jid: string, id: string, work: (signal: AbortSignal) => Promise<T>) =>
+    lane(jid, d.readTimeoutMs ?? READ_TIMEOUT_MS, work, () =>
+      d.log.warn({ jid, id }, 'receipt read ignored its abort: lane released'),
+    )
 
   const handle = (jid: string, input: Input) => box(jid, () => step(jid, input))
   const follow = (p: Promise<void>) => {
@@ -170,7 +205,7 @@ export function makeShell(d: ShellDeps): Shell {
   }
 
   async function pickBill(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>) {
-    const { billId, amount } = (await bounded(jid, signal => pickReceipt(jid, fx, signal))) ?? {
+    const { billId, amount } = (await bounded(jid, fx.to.id, signal => pickReceipt(jid, fx, signal))) ?? {
       billId: null,
       amount: null,
     }
@@ -181,7 +216,7 @@ export function makeShell(d: ShellDeps): Shell {
     const read = { jid, id: fx.to.id }
     reading.add(read)
     try {
-      const amount = await bounded(jid, signal => readReceipt(jid, fx.media, signal))
+      const amount = await bounded(jid, fx.to.id, signal => readReceipt(jid, fx.media, signal))
       await handle(jid, { kind: 'amountRead', key: fx.to, month: fx.month, billId: fx.billId, amount, at: d.now() })
     } finally {
       reading.delete(read)

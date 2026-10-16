@@ -274,6 +274,16 @@ function trustedHost(msg: WAMessage): boolean {
   return trustedUrl(`https://${given?.host ?? 'mmg.whatsapp.net'}${directPath}`) !== null
 }
 
+function abortable(signal: AbortSignal | undefined) {
+  if (!signal) return <T>(p: Promise<T>) => p
+  const aborted = new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason)
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+  aborted.catch(() => {})
+  return <T>(p: Promise<T>) => Promise.race([p, aborted])
+}
+
 export async function download(
   media: MediaRef,
   msgs: Messages,
@@ -288,12 +298,18 @@ export async function download(
   if (!msg) throw new Error('receipt expired')
   if (!msg.key.remoteJid || !h.id.startsWith(`${msg.key.remoteJid}:`)) throw new Error('receipt group mismatch')
   if (!trustedHost(msg)) throw new Error('receipt host refused')
+  const raced = abortable(signal)
   const reuploadRequest = async (m: WAMessage) => {
-    const fresh = await ctx.reuploadRequest(m)
+    const fresh = await raced(ctx.reuploadRequest(m))
     if (!trustedHost(fresh)) throw new Error('receipt host refused')
     return fresh
   }
-  const stream = await dl(msg, 'stream', signal ? { options: { signal } } : {}, { ...ctx, reuploadRequest })
+  const opening = dl(msg, 'stream', signal ? { options: { signal } } : {}, { ...ctx, reuploadRequest })
+  void opening.then(
+    late => signal?.aborted && late.destroy(),
+    () => {},
+  )
+  const stream = await raced(opening)
   const stop = () => stream.destroy(signal?.reason)
   signal?.addEventListener('abort', stop, { once: true })
   if (signal?.aborted) stop()

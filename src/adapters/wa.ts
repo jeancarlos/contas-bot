@@ -46,6 +46,7 @@ type Num = Parameters<typeof toNumber>[0]
 const PAIRING_CODE_TTL_MS = 180_000
 const MAX_RECEIPT = 16 * 1024 * 1024
 const RECENT_MAX = 500
+const MAX_TEXT = 2000
 
 export function pairingAction(phone: string): 'code' | 'unpaired' {
   return phone ? 'code' : 'unpaired'
@@ -94,12 +95,12 @@ export async function resolveInviteCodes(
         cfg.groups.add(id)
         codes.splice(codes.indexOf(code), 1)
         cfg.log.info(
-          { code, jid: id, subject },
+          { jid: id, subject },
           'resolved invite link; put this jid in GROUP_INVITE_LINKS directly to stop depending on the link',
         )
         await cfg.onResolved?.(code, id)
       } catch (err) {
-        cfg.log.warn({ err, code }, 'invite link resolution failed')
+        cfg.log.warn({ err }, 'invite link resolution failed')
       }
     }),
   )
@@ -168,12 +169,12 @@ function textOf(c: Content): string {
     c.documentMessage?.caption ??
     (c.reactionMessage?.key?.fromMe ? c.reactionMessage.text : null) ??
     ''
-  return raw.replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
+  return raw.slice(0, MAX_TEXT).replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function mediaOf(c: Content, id: string, msg: WAMessage, msgs: Messages): MediaRef | undefined {
   const ref = (mime: string, size: Num, message: Content): MediaRef => {
-    msgs.set(id, { key: msg.key, message })
+    if (!msgs.has(id)) msgs.set(id, { key: msg.key, message })
     const handle: Handle = { id, size: toNumber(size) }
     return { mime, handle }
   }
@@ -281,7 +282,12 @@ export async function download(
   if (!msg) throw new Error('receipt expired')
   if (!msg.key.remoteJid || !h.id.startsWith(`${msg.key.remoteJid}:`)) throw new Error('receipt group mismatch')
   if (!trustedHost(msg)) throw new Error('receipt host refused')
-  const stream = await dl(msg, 'stream', {}, ctx)
+  const reuploadRequest = async (m: WAMessage) => {
+    const fresh = await ctx.reuploadRequest(m)
+    if (!trustedHost(fresh)) throw new Error('receipt host refused')
+    return fresh
+  }
+  const stream = await dl(msg, 'stream', {}, { ...ctx, reuploadRequest })
   const chunks: Buffer[] = []
   let total = 0
   for await (const chunk of stream) {

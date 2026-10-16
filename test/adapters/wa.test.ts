@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { test } from 'node:test'
 import type { downloadMediaMessage, proto, WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys'
+import { getUrlFromDirectPath } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import {
   download,
@@ -152,14 +153,14 @@ test('a reply quoting an image carries the quoted receipt, downloaded with a re-
   const reuploadRequest = async (x: WAMessage) => x
   const got: { key: unknown; reupload: unknown }[] = []
   const dl = (async (msg: WAMessage, _type: string, _o: unknown, ctx?: { reuploadRequest: unknown }) => {
-    got.push({ key: msg.key, reupload: ctx?.reuploadRequest })
+    got.push({ key: msg.key, reupload: typeof ctx?.reuploadRequest })
     return Readable.from([Buffer.from('img')])
   }) as unknown as typeof downloadMediaMessage
   assert.equal((await download(must(m.quoted), msgs, { reuploadRequest, logger: silent }, dl)).toString(), 'img')
   assert.deepEqual(got, [
     {
       key: { remoteJid: G, id: 'r9', participant: 'outro@s.whatsapp.net', fromMe: false },
-      reupload: reuploadRequest,
+      reupload: 'function',
     },
   ])
 })
@@ -859,4 +860,93 @@ test('an edit timestamp in the future is clamped to now', () => {
   assert.deepEqual(Object.keys(s.months), ['2026-10'])
   const past = { ...u, update: { ...u.update, messageTimestamp: OCT / 1000 - 60 } }
   assert.equal(must(toEdit(past, recent, () => OCT)).at, OCT - 60_000)
+})
+
+test('a message id reused by another member does not swap the stored receipt, own or quoted', async () => {
+  const { ev, seen, msgs } = wired()
+  const img = (url: string) => ({ url, directPath: '/v/t62/x', mediaKey: new Uint8Array(32), mimetype: 'image/jpeg' })
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [wam('X', { imageMessage: { ...img('https://mmg.whatsapp.net/victim'), caption: '/pago luz' } })],
+  })
+  const other = { key: { id: 'X', remoteJid: G, fromMe: false, participant: 'outro@s.whatsapp.net' } }
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [wam('X', { imageMessage: img('https://mmg.whatsapp.net/attacker') }, other)],
+  })
+  let got = ''
+  const dl = (async (m: WAMessage) => {
+    got = `${m.key.participant} ${m.message?.imageMessage?.url}`
+    return Readable.from([Buffer.from('jpg')])
+  }) as unknown as typeof downloadMediaMessage
+  await download(must((seen[0] as MessageInput).media), msgs, ctx, dl)
+  assert.equal(got, `${P} https://mmg.whatsapp.net/victim`)
+  const quote = (id: string, url: string) =>
+    wam(id, {
+      extendedTextMessage: {
+        text: '/pago luz',
+        contextInfo: { stanzaId: 'r9', quotedMessage: { imageMessage: img(url) } },
+      },
+    })
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [quote('q1', 'https://mmg.whatsapp.net/first'), quote('q2', 'https://mmg.whatsapp.net/second')],
+  })
+  await download(must((seen[2] as MessageInput).quoted), msgs, ctx, dl)
+  assert.match(got, /\/first$/)
+})
+
+test('a media-retry reupload pointing outside whatsapp.net is refused', async () => {
+  const msgs: Messages = new Map()
+  const m = must(
+    toMessage(
+      wam('M1', {
+        imageMessage: {
+          url: 'https://mmg.whatsapp.net/gone',
+          directPath: '/gone',
+          mediaKey: new Uint8Array(32),
+          mimetype: 'image/jpeg',
+        },
+      }),
+      msgs,
+    ),
+  )
+  const fetched: string[] = []
+  const dl = (async (
+    msg: WAMessage,
+    _t: string,
+    _o: unknown,
+    c: { reuploadRequest(x: WAMessage): Promise<WAMessage> },
+  ) => {
+    const fresh = await c.reuploadRequest(msg)
+    fetched.push(new URL(getUrlFromDirectPath(must(fresh.message?.imageMessage?.directPath))).host)
+    return Readable.from([Buffer.from('x')])
+  }) as unknown as typeof downloadMediaMessage
+  const reuploadRequest = async (x: WAMessage) => {
+    const im = must(x.message?.imageMessage)
+    im.directPath = '@192.168.1.10:8123/api/states'
+    im.url = getUrlFromDirectPath(im.directPath)
+    return x
+  }
+  await assert.rejects(download(must(m.media), msgs, { reuploadRequest, logger: silent }, dl), /host refused/)
+  assert.deepEqual(fetched, [])
+})
+
+test('invite codes never reach the logs, resolved or failed', async () => {
+  const lines: string[] = []
+  const log = { info: (o: object) => lines.push(JSON.stringify(o)), warn: (o: object) => lines.push(JSON.stringify(o)) }
+  const s = {
+    groupGetInviteInfo: async (code: string) => {
+      if (code === 'SECRETbadCODE456') throw new Error('revoked')
+      return { id: G, subject: 'Casa' }
+    },
+  }
+  await resolveInviteCodes(s, { groups: new Set(), log }, ['SECRETinviteCODE123', 'SECRETbadCODE456'])
+  assert.equal(lines.length, 2)
+  assert.ok(!lines.some(l => l.includes('SECRET')), lines.join('\n'))
+})
+
+test('message text is capped at 2000 characters', () => {
+  const m = must(toMessage(wam('L1', { conversation: `/pago luz ${'x'.repeat(10_000)}` }), new Map()))
+  assert.equal(m.text.length, 2000)
 })

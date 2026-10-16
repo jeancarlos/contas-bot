@@ -1,5 +1,5 @@
-import { parseGroupJids } from '../wa.ts'
-import type { Lang } from '../i18n.ts'
+import { parseGroupJids } from '../adapters/wa.ts'
+import type { Lang } from '../core/types.ts'
 
 export type Ai = 'gemini' | 'openai' | 'custom' | 'none'
 export type Pairing = 'qr' | 'code'

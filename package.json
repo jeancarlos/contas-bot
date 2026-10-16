@@ -7,7 +7,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "start": "node src/index.ts",
+    "start": "node src/shell/index.ts",
     "lint": "biome check --error-on-warnings",
     "format": "biome format --write",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.strict.json",

@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts'
 import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Lang } from './i18n.ts'
+import type { Lang } from './core/types.ts'
 import {
   AI_PRESETS,
   LANGS,

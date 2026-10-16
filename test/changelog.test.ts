@@ -56,8 +56,10 @@ test('builds releases newest first from feat/fix commits', () => {
     },
     { version: '1.0.0', entries: [{ en: 'a', 'pt-BR': 'feat: a pt', es: 'feat: a es' }] },
   ])
-  assert.equal(releaseNotes(got[1]), '- side\n  feat: side pt\n- b\n  fix: b pt')
-  assert.equal(releaseNotes(got[0]), '- old style')
+  const [first, second] = got
+  assert.ok(first && second)
+  assert.equal(releaseNotes(second), '- side\n  feat: side pt\n- b\n  fix: b pt')
+  assert.equal(releaseNotes(first), '- old style')
   assert.equal(releaseNotes({ version: '9', entries: [] }), 'Maintenance release.')
 })
 

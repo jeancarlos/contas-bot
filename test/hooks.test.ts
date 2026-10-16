@@ -117,3 +117,9 @@ for (const branch of ['main', 'develop']) {
     assert.match(r.stderr, /feature\/, fix\/ ou chore\//)
   })
 }
+
+test('pre-commit only checks the staged files and never rewrites or re-stages them', async () => {
+  const hook = await readFile(join(ROOT, '.githooks', 'pre-commit'), 'utf8')
+  assert.match(hook, /biome check --staged/)
+  assert.doesNotMatch(hook, /--write|update-index|git add/)
+})

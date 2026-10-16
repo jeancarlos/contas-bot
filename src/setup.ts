@@ -78,8 +78,7 @@ function describe(a: {
   ].join('\n')
 }
 
-async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<Answers> {
-  const a: Partial<Answers> = { ...pre }
+async function askBasics(a: Partial<Answers>) {
   a.lang = check(
     await p.select<Lang>({
       message: 'Idioma · Language',
@@ -123,6 +122,37 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
         ),
       ) ?? ''
   }
+}
+
+async function askEndpoint(a: Partial<Answers>) {
+  a.llmUrl = check(
+    await p.text({
+      message: tx.aiUrl,
+      initialValue: a.llmUrl,
+      validate: v => (validUrl(v ?? '') ? undefined : tx.aiUrlInvalid),
+    }),
+  ).trim()
+  a.visionModel = check(
+    await p.text({
+      message: tx.aiModel,
+      initialValue: a.visionModel,
+      validate: v => (v?.trim() ? undefined : tx.required),
+    }),
+  ).trim()
+}
+
+async function askKey(ai: Exclude<Answers['ai'], 'none'>, kept: string | undefined): Promise<string> {
+  const preset = ai === 'custom' ? '' : AI_PRESETS[ai].keyUrl
+  const typed = check(
+    await p.password({
+      message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
+      validate: v => (preset && !kept && !v?.trim() ? tx.required : undefined),
+    }),
+  ).trim()
+  return typed || kept || ''
+}
+
+async function askAi(a: Partial<Answers>, source?: Partial<Answers>) {
   a.ai = check(
     await p.select<Answers['ai']>({
       message: tx.ai,
@@ -138,31 +168,8 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
   const explicit = a.llmKey || undefined
   a.llmKey = undefined
   while (a.ai !== 'none') {
-    if (a.ai === 'custom') {
-      a.llmUrl = check(
-        await p.text({
-          message: tx.aiUrl,
-          initialValue: a.llmUrl,
-          validate: v => (validUrl(v ?? '') ? undefined : tx.aiUrlInvalid),
-        }),
-      ).trim()
-      a.visionModel = check(
-        await p.text({
-          message: tx.aiModel,
-          initialValue: a.visionModel,
-          validate: v => (v?.trim() ? undefined : tx.required),
-        }),
-      ).trim()
-    }
-    const preset = a.ai === 'custom' ? '' : AI_PRESETS[a.ai].keyUrl
-    const kept = explicit ?? keyFor({ ai: a.ai, llmUrl: a.llmUrl }, source)
-    const typed = check(
-      await p.password({
-        message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
-        validate: v => (preset && !kept && !v?.trim() ? tx.required : undefined),
-      }),
-    ).trim()
-    a.llmKey = typed || kept || ''
+    if (a.ai === 'custom') await askEndpoint(a)
+    a.llmKey = await askKey(a.ai, explicit ?? keyFor({ ai: a.ai, llmUrl: a.llmUrl }, source))
     const s = p.spinner()
     s.start(tx.aiChecking)
     const ok = await probeAi(
@@ -171,6 +178,12 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
     s.stop(ok ? tx.aiOk : tx.aiFailed)
     if (ok || !check(await p.confirm({ message: tx.aiRetry }))) break
   }
+}
+
+async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<Answers> {
+  const a: Partial<Answers> = { ...pre }
+  await askBasics(a)
+  await askAi(a, source)
   a.group = check(
     await p.text({
       message: tx.group,
@@ -237,6 +250,15 @@ async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>
   )
 }
 
+async function update(
+  review: { prefill: Partial<Answers>; source: Partial<Answers>; saved: Record<string, string> } | null,
+) {
+  const from = imageTag((await read('docker-compose.yml')) ?? '') ?? '?'
+  if (review) await install(review.prefill, { touchAuth: false, source: review.source, saved: review.saved })
+  else await writeRuntime()
+  p.outro(tx.updated(from, VERSION))
+}
+
 async function main() {
   process.on('SIGINT', () => {
     dropQr().then(
@@ -255,10 +277,7 @@ async function main() {
     ? mergeAnswers(answersFromEnv(process.env), { ...fromDotenv, llmKey: undefined })
     : answersFromEnv(process.env)
   if (mode === 'update') {
-    const from = imageTag((await read('docker-compose.yml')) ?? '') ?? '?'
-    if (review) await install(prefill, { touchAuth: false, source: fromDotenv, saved })
-    else await writeRuntime()
-    p.outro(tx.updated(from, VERSION))
+    await update(review ? { prefill, source: fromDotenv, saved } : null)
     return
   }
   if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved })

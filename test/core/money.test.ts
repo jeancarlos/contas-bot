@@ -10,7 +10,7 @@ test('parseNumber reads amounts as integer cents with locale-driven ambiguity', 
     ['6.237,60', ',', 623760],
     ['6,237.60', '.', 623760],
     ['1.234', ',', 123400],
-    ['1.234', '.', 123],
+    ['1.234', '.', null],
     ['0,004', ',', null],
     ['1.234.56', ',', null],
     ['1000000000000', ',', null],
@@ -50,4 +50,24 @@ test('a currency word that is a word of a bill name is not a money marker', () =
   assert.deepEqual(findMoney(tok('80 real'), ',', bills), { marked: [], bare: [{ start: 0, end: 1, cents: 8000 }] })
   assert.deepEqual(findMoney(tok('luz usd80'), ',', bills), { marked: [], bare: [] })
   assert.deepEqual(findMoney(tok('top R$ 80'), ',', bills).marked, [{ start: 1, end: 3, cents: 8000 }])
+})
+
+test('parseNumber rejects more than two decimals and a thousands group led by zero instead of rounding', () => {
+  const cases: [string, ',' | '.', number | null][] = [
+    ['1,005', ',', null],
+    ['0,0051', ',', null],
+    ['1.0000', ',', null],
+    ['1,000', ',', null],
+    ['1,000', '.', 100000],
+    ['0.005', ',', null],
+    ['0.001', ',', null],
+    ['0,001', '.', null],
+    ['0.005.000', ',', null],
+    ['0.005,00', ',', null],
+    ['1.000,50', ',', 100050],
+    ['0,50', ',', 50],
+    ['80.00', ',', 8000],
+    ['1.000.000', ',', 100000000],
+  ]
+  for (const [s, dec, want] of cases) assert.equal(parseNumber(s, dec), want, s)
 })

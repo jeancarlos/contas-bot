@@ -34,7 +34,7 @@ function mixed(t: string, last: number): string | null {
   const group = dec === ',' ? '.' : ','
   const int = t.slice(0, last)
   const frac = t.slice(last + 1)
-  if (!new RegExp(`^\\d{1,3}(?:\\${group}\\d{3})*$`).test(int) || !/^\d{1,2}$/.test(frac)) return null
+  if (!new RegExp(`^(?:0|[1-9]\\d{0,2}(?:\\${group}\\d{3})*)$`).test(int) || !/^\d{1,2}$/.test(frac)) return null
   return `${int.split(group).join('')}.${frac}`
 }
 
@@ -42,8 +42,8 @@ function single(t: string, last: number, decimal: ',' | '.'): string | null {
   const sep = t.charAt(last)
   const count = t.split(sep).length - 1
   const tail = t.length - last - 1
-  if (count > 1 && !/^\d{1,3}(?:[.,]\d{3})+$/.test(t)) return null
-  return count === 1 && (tail !== 3 || sep === decimal) ? t.replace(sep, '.') : t.split(sep).join('')
+  if (count === 1 && (tail !== 3 || sep === decimal)) return tail <= 2 ? t.replace(sep, '.') : null
+  return /^[1-9]\d{0,2}(?:[.,]\d{3})+$/.test(t) ? t.split(sep).join('') : null
 }
 
 export type MoneyHit = { start: number; end: number; cents: number }

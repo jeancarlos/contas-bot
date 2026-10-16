@@ -8,7 +8,7 @@ import type { GroupMeta } from '../../src/adapters/v1.ts'
 import { makeLocale } from '../../src/core/i18n.ts'
 import { normalize } from '../../src/core/text.ts'
 import { emptyState, type GroupState, type Input } from '../../src/core/types.ts'
-import { cachedGroups, makeShell, type Wa } from '../../src/shell/run.ts'
+import { cachedGroups, lanes, makeShell, type Wa } from '../../src/shell/run.ts'
 
 const JID = 'g1@g.us'
 const OCT = Date.UTC(2026, 9, 10, 15)
@@ -78,6 +78,7 @@ type Setup = {
   llm?: (image: Buffer, mime: string) => Promise<number | null>
   pick?: (names: string[]) => Promise<{ index: number | null; amount: number | null }>
   gif?: boolean
+  readTimeoutMs?: number
 }
 
 function setup(o: Setup = {}) {
@@ -121,7 +122,7 @@ function setup(o: Setup = {}) {
       releases: [{ version: '2.0.0', entries: [{ en: 'bills', 'pt-BR': 'contas por /conta' }] }],
       gif: async () => (o.gif ? Buffer.from('gif') : null),
     },
-    readTimeoutMs: 50,
+    readTimeoutMs: o.readTimeoutMs ?? 50,
   })
   return { shell, store: real, calls, pdfs }
 }
@@ -403,4 +404,70 @@ test('a slow pick is dropped after its sender typed a /pago, but survives their 
   chatty.open()
   await kept.shell.idle()
   assert.equal(kept.store.load(JID)?.months['2026-10']?.[3]?.amount, 9900)
+})
+
+test('at most two receipts are read at once, reads and picks alike, and every one still gets its amount', async () => {
+  let live = 0
+  let peak = 0
+  const busy = async <T>(value: T) => {
+    live++
+    peak = Math.max(peak, live)
+    await new Promise(r => setTimeout(r, 2))
+    live--
+    return value
+  }
+  const names = ['Luz', 'Água', 'Gás', 'Internet', 'Aluguel', 'Cartão Nu', 'Cartão Itaú']
+  const { shell, store } = setup({
+    state: bills(...names),
+    llm: () => busy(10),
+    pick: () => busy({ index: 0, amount: 20 }),
+    readTimeoutMs: 5000,
+  })
+  const receipt = { media: { mime: 'image/jpeg', handle: 'img' } }
+  await Promise.all([
+    ...['luz', 'água', 'gás', 'internet', 'aluguel'].map(b => shell.handle(JID, msg(`/pago ${b}`, receipt))),
+    shell.handle(JID, msg('/pago cartão', receipt)),
+  ])
+  await shell.idle()
+  assert.ok(peak <= 2, `${peak} receipts read at once`)
+  const paid = store.load(JID)?.months['2026-10']
+  assert.deepEqual(
+    [1, 2, 3, 4, 5, 6].map(id => paid?.[id]?.amount),
+    [1000, 1000, 1000, 1000, 1000, 2000],
+  )
+})
+
+test('a hung read frees its lane at its deadline, so the receipts queued behind it are still read', async () => {
+  let calls = 0
+  const hang = () => {
+    calls++
+    return calls <= 2 ? new Promise<number | null>(() => {}) : Promise.resolve(10)
+  }
+  const { shell, store } = setup({ state: bills('Luz', 'Água', 'Gás'), llm: hang })
+  const receipt = { media: { mime: 'image/jpeg', handle: 'img' } }
+  await Promise.all(['luz', 'água', 'gás'].map(b => shell.handle(JID, msg(`/pago ${b}`, receipt))))
+  await shell.idle()
+  assert.equal(calls, 3)
+  assert.deepEqual(
+    [1, 2, 3].map(id => store.load(JID)?.months['2026-10']?.[id]?.status),
+    ['none', 'none', 'read'],
+  )
+})
+
+test('work still queued at its own deadline is dropped without ever taking a lane', async () => {
+  const lane = lanes(2)
+  const hung = () => new Promise<number>(() => {})
+  let ran = false
+  const first = lane(30, hung)
+  const second = lane(30, hung)
+  assert.equal(
+    await lane(5, async () => {
+      ran = true
+      return 1
+    }),
+    null,
+  )
+  assert.deepEqual(await Promise.all([first, second]), [null, null])
+  assert.equal(ran, false)
+  assert.equal(await lane(30, async () => 7), 7)
 })

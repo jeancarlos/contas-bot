@@ -55,7 +55,7 @@ function renderList(m: ListMsg, loc: Locale): string {
   return lines.join('\n')
 }
 
-function suggestion(m: Extract<Msg, { k: 'suggest' }>, loc: Locale): string {
+function suggestion(m: Extract<Msg, { k: 'suggest' | 'askConfirm' }>, loc: Locale): string {
   const [y, mm] = (m.month ?? '').split('-')
   const parts = [`/${WORDS[loc.lang].cmd[m.cmd]}`, m.bill.toLowerCase()]
   if (m.amount !== null) parts.push(plainAmount(m.amount, loc))
@@ -120,7 +120,9 @@ const ptBR: Catalog = {
   unknownSub: m =>
     m.suggestion ? `não conheço "${m.typed}", você quis dizer /conta ${m.suggestion}?` : CONTA_HELP['pt-BR'],
   updated: () => 'atualizado',
-  noAmount: () => 'não li o valor do comprovante, marquei sem valor',
+  askAmount: m => `não consegui ler o valor de ${m.bill}. Qual foi? Responda só o valor, ex: 80,00`,
+  askConfirm: (m, loc) => `você quis dizer \`${suggestion(m, loc)}\`? Responda *sim* pra confirmar.`,
+  askBill: m => `de qual conta é esse comprovante? Responda o nome: ${m.names.join(', ')}`,
   editIgnored: () => 'edição não altera pagamento: use /despago',
   nameTaken: m => `já existe uma conta "${m.name}"`,
   nameInvalid: () => 'nome de conta vazio ou com mais de 40 caracteres',
@@ -158,7 +160,9 @@ const en: Catalog = {
       : "I don't know that command. /help lists them all.",
   unknownSub: m => (m.suggestion ? `I don't know "${m.typed}", did you mean /bill ${m.suggestion}?` : CONTA_HELP.en),
   updated: () => 'updated',
-  noAmount: () => "couldn't read the amount on the receipt, marked without one",
+  askAmount: m => `couldn't read the amount for ${m.bill}. How much was it? Reply with just the amount, e.g. 80.00`,
+  askConfirm: (m, loc) => `did you mean \`${suggestion(m, loc)}\`? Reply *yes* to confirm.`,
+  askBill: m => `which bill is this receipt for? Reply with its name: ${m.names.join(', ')}`,
   editIgnored: () => "an edit doesn't change a payment: use /unpaid",
   nameTaken: m => `there is already a bill "${m.name}"`,
   nameInvalid: () => 'bill name is empty or longer than 40 characters',
@@ -196,7 +200,9 @@ const es: Catalog = {
       : 'no conozco ese comando. /ayuda los muestra todos.',
   unknownSub: m => (m.suggestion ? `no conozco "${m.typed}", ¿quisiste decir /cuenta ${m.suggestion}?` : CONTA_HELP.es),
   updated: () => 'actualizado',
-  noAmount: () => 'no leí el monto del comprobante, la marqué sin monto',
+  askAmount: m => `no pude leer el monto de ${m.bill}. ¿Cuánto fue? Responde solo el monto, ej: 80,00`,
+  askConfirm: (m, loc) => `¿quisiste decir \`${suggestion(m, loc)}\`? Responde *sí* para confirmar.`,
+  askBill: m => `¿de qué cuenta es este comprobante? Responde el nombre: ${m.names.join(', ')}`,
   editIgnored: () => 'una edición no cambia el pago: usa /despagado',
   nameTaken: m => `ya existe una cuenta "${m.name}"`,
   nameInvalid: () => 'nombre de cuenta vacío o con más de 40 caracteres',

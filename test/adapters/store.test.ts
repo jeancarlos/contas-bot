@@ -37,6 +37,7 @@ const STATE: GroupState = {
   ],
   pinnedId: 'P1',
   lastReset: '2026-10',
+  asks: [],
 }
 
 function fresh() {

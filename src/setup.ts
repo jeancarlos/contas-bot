@@ -1,9 +1,10 @@
 import * as p from '@clack/prompts'
-import { access, chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Lang } from './core/types.ts'
 import {
   AI_PRESETS,
+  allowEmpty,
   LANGS,
   answersFromDotenv,
   answersFromEnv,
@@ -25,6 +26,7 @@ import {
   validUrl,
   withDefaults,
   type Answers,
+  type Mode,
   type Pairing,
 } from './setup/core.ts'
 import { SETUP_TEXT, type SetupText } from './setup/i18n.ts'
@@ -225,7 +227,7 @@ async function install(
   }
   tx = SETUP_TEXT[a.lang]
   if (o.touchAuth !== false) await ensureAuthDir()
-  const empty = o.fresh === true && !(await exists('data/state.json')) && !(await exists('data/contas.db'))
+  const empty = allowEmpty(await noHistory(), o.fresh === true, o.saved ?? {})
   await mkdir(join(DIR, 'data'), { recursive: true })
   await writeFile(
     join(DIR, '.env'),
@@ -241,6 +243,23 @@ async function install(
 async function ensureAuthDir() {
   await mkdir(join(DIR, 'auth'), { recursive: true, mode: 0o700 })
   await chmod(join(DIR, 'auth'), 0o700)
+}
+const noHistory = async () => !(await exists('data/state.json')) && !(await exists('data/contas.db'))
+
+async function consentEmpty(mode: Mode, saved: Record<string, string>, rewrites: boolean) {
+  if (mode === 'install' || saved.ALLOW_EMPTY_STATE === '1' || !(await noHistory())) return
+  if (!interactive) {
+    process.stderr.write(`${tx.emptyRefused}\n`)
+    process.exit(1)
+  }
+  if (!check(await p.confirm({ message: tx.emptyAsk, initialValue: false }))) {
+    p.cancel(tx.cancelled)
+    process.exit(1)
+  }
+  saved.ALLOW_EMPTY_STATE = '1'
+  if (rewrites) return
+  const text = (await read('.env')) ?? ''
+  await appendFile(join(DIR, '.env'), `${text === '' || text.endsWith('\n') ? '' : '\n'}ALLOW_EMPTY_STATE=1\n`)
 }
 async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>): Promise<boolean> {
   p.note(describe({ ...d, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }), tx.existingTitle)
@@ -283,6 +302,7 @@ async function main() {
   const prefill = interactive
     ? mergeAnswers(answersFromEnv(process.env), { ...fromDotenv, llmKey: undefined })
     : answersFromEnv(process.env)
+  await consentEmpty(mode, saved, Boolean(review))
   if (mode === 'update') {
     await update(review ? { prefill, source: fromDotenv, saved } : null)
     return

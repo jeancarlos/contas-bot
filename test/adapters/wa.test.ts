@@ -617,15 +617,15 @@ test('quoted receipts get their own synthetic id and the message map keeps only 
     extendedTextMessage: { text: 'oi', contextInfo: { stanzaId: 'r9', quotedMessage: quoted } },
   })
   ev.fire('messages.upsert', { type: 'notify', messages: [reply] })
-  assert.ok(msgs.has('r9:quoted'))
+  assert.ok(msgs.has('grupo@g.us:r9:quoted'))
   const image = { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }
   ev.fire('messages.upsert', {
     type: 'notify',
     messages: Array.from({ length: 500 }, (_, i) => wam(`n${i}`, image)),
   })
   assert.equal(msgs.size, 500)
-  assert.equal(msgs.has('r9:quoted'), false)
-  assert.equal(msgs.has('n499'), true)
+  assert.equal(msgs.has('grupo@g.us:r9:quoted'), false)
+  assert.equal(msgs.has('grupo@g.us:n499'), true)
 })
 
 test('the 16 MB cap holds on the bytes read, whatever size the sender declared', async () => {
@@ -741,4 +741,47 @@ test('the URL that will actually be fetched is checked, directPath included', as
     if (ok) assert.equal((await run).toString(), 'ok')
     else await assert.rejects(run, /host refused/)
   }
+})
+
+const B = 'outro@g.us'
+const inB = (id: string, message: proto.IMessage, pushName = 'Bia'): WAMessage =>
+  wam(id, message, { key: { id, remoteJid: B, fromMe: false, participant: 'bia@s.whatsapp.net' }, pushName })
+const img = (url: string) => ({ imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url } })
+
+test('the same message id in two groups keeps two separate stored messages', () => {
+  const { ev, msgs } = wired('grupo@g.us,outro@g.us')
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [wam('same', img('https://mmg.whatsapp.net/a')), inB('same', img('https://mmg.whatsapp.net/b'))],
+  })
+  assert.deepEqual([...msgs.keys()].sort(), ['grupo@g.us:same', 'outro@g.us:same'])
+})
+
+test('an edit in one group never takes the sender or media of the same id in another group', () => {
+  const { ev, seen } = wired('grupo@g.us,outro@g.us')
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [
+      inB('same', { imageMessage: { mimetype: 'image/jpeg', caption: 'foto', url: 'https://mmg.whatsapp.net/b' } }),
+    ],
+  })
+  ev.fire('messages.update', [
+    {
+      key: { remoteJid: G, id: 'same', fromMe: false, participant: P },
+      update: { message: { editedMessage: { message: { conversation: '/pago luz' } } } },
+    },
+  ])
+  const edit = must(seen.find(i => i.kind === 'edit'))
+  assert.equal(edit.media, undefined)
+  assert.equal(edit.sender, P)
+})
+
+test('a handle from one group is not served by another group entry', async () => {
+  const msgs: Messages = new Map()
+  const m = must(toMessage(inB('same', img('https://mmg.whatsapp.net/b')), msgs))
+  const media = must(m.media)
+  const forged = must(msgs.get('outro@g.us:same'))
+  msgs.set('outro@g.us:same', { ...forged, key: { ...forged.key, remoteJid: G } })
+  const dl = (async () => Readable.from([Buffer.from('ok')])) as unknown as typeof downloadMediaMessage
+  await assert.rejects(download(media, msgs, ctx, dl), /group mismatch/)
 })

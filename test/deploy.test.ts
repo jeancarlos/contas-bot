@@ -61,3 +61,10 @@ test('baileys is pinned exactly and the lockfile carries the patched sharp and m
   assert.ok(atLeast(locked('sharp'), [0, 35, 5]), locked('sharp'))
   assert.ok(atLeast(locked('music-metadata'), [11, 16, 1]), locked('music-metadata'))
 })
+
+test('the bot sets a private umask before it creates any file', () => {
+  const src = read('src/shell/index.ts')
+  const umask = src.indexOf('process.umask(0o077)')
+  assert.ok(umask > 0)
+  for (const later of ['pino(', 'openStore(', 'connectWa(', 'startHttp(']) assert.ok(umask < src.indexOf(later), later)
+})

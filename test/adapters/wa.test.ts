@@ -19,7 +19,9 @@ import {
   toMessage,
   wireGroupEvents,
 } from '../../src/adapters/wa.ts'
-import type { EditInput, MessageInput } from '../../src/core/types.ts'
+import { type Ctx, decide } from '../../src/core/decide.ts'
+import { normalize } from '../../src/core/text.ts'
+import { type EditInput, emptyState, type GroupState, type MessageInput } from '../../src/core/types.ts'
 
 const G = 'grupo@g.us'
 const P = 'membro@s.whatsapp.net'
@@ -796,4 +798,50 @@ test('reportStatus tells onStatus true on open, false on close, and ignores othe
   reportStatus(onStatus, { connection: 'close' })
   reportStatus(undefined, { connection: 'open' })
   assert.deepEqual(seen, [true, false])
+})
+
+const ctxPt: Ctx = {
+  locale: { lang: 'pt-BR', currency: 'BRL', decimal: ',', timeZone: 'America/Sao_Paulo' },
+  llm: true,
+}
+const OCT = Date.UTC(2026, 9, 10, 15)
+const atOct = (id: string, message: proto.IMessage, participant = P) =>
+  wam(id, message, { key: { id, remoteJid: G, fromMe: false, participant }, messageTimestamp: OCT / 1000 })
+function billsState(...names: string[]): GroupState {
+  const s = emptyState()
+  s.bills = names.map((name, i) => ({ id: i + 1, name, key: normalize(name), paused: false, removed: false }))
+  s.nextBillId = names.length + 1
+  s.lastReset = '2026-10'
+  return s
+}
+const step = (s: GroupState, m: WAMessage, msgs: Messages) => {
+  const input = toMessage(m, msgs)
+  return input ? decide(s, input, ctxPt).state : s
+}
+
+test('a reaction, pin, poll vote or keep-in-chat from the asker does not cancel their open question', () => {
+  for (const content of [
+    { reactionMessage: { key: { remoteJid: G, fromMe: false, id: 'OTHER' }, text: '👍', senderTimestampMs: OCT } },
+    { pinInChatMessage: { key: { remoteJid: G, fromMe: true, id: 'LIST' }, type: 1 } },
+    { pollUpdateMessage: { pollCreationMessageKey: { remoteJid: G, id: 'POLL' } } },
+    { keepInChatMessage: { key: { remoteJid: G, fromMe: true, id: 'LIST' }, keepType: 1 } },
+  ] as proto.IMessage[]) {
+    const msgs: Messages = new Map()
+    assert.equal(toMessage(atOct('N1', content), msgs), null, Object.keys(content)[0])
+    let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
+    s = step(s, atOct('N1', content), msgs)
+    s = step(s, atOct('Y1', { conversation: 'sim' }), msgs)
+    assert.equal(s.months['2026-10']?.[1]?.amount, 8000, `lost after ${Object.keys(content)[0]}`)
+  }
+})
+
+test('a 👍 reaction to the bot question answers it', () => {
+  const msgs: Messages = new Map()
+  let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
+  const reaction = atOct('R1', {
+    reactionMessage: { key: { remoteJid: G, fromMe: true, id: 'BOT-ASK' }, text: '👍', senderTimestampMs: OCT },
+  })
+  assert.equal(must(toMessage(reaction, msgs)).text, '👍')
+  s = step(s, reaction, msgs)
+  assert.equal(s.months['2026-10']?.[1]?.amount, 8000)
 })

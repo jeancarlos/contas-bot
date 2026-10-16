@@ -162,7 +162,12 @@ export function gate(groups: Set<string>, cfg: Handlers): Handlers {
 
 function textOf(c: Content): string {
   const raw =
-    c.conversation ?? c.extendedTextMessage?.text ?? c.imageMessage?.caption ?? c.documentMessage?.caption ?? ''
+    c.conversation ??
+    c.extendedTextMessage?.text ??
+    c.imageMessage?.caption ??
+    c.documentMessage?.caption ??
+    (c.reactionMessage?.key?.fromMe ? c.reactionMessage.text : null) ??
+    ''
   return raw.replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
@@ -199,14 +204,18 @@ export function toMessage(msg: WAMessage, msgs: Messages): MessageInput | null {
   const c = normalizeMessageContent(msg.message)
   const { id, remoteJid } = msg.key
   if (!c || c.protocolMessage || !id || !remoteJid) return null
+  const text = textOf(c)
+  const media = mediaOf(c, `${remoteJid}:${id}`, msg, msgs)
+  const quoted = quotedOf(c, remoteJid, msgs)
+  if (!text && !media && !quoted) return null
   return {
     kind: 'message',
     key: keyOf(msg.key, id, remoteJid),
     sender: msg.pushName || msg.key.participant || '',
-    text: textOf(c),
+    text,
     at: millis(msg.messageTimestamp),
-    media: mediaOf(c, `${remoteJid}:${id}`, msg, msgs),
-    quoted: quotedOf(c, remoteJid, msgs),
+    media,
+    quoted,
   }
 }
 

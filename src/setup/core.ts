@@ -67,7 +67,7 @@ export async function probeAi(ai: { url: string; key: string }, fetchFn: typeof 
   }
 }
 
-export function buildEnv(a: Answers, uid: number, gid: number): string {
+export function buildEnv(a: Answers, uid: number, gid: number, allowEmpty = false): string {
   const ai = resolveAi(a)
   const lines: [string, string][] = [
     ['BOT_LANG', a.lang],
@@ -82,6 +82,7 @@ export function buildEnv(a: Answers, uid: number, gid: number): string {
     ['PUID', String(uid)],
     ['PGID', String(gid)],
   ]
+  if (allowEmpty) lines.push(['ALLOW_EMPTY_STATE', '1'])
   return `${lines.map(([k, v]) => `${k}=${v}`).join('\n')}\n`
 }
 

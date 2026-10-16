@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts'
-import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Lang } from './core/types.ts'
 import {
@@ -201,9 +201,15 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
   return full
 }
 
+const exists = (f: string) =>
+  access(join(DIR, f)).then(
+    () => true,
+    () => false,
+  )
+
 async function install(
   pre: Partial<Answers>,
-  o: { touchAuth?: boolean; source?: Partial<Answers>; saved?: Record<string, string> } = {},
+  o: { touchAuth?: boolean; source?: Partial<Answers>; saved?: Record<string, string>; fresh?: boolean } = {},
 ): Promise<Answers> {
   let a: Answers
   if (interactive) {
@@ -219,10 +225,11 @@ async function install(
   }
   tx = SETUP_TEXT[a.lang]
   if (o.touchAuth !== false) await ensureAuthDir()
+  const empty = o.fresh === true && !(await exists('data/state.json')) && !(await exists('data/contas.db'))
   await mkdir(join(DIR, 'data'), { recursive: true })
   await writeFile(
     join(DIR, '.env'),
-    buildEnv(a, ...savedIds(o.saved ?? {}, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000)),
+    buildEnv(a, ...savedIds(o.saved ?? {}, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000), empty),
     { mode: 0o600 },
   )
   await chmod(join(DIR, '.env'), 0o600)
@@ -280,7 +287,7 @@ async function main() {
     await update(review ? { prefill, source: fromDotenv, saved } : null)
     return
   }
-  if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved })
+  if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved, fresh: mode === 'install' })
   else await ensureAuthDir()
   if (process.env.CONTAS_BOT_NO_PAIR === '1') {
     p.outro(tx.saved)

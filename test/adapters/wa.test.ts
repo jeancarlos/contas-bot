@@ -14,6 +14,7 @@ import {
   type Messages,
   type Recent,
   resolveInviteCodes,
+  reportStatus,
   resolveOpenJids,
   toMessage,
   wireGroupEvents,
@@ -784,4 +785,15 @@ test('a handle from one group is not served by another group entry', async () =>
   msgs.set('outro@g.us:same', { ...forged, key: { ...forged.key, remoteJid: G } })
   const dl = (async () => Readable.from([Buffer.from('ok')])) as unknown as typeof downloadMediaMessage
   await assert.rejects(download(media, msgs, ctx, dl), /group mismatch/)
+})
+
+test('reportStatus tells onStatus true on open, false on close, and ignores other updates', () => {
+  const seen: boolean[] = []
+  const onStatus = (c: boolean) => seen.push(c)
+  reportStatus(onStatus, { connection: 'connecting' })
+  reportStatus(onStatus, { qr: 'x' })
+  reportStatus(onStatus, { connection: 'open' })
+  reportStatus(onStatus, { connection: 'close' })
+  reportStatus(undefined, { connection: 'open' })
+  assert.deepEqual(seen, [true, false])
 })

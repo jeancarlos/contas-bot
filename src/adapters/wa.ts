@@ -34,6 +34,7 @@ type Cfg = Handlers & {
   inviteCodes: string[]
   log: Logger
   onResolved(code: string, jid: string): void | Promise<void>
+  onStatus?(connected: boolean): void
 }
 export type Recent = Map<string, { sender: string; media: MediaRef | undefined }>
 export type Messages = Map<string, WAMessage>
@@ -136,6 +137,11 @@ export function participantsIncludeSelf(
 ): boolean {
   const isMe = (j?: string) => !!j && me.includes(jidNormalizedUser(j))
   return participants.some(p => isMe(p.id) || isMe(p.phoneNumber) || isMe(p.lid))
+}
+
+export function reportStatus(onStatus: ((connected: boolean) => void) | undefined, u: Partial<ConnectionState>): void {
+  if (u.connection === 'open') onStatus?.(true)
+  if (u.connection === 'close') onStatus?.(false)
 }
 
 export function gate(groups: Set<string>, cfg: Handlers): Handlers {
@@ -451,6 +457,7 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
     })
     s.ev.on('connection.update', async u => {
       try {
+        reportStatus(cfg.onStatus, u)
         await pairing(s, u)
         if (u.connection === 'open') {
           reconnects = 0

@@ -980,3 +980,26 @@ test('a second pick that lands on the bill a first pick already paid is dropped,
   assert.deepEqual(r.effects, [])
   assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
 })
+
+test('a re-sent receipt whose read fails keeps the amount already recorded and asks nothing', () => {
+  const media = { mime: 'image/png', handle: 'h' }
+  for (const first of [msg('/pago luz 80'), msg('/pago luz', { media })]) {
+    const once = decide(state('Luz'), first, ctx).state
+    const recorded = first.kind === 'message' && first.media ? decide(once, amountRead(first, 8000), ctx).state : once
+    const status = recorded.months['2026-10']?.[1]?.status
+    const again = msg('/pago luz', { media })
+    const sent = decide(recorded, again, ctx)
+    assert.equal(sent.state.months['2026-10']?.[1]?.amount, 8000)
+    const failed = decide(sent.state, amountRead(again, null), ctx)
+    assert.equal(failed.state.months['2026-10']?.[1]?.amount, 8000)
+    assert.equal(failed.state.months['2026-10']?.[1]?.status, status)
+    assert.deepEqual(failed.state.asks, [])
+    assert.ok(!replies(failed.effects).includes('askAmount'))
+    const swept = decide(sent.state, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true, reading: [] }, ctx)
+    assert.equal(swept.state.months['2026-10']?.[1]?.amount, 8000)
+    assert.equal(swept.state.months['2026-10']?.[1]?.status, status)
+    assert.deepEqual(swept.effects, [])
+    const read = decide(sent.state, amountRead(again, 9000), ctx).state.months['2026-10']?.[1]
+    assert.deepEqual([read?.amount, read?.status], [9000, 'read'])
+  }
+})

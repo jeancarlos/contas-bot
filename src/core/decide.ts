@@ -145,8 +145,9 @@ function refuse(d: Draft, r: Failure, cmd: 'pago' | 'despago', m: Cmd, arg: stri
 function payment(prev: Payment | undefined, amount: number | null, reading: boolean, m: Cmd): Payment {
   const base = { by: m.sender, paidAt: m.at, messageId: m.key.id }
   if (amount !== null) return { ...base, amount, status: 'typed' }
+  const keep = prev && prev.status !== 'pending' && (prev.amount !== null || !reading)
+  if (keep) return { ...base, amount: prev.amount, status: prev.status }
   if (reading) return { ...base, amount: null, status: 'pending' }
-  if (prev && prev.status !== 'pending') return { ...base, amount: prev.amount, status: prev.status }
   return { ...base, amount: null, status: 'none' }
 }
 
@@ -504,14 +505,13 @@ function onEdit(d: Draft, e: EditInput) {
 
 function onAmountRead(d: Draft, a: Extract<Input, { kind: 'amountRead' }>) {
   const p = d.s.months[a.month]?.[a.billId]
-  if (!p || p.messageId !== a.key.id || p.status !== 'pending') return
-  if (a.amount === null) p.status = 'none'
-  else {
+  if (!p || p.messageId !== a.key.id) return
+  if (a.amount !== null) {
     p.amount = a.amount
     p.status = 'read'
-  }
+  } else if (p.status === 'pending') p.status = 'none'
   showList(d, a.month, pinnedMonth(d, a.at), a.key)
-  if (a.amount === null) askAmount(d, a.billId, a.month, a.key, p.by, a.at)
+  if (p.amount === null) askAmount(d, a.billId, a.month, a.key, p.by, a.at)
 }
 
 function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {

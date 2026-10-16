@@ -658,20 +658,29 @@ function picking(s: GroupState) {
   const { kind: _, ...pick } = fx
   const picked = (st: GroupState, billId: number, amount: number | null) =>
     decide(st, { kind: 'billPicked', pick, billId, amount }, ctx)
-  return { state: asked.state, receipt, picked }
+  return { state: asked.state, receipt, picked, pick }
 }
 
 const cards = () => state('Luz', 'Cartão Nu', 'Cartão Itaú')
 
-test('a late pick is dropped once its sender retyped a /pago without a receipt, even for another bill', () => {
-  const p = picking(cards())
-  const typed = decide(p.state, msg('/pago cartão nu 120'), ctx).state
-  const r = p.picked(typed, 3, 9900)
-  assert.deepEqual(r.effects, [])
-  assert.equal(r.state.months['2026-10']?.[3], undefined)
-  assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
-  const undone = p.picked(decide(p.state, msg('/despago luz'), ctx).state, 3, 9900)
-  assert.equal(undone.state.months['2026-10']?.[3], undefined)
+test('a late pick is dropped once any of its candidates was paid or unpaid after the receipt, and kept otherwise', () => {
+  for (const by of [msg, other]) {
+    for (const text of ['/pago cartão nu 120', '/despago cartão itaú']) {
+      const p = picking(cards())
+      const typed = decide(p.state, by(text), ctx).state
+      for (const billId of [3, null]) {
+        const r = decide(typed, { kind: 'billPicked', pick: p.pick, billId, amount: 9900 }, ctx)
+        assert.deepEqual(r.effects, [], text)
+        assert.equal(r.state.months['2026-10']?.[3], undefined, text)
+        assert.deepEqual(r.state.asks, [], text)
+      }
+    }
+  }
+  for (const text of ['/pago luz 80', '/despago luz', '/pago avulsa uber 30']) {
+    const p = picking(cards())
+    const r = p.picked(decide(p.state, msg(text), ctx).state, 3, 9900)
+    assert.equal(r.state.months['2026-10']?.[3]?.amount, 9900, text)
+  }
 })
 
 test('other commands from the sender keep their pending pick', () => {
@@ -958,4 +967,16 @@ test('a lookalike bill name with a zero-width space is refused as taken', () => 
   const r = decide(state('Luz'), msg(`/conta adiciona Lu${String.fromCodePoint(0x200b)}z`), ctx)
   assert.deepEqual(replies(r.effects), ['nameTaken'])
   assert.equal(r.state.bills.length, 1)
+})
+
+test('a second pick that lands on the bill a first pick already paid is dropped, not overwritten', () => {
+  const first = picking(cards())
+  const asked = decide(first.state, msg('/pago cartão', receipt), ctx)
+  const fx = asked.effects.find(e => e.kind === 'pickBill')
+  if (fx?.kind !== 'pickBill') throw new Error('no pickBill')
+  const { kind: _, ...pick } = fx
+  const one = first.picked(asked.state, 2, 12000).state
+  const r = decide(one, { kind: 'billPicked', pick, billId: 2, amount: 9900 }, ctx)
+  assert.deepEqual(r.effects, [])
+  assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
 })

@@ -21,7 +21,7 @@ const key = (id = `m${++seq}`): MsgKey => ({ id, fromMe: false, remoteJid: 'g@g.
 const msg = (text: string, extra: Partial<Extract<Input, { kind: 'message' }>> = {}): Input => ({
   kind: 'message',
   key: key(),
-  sender: 'Gabi',
+  sender: 'Ana',
   text,
   at: OCT,
   ...extra,
@@ -180,9 +180,9 @@ test('an edit fixes a command that changed nothing, and is refused once after a 
   const typo = msg('/pago lux 80')
   const k = typo.kind === 'message' ? typo.key : key()
   const after = decide(state('Luz'), typo, ctx).state
-  const fixed = decide(after, { kind: 'edit', key: k, sender: 'Gabi', text: '/pago luz 80', at: OCT }, ctx)
+  const fixed = decide(after, { kind: 'edit', key: k, sender: 'Ana', text: '/pago luz 80', at: OCT }, ctx)
   assert.equal(fixed.state.months['2026-10']?.[1]?.amount, 8000)
-  const edit2 = { kind: 'edit', key: k, sender: 'Gabi', text: '/pago luz 90', at: OCT } as const
+  const edit2 = { kind: 'edit', key: k, sender: 'Ana', text: '/pago luz 90', at: OCT } as const
   const refused = decide(fixed.state, edit2, ctx)
   assert.deepEqual(replies(refused.effects), ['editIgnored'])
   assert.equal(refused.state.months['2026-10']?.[1]?.amount, 8000)
@@ -194,7 +194,7 @@ test('an edit of a payment whose handled entry was pruned is still refused via t
   const k = m.kind === 'message' ? m.key : key()
   const paid = decide(state('Luz'), m, ctx).state
   paid.handled = []
-  const r = decide(paid, { kind: 'edit', key: k, sender: 'Gabi', text: '/pago luz 90', at: OCT }, ctx)
+  const r = decide(paid, { kind: 'edit', key: k, sender: 'Ana', text: '/pago luz 90', at: OCT }, ctx)
   assert.deepEqual(replies(r.effects), ['editIgnored'])
 })
 
@@ -354,11 +354,7 @@ test('an edit of a /conta change gets the neutral wording, an edit of a payment 
   const add = msg('/conta adiciona Gás')
   const addKey = add.kind === 'message' ? add.key : key()
   const added = decide(state('Luz'), add, ctx).state
-  const editAdd = decide(
-    added,
-    { kind: 'edit', key: addKey, sender: 'Gabi', text: '/conta adiciona Gas', at: OCT },
-    ctx,
-  )
+  const editAdd = decide(added, { kind: 'edit', key: addKey, sender: 'Ana', text: '/conta adiciona Gas', at: OCT }, ctx)
   assert.deepEqual(
     editAdd.effects.flatMap(e => (e.kind === 'reply' ? [e.msg] : [])),
     [{ k: 'editIgnored', payment: false }],
@@ -366,7 +362,7 @@ test('an edit of a /conta change gets the neutral wording, an edit of a payment 
   const pay = msg('/pago luz 80')
   const payKey = pay.kind === 'message' ? pay.key : key()
   const paid = decide(state('Luz'), pay, ctx).state
-  const editPay = decide(paid, { kind: 'edit', key: payKey, sender: 'Gabi', text: '/pago luz 90', at: OCT }, ctx)
+  const editPay = decide(paid, { kind: 'edit', key: payKey, sender: 'Ana', text: '/pago luz 90', at: OCT }, ctx)
   assert.deepEqual(
     editPay.effects.flatMap(e => (e.kind === 'reply' ? [e.msg] : [])),
     [{ k: 'editIgnored', payment: true }],
@@ -378,7 +374,7 @@ test('an edited receipt caption is read like the original receipt', () => {
   const typo = msg('/pago lux', { media })
   const k = typo.kind === 'message' ? typo.key : key()
   const after = decide(state('Luz'), typo, ctx).state
-  const r = decide(after, { kind: 'edit', key: k, sender: 'Gabi', text: '/pago luz', at: OCT, media }, ctx)
+  const r = decide(after, { kind: 'edit', key: k, sender: 'Ana', text: '/pago luz', at: OCT, media }, ctx)
   assert.equal(r.state.months['2026-10']?.[1]?.status, 'pending')
   assert.deepEqual(kinds(r.effects), ['react', 'readAmount'])
 })
@@ -729,7 +725,7 @@ test('a late pick never overwrites a payment of the chosen bill typed after the 
 test('a late pick never undoes a /despago of the chosen bill sent after the receipt', () => {
   for (const by of [msg, other]) {
     const s = cards()
-    s.months['2026-10'] = { 2: { amount: 5000, status: 'typed', by: 'Gabi', paidAt: OCT - 1000, messageId: 'old' } }
+    s.months['2026-10'] = { 2: { amount: 5000, status: 'typed', by: 'Ana', paidAt: OCT - 1000, messageId: 'old' } }
     const p = picking(s)
     const undone = decide(p.state, by('/despago cartão nu'), ctx).state
     const r = p.picked(undone, 2, 9900)
@@ -753,7 +749,7 @@ test('a picked receipt cannot be edited into a second payment, and an edit befor
   const edit = (text: string): Input => ({
     kind: 'edit',
     key: p.receipt.kind === 'message' ? p.receipt.key : key(),
-    sender: 'Gabi',
+    sender: 'Ana',
     text,
     at: OCT,
   })

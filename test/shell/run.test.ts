@@ -73,6 +73,7 @@ type Setup = {
   state?: GroupState
   meta?: GroupMeta
   failCommit?: boolean
+  failCommitFrom?: number
   wa?: WaOpts
   llm?: (image: Buffer, mime: string) => Promise<number | null>
   pick?: (names: string[]) => Promise<{ index: number | null; amount: number | null }>
@@ -93,7 +94,8 @@ function setup(o: Setup = {}) {
     ...real,
     commit(jid, state) {
       calls.push({ op: 'commit' })
-      if (o.failCommit) throw new Error('disk full')
+      if (o.failCommit || (o.failCommitFrom && calls.filter(c => c.op === 'commit').length >= o.failCommitFrom))
+        throw new Error('disk full')
       real.commit(jid, state)
     },
   }
@@ -342,4 +344,21 @@ test('a pickBill that finds nothing, throws or hangs leaves the bill unpaid and 
     assert.equal(store.load(JID)?.months['2026-10'], undefined)
     assert.ok(calls.some(c => c.op === 'send'))
   }
+})
+
+test('a failed commit while applying the picked bill sends one saveFailed quoting the receipt and nothing else', async () => {
+  const pick = async () => ({ index: 0, amount: 120.5 })
+  const { shell, store, calls } = setup({
+    state: bills('Luz', 'Cartão Nu', 'Cartão Itaú'),
+    pick,
+    failCommitFrom: 2,
+  })
+  const m = msg('/pago cartão', { media: { mime: 'image/jpeg', handle: 'img' } })
+  await shell.handle(JID, m)
+  await shell.idle()
+  assert.deepEqual(calls.slice(1), [
+    { op: 'commit' },
+    { op: 'send', arg: `${m.key.id}: não consegui salvar, tenta de novo` },
+  ])
+  assert.equal(store.load(JID)?.months['2026-10'], undefined)
 })

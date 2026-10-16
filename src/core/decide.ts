@@ -88,12 +88,14 @@ function ambiguous(d: Draft, bills: readonly Bill[], amount: number | null, mont
     askWhich(d, choices, amount, month, m)
     return
   }
-  d.s.asks.push({ who: who(m.key, m.sender), at: m.at, q: 'pick', messageId: m.key.id, touched: [] })
+  d.s.asks.push({ who: who(m.key, m.sender), at: m.at, q: 'pick', messageId: m.key.id, touched: [], picked: [] })
   d.fx.push({ kind: 'pickBill', to: m.key, sender: m.sender, at: m.at, media, month, amount, bills: choices })
 }
 
-function touch(d: Draft, billId: number) {
-  for (const a of d.s.asks) if (a.q === 'pick') a.touched.push(billId)
+type Touch = 'touched' | 'picked'
+
+function touch(d: Draft, billId: number, by: Touch = 'touched') {
+  for (const a of d.s.asks) if (a.q === 'pick') a[by].push(billId)
 }
 
 export function listMsg(s: GroupState, month: string): ListMsg {
@@ -148,7 +150,7 @@ function payment(prev: Payment | undefined, amount: number | null, reading: bool
   return { ...base, amount: null, status: 'none' }
 }
 
-function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd) {
+function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd, by: Touch = 'touched') {
   const paid = d.s.months[month] ?? {}
   d.s.months[month] = paid
   const prev = paid[bill.id]
@@ -156,7 +158,7 @@ function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd)
   const reading = amount === null && media !== undefined && d.ctx.llm
   const p = payment(prev, amount, reading, m)
   paid[bill.id] = p
-  touch(d, bill.id)
+  touch(d, bill.id, by)
   d.fx.push({ kind: 'react', to: m.key })
   if (prev) reply(d, m.key, { k: 'updated' })
   if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: bill.id })
@@ -417,11 +419,11 @@ function remember(s: GroupState, id: string, changed: boolean, warned = false) {
   if (s.handled.length > HANDLED_MAX) s.handled.splice(0, s.handled.length - HANDLED_MAX)
 }
 
-function takeAsk(d: Draft, m: MessageInput, retype: boolean): Question[] {
+function takeAsk(d: Draft, m: MessageInput): Question[] {
   const by = who(m.key, m.sender)
   const live = (x: Ask) => x.q === 'pick' || m.at - x.at <= ASK_TTL
   const open = d.s.asks.filter((x): x is Question => x.who === by && x.q !== 'pick' && live(x)).reverse()
-  d.s.asks = d.s.asks.filter(x => live(x) && (x.who !== by || (x.q === 'pick' && !retype)))
+  d.s.asks = d.s.asks.filter(x => live(x) && (x.who !== by || x.q === 'pick'))
   return open
 }
 
@@ -474,8 +476,7 @@ function fillAmount(d: Draft, a: Extract<Ask, { q: 'amount' }>, text: string, m:
 function onMessage(d: Draft, m: MessageInput) {
   if (m.key.fromMe || d.s.handled.some(h => h.id === m.key.id)) return
   const c = parseCommand(m.text)
-  const retype = (c?.cmd === 'pago' || c?.cmd === 'despago') && !(m.media ?? m.quoted)
-  const open = takeAsk(d, m, retype)
+  const open = takeAsk(d, m)
   if (c) remember(d.s, m.key.id, run(d, c, m))
   else if (open.some(a => answer(d, a, m))) remember(d.s, m.key.id, true)
 }
@@ -517,16 +518,16 @@ function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
   const p = i.pick
   const open = d.s.asks.find((x): x is Picking => x.q === 'pick' && x.messageId === p.to.id)
   d.s.asks = d.s.asks.filter(x => x !== open)
-  if (!open) return
+  if (!open || p.bills.some(b => open.touched.includes(b.id))) return
   const m: Cmd = { key: p.to, sender: p.sender, at: p.at }
   const bill = p.bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
   if (!bill) {
     askWhich(d, p.bills, p.amount, p.month, { ...m, media: p.media })
     return
   }
-  if (open.touched.includes(bill.id)) return
+  if (open.picked.includes(bill.id)) return
   const month = p.month ?? current(d, p.at)
-  pay(d, bill, p.amount ?? i.amount, month, m)
+  pay(d, bill, p.amount ?? i.amount, month, m, 'picked')
   const h = d.s.handled.find(x => x.id === p.to.id)
   if (h) h.changed = true
   const paid = d.s.months[month]?.[bill.id]

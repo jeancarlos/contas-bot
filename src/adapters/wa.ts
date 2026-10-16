@@ -230,6 +230,18 @@ function remember(recent: Recent, msgs: Messages, m: MessageInput) {
   newest(msgs)
 }
 
+function trustedHost(msg: WAMessage): boolean {
+  const c = normalizeMessageContent(msg.message)
+  const url = (c?.imageMessage ?? c?.documentMessage)?.url
+  if (!url) return true
+  try {
+    const host = new URL(url).hostname
+    return host === 'whatsapp.net' || host.endsWith('.whatsapp.net')
+  } catch {
+    return false
+  }
+}
+
 export async function download(
   media: MediaRef,
   msgs: Messages,
@@ -240,7 +252,19 @@ export async function download(
   if (h.size > MAX_RECEIPT) throw new Error('receipt too large')
   const msg = msgs.get(h.id)
   if (!msg) throw new Error('receipt expired')
-  return dl(msg, 'buffer', {}, ctx)
+  if (!trustedHost(msg)) throw new Error('receipt host refused')
+  const stream = await dl(msg, 'stream', {}, ctx)
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of stream) {
+    total += chunk.length
+    if (total > MAX_RECEIPT) {
+      stream.destroy()
+      throw new Error('receipt too large')
+    }
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
 }
 
 type Listener = { bivariant(arg: unknown): void }['bivariant']

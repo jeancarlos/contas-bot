@@ -1,5 +1,6 @@
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Transform } from 'node:stream'
 import type { Boom } from '@hapi/boom'
 import makeWASocket, {
   type ConnectionState,
@@ -278,7 +279,9 @@ export async function download(
   msgs: Messages,
   ctx: DownloadCtx,
   dl = downloadMediaMessage,
+  signal?: AbortSignal,
 ): Promise<Buffer> {
+  signal?.throwIfAborted()
   const h = media.handle as Handle
   if (h.size > MAX_RECEIPT) throw new Error('receipt too large')
   const msg = msgs.get(h.id)
@@ -290,7 +293,18 @@ export async function download(
     if (!trustedHost(fresh)) throw new Error('receipt host refused')
     return fresh
   }
-  const stream = await dl(msg, 'stream', {}, { ...ctx, reuploadRequest })
+  const stream = await dl(msg, 'stream', signal ? { options: { signal } } : {}, { ...ctx, reuploadRequest })
+  const stop = () => stream.destroy(signal?.reason)
+  signal?.addEventListener('abort', stop, { once: true })
+  if (signal?.aborted) stop()
+  try {
+    return await collect(stream)
+  } finally {
+    signal?.removeEventListener('abort', stop)
+  }
+}
+
+async function collect(stream: Transform) {
   const chunks: Buffer[] = []
   let total = 0
   for await (const chunk of stream) {
@@ -518,7 +532,14 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
         async setDescription(text) {
           await sock.groupUpdateDescription(jid, text)
         },
-        download: media => download(media, msgs, { reuploadRequest: m => sock.updateMediaMessage(m), logger: sockLog }),
+        download: (media, signal) =>
+          download(
+            media,
+            msgs,
+            { reuploadRequest: m => sock.updateMediaMessage(m), logger: sockLog },
+            downloadMediaMessage,
+            signal,
+          ),
       }
     },
   }

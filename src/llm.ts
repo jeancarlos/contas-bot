@@ -1,7 +1,12 @@
 export type Llm = {
   enabled: boolean
-  readAmount(image: Buffer, mime: string): Promise<number | null>
-  pickBill(image: Buffer, mime: string, names: string[]): Promise<{ index: number | null; amount: number | null }>
+  readAmount(image: Buffer, mime: string, signal?: AbortSignal): Promise<number | null>
+  pickBill(
+    image: Buffer,
+    mime: string,
+    names: string[],
+    signal?: AbortSignal,
+  ): Promise<{ index: number | null; amount: number | null }>
 }
 type Pick = { index: number | null; amount: number | null }
 const NO_PICK: Pick = { index: null, amount: null }
@@ -39,7 +44,13 @@ export function makeLlm(cfg: Cfg): Llm {
 "amount" is the total paid ("Total", "Valor", "Valor pago", "Amount", "Importe"). Answer null when unsure.`
   const pickSystem = `You match a payment receipt to one of the numbered bills. Answer ONLY a JSON object: {"index": <number of the bill the receipt pays, or null>, "amount": <total paid in ${cfg.currency ?? 'BRL'} as a number, or null>}
 Answer null for "index" when no bill clearly matches, and null for "amount" when unsure.`
-  async function ask(system: string, prompt: string, image: Buffer, mime: string): Promise<string | null> {
+  async function ask(
+    system: string,
+    prompt: string,
+    image: Buffer,
+    mime: string,
+    signal: AbortSignal | undefined,
+  ): Promise<string | null> {
     try {
       const res = await fetchFn(`${cfg.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -62,7 +73,7 @@ Answer null for "index" when no bill clearly matches, and null for "amount" when
             },
           ],
         }),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.any([AbortSignal.timeout(45_000), ...(signal ? [signal] : [])]),
       })
       if (!res.ok) return null
       const data = (await res.json()) as { choices?: { message?: { content?: string } }[] } | null
@@ -73,13 +84,13 @@ Answer null for "index" when no bill clearly matches, and null for "amount" when
   }
   return {
     enabled: true,
-    async readAmount(image, mime) {
-      const raw = await ask(system, '', image, mime)
+    async readAmount(image, mime, signal) {
+      const raw = await ask(system, '', image, mime, signal)
       return raw ? parseAmountReply(raw) : null
     },
-    async pickBill(image, mime, names) {
+    async pickBill(image, mime, names, signal) {
       const list = names.map((n, i) => `${i}: ${n}`).join('\n')
-      const raw = await ask(pickSystem, `Bills:\n${list}`, image, mime)
+      const raw = await ask(pickSystem, `Bills:\n${list}`, image, mime, signal)
       return raw ? parsePickReply(raw, names.length) : NO_PICK
     },
   }

@@ -24,7 +24,13 @@ const SECTION = [
 ].join('\n')
 
 type Call = { op: string; arg?: string }
-type WaOpts = { desc?: string; failSetDescription?: boolean; failDownload?: boolean; failVideo?: boolean }
+type WaOpts = {
+  desc?: string
+  failSetDescription?: boolean
+  failDownload?: boolean
+  failVideo?: boolean
+  download?: (signal: AbortSignal | undefined) => Promise<Buffer>
+}
 
 function fakeWa(calls: Call[], o: WaOpts): Wa {
   let n = 0
@@ -54,7 +60,8 @@ function fakeWa(calls: Call[], o: WaOpts): Wa {
       if (o.failSetDescription) throw new Error('not admin')
       calls.push({ op: 'setDescription', arg: text })
     },
-    async download(media) {
+    async download(media, signal) {
+      if (o.download) return o.download(signal)
       if (o.failDownload) throw new Error('media gone')
       return Buffer.from(String(media.handle))
     },
@@ -75,7 +82,8 @@ type Setup = {
   failCommit?: boolean
   failCommitFrom?: number
   wa?: WaOpts
-  llm?: (image: Buffer, mime: string) => Promise<number | null>
+  llm?: (image: Buffer, mime: string, signal?: AbortSignal) => Promise<number | null>
+  pdf?: (signal: AbortSignal | undefined) => Promise<Buffer>
   pick?: (names: string[]) => Promise<{ index: number | null; amount: number | null }>
   gif?: boolean
   readTimeoutMs?: number
@@ -111,7 +119,8 @@ function setup(o: Setup = {}) {
       readAmount: o.llm ?? (async () => 80.1),
       pickBill: async (_image, _mime, names) => (o.pick ? o.pick(names) : { index: null, amount: null }),
     },
-    pdfToPng: async pdf => {
+    pdfToPng: async (pdf, signal) => {
+      if (o.pdf) return o.pdf(signal)
       pdfs.push(pdf.toString())
       return Buffer.from('png')
     },
@@ -437,37 +446,82 @@ test('at most two receipts are read at once, reads and picks alike, and every on
   )
 })
 
-test('a hung read frees its lane at its deadline, so the receipts queued behind it are still read', async () => {
-  let calls = 0
-  const hang = () => {
-    calls++
-    return calls <= 2 ? new Promise<number | null>(() => {}) : Promise.resolve(10)
+const untilAborted = <T>(signal: AbortSignal) =>
+  new Promise<T>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+
+test('a hung download, PDF render or LLM call is aborted at its deadline and its lane goes to the next receipt', async () => {
+  for (const stage of ['download', 'pdf', 'llm'] as const) {
+    const aborted: boolean[] = []
+    let calls = 0
+    const hang = <T>(signal: AbortSignal | undefined, value: T) => {
+      if (++calls > 2) return Promise.resolve(value)
+      assert.ok(signal)
+      signal.addEventListener('abort', () => aborted.push(true))
+      return untilAborted<T>(signal)
+    }
+    const { shell, store } = setup({
+      state: bills('Luz', 'Água', 'Gás'),
+      wa: stage === 'download' ? { download: signal => hang(signal, Buffer.from('img')) } : {},
+      pdf: stage === 'pdf' ? signal => hang(signal, Buffer.from('png')) : undefined,
+      llm: stage === 'llm' ? (_i, _m, signal) => hang(signal, 10) : async () => 10,
+    })
+    const receipt = { media: { mime: 'application/pdf', handle: 'pdf' } }
+    await Promise.all(['luz', 'água', 'gás'].map(b => shell.handle(JID, msg(`/pago ${b}`, receipt))))
+    await shell.idle()
+    assert.deepEqual(aborted, [true, true], stage)
+    assert.deepEqual(
+      [1, 2, 3].map(id => store.load(JID)?.months['2026-10']?.[id]?.status),
+      ['none', 'none', 'read'],
+      stage,
+    )
   }
-  const { shell, store } = setup({ state: bills('Luz', 'Água', 'Gás'), llm: hang })
-  const receipt = { media: { mime: 'image/jpeg', handle: 'img' } }
-  await Promise.all(['luz', 'água', 'gás'].map(b => shell.handle(JID, msg(`/pago ${b}`, receipt))))
-  await shell.idle()
-  assert.equal(calls, 3)
-  assert.deepEqual(
-    [1, 2, 3].map(id => store.load(JID)?.months['2026-10']?.[id]?.status),
-    ['none', 'none', 'read'],
-  )
 })
 
-test('work still queued at its own deadline is dropped without ever taking a lane', async () => {
-  const lane = lanes(2)
-  const hung = () => new Promise<number>(() => {})
-  let ran = false
-  const first = lane(30, hung)
-  const second = lane(30, hung)
-  assert.equal(
-    await lane(5, async () => {
-      ran = true
-      return 1
+test('a lane stays taken until the aborted work has really settled', async () => {
+  const lane = lanes(1)
+  const events: string[] = []
+  const slow = lane('g', 10, async signal => {
+    await untilAborted(signal).catch(() => events.push('aborted'))
+    await new Promise(r => setTimeout(r, 30))
+    events.push('settled')
+    return 1
+  })
+  const next = lane('g', 100, async () => {
+    events.push('next started')
+    return 2
+  })
+  assert.equal(await slow, null)
+  events.push('caller gave up')
+  assert.equal(await next, 2)
+  assert.deepEqual(events, ['aborted', 'caller gave up', 'settled', 'next started'])
+})
+
+test('time spent waiting for a lane does not count against the work deadline', async () => {
+  const lane = lanes(1)
+  const work = (v: number) => async () => {
+    await new Promise(r => setTimeout(r, 30))
+    return v
+  }
+  assert.deepEqual(await Promise.all([lane('g', 50, work(1)), lane('g', 50, work(2))]), [1, 2])
+})
+
+test('groups take turns for the lanes, so one busy group cannot starve another', async () => {
+  const lane = lanes(1)
+  const started: string[] = []
+  let open = () => {}
+  const first = lane('a', 1000, async () => {
+    started.push('a0')
+    await new Promise<void>(r => {
+      open = r
+    })
+  })
+  const jobs = ['a1', 'a2', 'a3', 'b1', 'c1', 'b2'].map(id =>
+    lane(id.slice(0, 1), 1000, async () => {
+      started.push(id)
     }),
-    null,
   )
-  assert.deepEqual(await Promise.all([first, second]), [null, null])
-  assert.equal(ran, false)
-  assert.equal(await lane(30, async () => 7), 7)
+  await new Promise(r => setImmediate(r))
+  open()
+  await Promise.all([first, ...jobs])
+  assert.deepEqual(started, ['a0', 'a1', 'b1', 'c1', 'a2', 'b2', 'a3'])
 })

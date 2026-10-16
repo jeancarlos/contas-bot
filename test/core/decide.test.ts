@@ -77,7 +77,7 @@ test('/pago with an explicit past month answers with that month list and leaves 
 test('off-path /pago answers with a suggestion or the syntax and changes nothing', () => {
   const s = state('Luz', 'Água')
   const cases: [string, string][] = [
-    ['/pago lux 80', 'suggest'],
+    ['/pago lux 80', 'askConfirm'],
     ['/pago netflix', 'notFound'],
     ['/pago', 'missingBill'],
     ['/pago luz e agua', 'onePerCommand'],
@@ -97,7 +97,7 @@ test('a suggestion carries the typed amount and month, copy-ready', () => {
   const r = decide(state('Luz'), msg('/pago lux 80 09/2026'), ctx)
   const reply = r.effects.find(e => e.kind === 'reply')
   assert.deepEqual(reply?.kind === 'reply' && reply.msg, {
-    k: 'suggest',
+    k: 'askConfirm',
     cmd: 'pago',
     bill: 'Luz',
     amount: 8000,
@@ -146,7 +146,7 @@ test('without AI a receipt is paid without an amount and never read', () => {
     llm: false,
   })
   assert.equal(r.state.months['2026-10']?.[1]?.status, 'none')
-  assert.deepEqual(kinds(r.effects), ['react', 'postList'])
+  assert.deepEqual(kinds(r.effects), ['react', 'postList', 'reply'])
 })
 
 test('a late amountRead after a newer /pago or a /despago is dropped', () => {
@@ -167,7 +167,7 @@ test('an unreadable receipt becomes status none and says so', () => {
   const k = m.kind === 'message' ? m.key : key()
   const r = decide(pending, { kind: 'amountRead', key: k, month: '2026-10', billId: 1, amount: null, at: OCT }, ctx)
   assert.equal(r.state.months['2026-10']?.[1]?.status, 'none')
-  assert.deepEqual(replies(r.effects), ['noAmount'])
+  assert.deepEqual(replies(r.effects), ['askAmount'])
 })
 
 test('/despago removes the payment for the given month', () => {
@@ -356,8 +356,8 @@ test('/pago avulsa refuses a misparsed name and creates nothing', () => {
     ['/pago avulsa farmácia R$', 'oneOffSyntax'],
     ['/pago avulsa farmácia 50 09/2026 08/2026', 'oneOffSyntax'],
     [`/pago avulsa ${'x'.repeat(41)} 50`, 'nameInvalid'],
-    ['/pago avulsa luz 50', 'suggest'],
-    ['/pago avulsa lux 50', 'suggest'],
+    ['/pago avulsa luz 50', 'askConfirm'],
+    ['/pago avulsa lux 50', 'askConfirm'],
     ['/pago avulsa cartão 50', 'onePerCommand'],
     ['/pago avulsa farmácia 50 12/2026', 'futureMonth'],
   ]
@@ -370,7 +370,7 @@ test('/pago avulsa refuses a misparsed name and creates nothing', () => {
   }
   const reply = decide(s, msg('/pago avulsa lux 50'), ctx).effects.find(e => e.kind === 'reply')
   assert.deepEqual(reply?.kind === 'reply' && reply.msg, {
-    k: 'suggest',
+    k: 'askConfirm',
     cmd: 'pago',
     bill: 'Luz',
     amount: 5000,
@@ -406,4 +406,97 @@ test('a one-off later added with /conta becomes permanent and keeps its payment'
   const bill = r.bills.find(b => b.key === 'farmacia')
   assert.equal(bill?.removed, false)
   assert.equal(r.months['2026-10']?.[bill?.id ?? 0]?.amount, 5000)
+})
+
+const other = (text: string) => msg(text, { key: { ...key(), participant: 'other@s.whatsapp.net' } })
+const amountRead = (m: Input, amount: number | null): Input => ({
+  kind: 'amountRead',
+  key: m.kind === 'message' ? m.key : key(),
+  month: '2026-10',
+  billId: 1,
+  amount,
+  at: OCT,
+})
+
+test('an unreadable receipt asks the sender for the amount and takes only their plain amount', () => {
+  const receipt = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
+  const asked = decide(decide(state('Luz'), receipt, ctx).state, amountRead(receipt, null), ctx).state
+  assert.equal(asked.asks.length, 1)
+  const fromOther = decide(asked, other('90'), ctx)
+  assert.deepEqual(fromOther.effects, [])
+  const r = decide(fromOther.state, msg('R$ 80,50'), ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.amount, 8050)
+  assert.equal(r.state.months['2026-10']?.[1]?.status, 'typed')
+  assert.deepEqual(kinds(r.effects), ['react', 'postList'])
+  assert.deepEqual(r.state.asks, [])
+})
+
+test('chat that is not a clean answer closes the question and changes nothing', () => {
+  const receipt = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
+  const asked = decide(decide(state('Luz'), receipt, ctx).state, amountRead(receipt, null), ctx).state
+  const chat = decide(asked, msg('comprei 2 pizzas'), ctx)
+  assert.deepEqual(chat.effects, [])
+  assert.deepEqual(chat.state.asks, [])
+  assert.equal(decide(chat.state, msg('80'), ctx).state.months['2026-10']?.[1]?.amount, null)
+})
+
+test('a question expires after ten minutes', () => {
+  const receipt = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
+  const asked = decide(decide(state('Luz'), receipt, ctx).state, amountRead(receipt, null), ctx).state
+  const late = decide(asked, msg('80', { at: OCT + 11 * 60_000 }), ctx)
+  assert.deepEqual(late.effects, [])
+  assert.equal(late.state.months['2026-10']?.[1]?.amount, null)
+})
+
+test('without AI a receipt asks for the amount right away', () => {
+  const noLlm = { ...ctx, llm: false }
+  const r = decide(state('Luz'), msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } }), noLlm)
+  assert.deepEqual(replies(r.effects), ['askAmount'])
+  assert.equal(decide(r.state, msg('80'), noLlm).state.months['2026-10']?.[1]?.amount, 8000)
+  const known = decide(state('Luz'), msg('/pago luz 80', { media: { mime: 'image/png', handle: 'h' } }), noLlm)
+  assert.deepEqual(known.state.asks, [])
+})
+
+test('a typo asks to confirm the closest bill, and sim pays it', () => {
+  const asked = decide(state('Luz'), msg('/pago lux 80'), ctx)
+  assert.deepEqual(replies(asked.effects), ['askConfirm'])
+  const no = decide(asked.state, msg('não'), ctx)
+  assert.deepEqual(no.effects, [])
+  assert.deepEqual(no.state.months, {})
+  const yes = decide(asked.state, msg('Sim'), ctx)
+  assert.equal(yes.state.months['2026-10']?.[1]?.amount, 8000)
+  assert.deepEqual(kinds(yes.effects), ['react', 'postList'])
+  assert.equal(yes.state.handled.at(-1)?.changed, true)
+})
+
+test('a /despago typo confirmed with sim unpays', () => {
+  const paid = decide(state('Luz'), msg('/pago luz 80'), ctx).state
+  const asked = decide(paid, msg('/despago lux'), ctx).state
+  assert.equal(decide(asked, msg('sim'), ctx).state.months['2026-10']?.[1], undefined)
+})
+
+test('a new command from the sender drops their open question', () => {
+  const asked = decide(state('Luz', 'Água'), msg('/pago lux 80'), ctx).state
+  const next = decide(asked, msg('/pago agua 50'), ctx).state
+  assert.deepEqual(next.asks, [])
+  assert.equal(decide(next, msg('sim'), ctx).state.months['2026-10']?.[1], undefined)
+})
+
+test('a receipt with a bare /pago asks which bill, and the answer pays it with the receipt', () => {
+  const asked = decide(state('Luz', 'Água'), msg('/pago', { media: { mime: 'image/png', handle: 'h' } }), ctx)
+  assert.deepEqual(replies(asked.effects), ['askBill'])
+  assert.deepEqual(decide(asked.state, msg('netflix'), ctx).effects, [])
+  const r = decide(asked.state, msg('a luz'), ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.status, 'pending')
+  assert.deepEqual(kinds(r.effects), ['react', 'readAmount'])
+  assert.deepEqual(replies(decide(state('Luz'), msg('/pago'), ctx).effects), ['missingBill'])
+})
+
+test('a one-off receipt without AI is saved and asks for the amount', () => {
+  const noLlm = { ...ctx, llm: false }
+  const r = decide(state('Luz'), msg('/pago avulsa farmácia', { media: { mime: 'image/png', handle: 'h' } }), noLlm)
+  const bill = r.state.bills.find(b => b.key === 'farmacia')
+  assert.equal(bill?.removed, true)
+  assert.deepEqual(replies(r.effects), ['askAmount'])
+  assert.equal(decide(r.state, msg('45,90'), noLlm).state.months['2026-10']?.[bill?.id ?? 0]?.amount, 4590)
 })

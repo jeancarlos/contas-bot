@@ -167,7 +167,15 @@ function open(path: string) {
       changed: h.changed_state === 1,
       warned: h.warned === 1,
     }))
-    return { bills, nextBillId: g.next_bill_id, months, handled, pinnedId: g.pinned_id, lastReset: g.last_reset }
+    return {
+      bills,
+      nextBillId: g.next_bill_id,
+      months,
+      handled,
+      pinnedId: g.pinned_id,
+      lastReset: g.last_reset,
+      asks: [],
+    }
   }
 
   return {

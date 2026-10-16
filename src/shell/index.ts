@@ -11,6 +11,8 @@ import { makeLlm } from '../llm.ts'
 import { pdfToPng } from '../pdf.ts'
 import { cachedGroups, makeShell, type Wa } from './run.ts'
 
+process.umask(0o077)
+
 const env = (name: string, fallback = '') => process.env[name] || fallback
 const log = pino({ level: env('LOG_LEVEL', 'info') })
 const locale = makeLocale(env('BOT_LANG', 'pt-BR'), env('BOT_CURRENCY', 'BRL'), env('TZ'))

@@ -55,7 +55,41 @@ export type Shell = {
 
 const NO_META: GroupMeta = { invite: null, announcedVersion: null, descriptionMigrated: false }
 const READ_TIMEOUT_MS = 90_000
+const RECEIPT_LANES = 2
 const after = (ms: number) => new Promise<null>(resolve => setTimeout(resolve, ms, null))
+
+export function lanes(n: number) {
+  let free = n
+  const queue = new Set<() => void>()
+  const release = () => {
+    const [next] = queue
+    if (!next) free++
+    else {
+      queue.delete(next)
+      next()
+    }
+  }
+  const turn = (deadline: Promise<null>) => {
+    if (free > 0) {
+      free--
+      return Promise.resolve(true)
+    }
+    return new Promise<boolean>(resolve => {
+      const go = () => resolve(true)
+      queue.add(go)
+      void deadline.then(() => queue.delete(go) && resolve(false))
+    })
+  }
+  return async <T>(ms: number, work: () => Promise<T>): Promise<T | null> => {
+    const deadline = after(ms)
+    if (!(await turn(deadline))) return null
+    try {
+      return await Promise.race([work(), deadline])
+    } finally {
+      release()
+    }
+  }
+}
 
 export function cachedGroups(store: Store, codes: string[]): { jids: string[]; toResolve: string[] } {
   const jids: string[] = []
@@ -81,6 +115,8 @@ export function makeShell(d: ShellDeps): Shell {
   const asks = new Map<string, GroupState['asks']>()
   const reading = new Set<{ jid: string; id: string }>()
   const unasked = (s: GroupState): GroupState => ({ ...s, asks: [] })
+  const lane = lanes(RECEIPT_LANES)
+  const bounded = <T>(work: () => Promise<T>) => lane(d.readTimeoutMs ?? READ_TIMEOUT_MS, work)
 
   const handle = (jid: string, input: Input) => box(jid, () => step(jid, input))
   const follow = (p: Promise<void>) => {
@@ -128,10 +164,7 @@ export function makeShell(d: ShellDeps): Shell {
   }
 
   async function pickBill(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>) {
-    const { billId, amount } = (await Promise.race([
-      pickReceipt(jid, fx),
-      after(d.readTimeoutMs ?? READ_TIMEOUT_MS),
-    ])) ?? { billId: null, amount: null }
+    const { billId, amount } = (await bounded(() => pickReceipt(jid, fx))) ?? { billId: null, amount: null }
     await handle(jid, { kind: 'billPicked', pick: fx, billId, amount })
   }
 
@@ -139,7 +172,7 @@ export function makeShell(d: ShellDeps): Shell {
     const read = { jid, id: fx.to.id }
     reading.add(read)
     try {
-      const amount = await Promise.race([readReceipt(jid, fx.media), after(d.readTimeoutMs ?? READ_TIMEOUT_MS)])
+      const amount = await bounded(() => readReceipt(jid, fx.media))
       await handle(jid, { kind: 'amountRead', key: fx.to, month: fx.month, billId: fx.billId, amount, at: d.now() })
     } finally {
       reading.delete(read)

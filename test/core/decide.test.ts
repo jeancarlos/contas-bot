@@ -930,3 +930,14 @@ test('an input whose time is outside any calendar is dropped without effects ins
     }
   }
 })
+
+test('a bill named like a currency is paid with an amount, and its suggestion round-trips', () => {
+  for (const name of ['Real', 'Top', 'All', 'Cup', 'Pen']) {
+    const s = run(state('Luz', name), msg(`/pago ${name.toLowerCase()} 80`))
+    assert.equal(s.months['2026-10']?.[2]?.amount, 8000, name)
+    const r = decide(state('Luz', name), msg(`/pago ${name.toLowerCase()}x 80`), ctx)
+    assert.deepEqual(replies(r.effects), ['askConfirm'], name)
+    assert.equal(decide(r.state, msg('sim'), ctx).state.months['2026-10']?.[2]?.amount, 8000, name)
+  }
+  assert.equal(run(state('Luz'), msg('/pago luz 80USD')).months['2026-10']?.[1]?.amount, 8000)
+})

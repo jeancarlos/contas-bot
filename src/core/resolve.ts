@@ -159,7 +159,7 @@ export function resolve(arg: string, all: readonly Bill[], current: string, deci
   if (whole) return { ok: true, bill: whole, amount: null, month: null }
   const billWords = new Set(bills.flatMap(words))
   const tokens = joinYears(arg.split(' ').filter(Boolean), billWords, current)
-  const { marked } = findMoney(tokens, decimal)
+  const { marked } = findMoney(tokens, decimal, billWords)
   const money: MoneyHit | undefined = marked[0]
   if (marked.length > 1) return { ok: false, why: 'pagoSyntax', amount: null }
   const months = tokens

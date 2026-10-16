@@ -31,6 +31,7 @@ export const AI_PRESETS = {
 export const defaultCurrency = (lang: Lang): string => (lang === 'pt-BR' ? 'BRL' : lang === 'en' ? 'USD' : 'EUR')
 export const validCurrency = (s: string): boolean => /^[A-Za-z]{3}$/.test(s.trim())
 export const validUrl = (s: string): boolean => /^https?:\/\/\S+$/.test(s.trim())
+export const envSafe = (s: string): boolean => !/['\r\n]/.test(s)
 export const allowEmpty = (noHistory: boolean, fresh: boolean, saved: Record<string, string>): boolean =>
   noHistory && (fresh || saved.ALLOW_EMPTY_STATE === '1')
 export function validGroup(raw: string): boolean {
@@ -85,14 +86,20 @@ export function buildEnv(a: Answers, uid: number, gid: number, empty = false): s
     ['PGID', String(gid)],
   ]
   if (empty) lines.push(['ALLOW_EMPTY_STATE', '1'])
-  return `${lines.map(([k, v]) => `${k}=${v}`).join('\n')}\n`
+  return `${lines.map(([k, v]) => `${k}=${envValue(k, v)}`).join('\n')}\n`
+}
+
+function envValue(key: string, v: string): string {
+  if (!envSafe(v)) throw new Error(`${key} contains a single quote or a line break`)
+  return /^[\w.:/@,+-]*$/.test(v) ? v : `'${v}'`
 }
 
 export function parseEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const line of text.split('\n')) {
     const [, k, v] = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim()) ?? []
-    if (k !== undefined && v !== undefined) out[k] = v
+    if (k !== undefined && v !== undefined)
+      out[k] = v.length > 1 && v.startsWith("'") && v.endsWith("'") ? v.slice(1, -1) : v
   }
   return out
 }
@@ -170,7 +177,10 @@ function aiFromEnv(v: Read): Partial<Answers> {
 }
 
 export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
-  const v: Read = k => env[`CONTAS_BOT_${k}`]?.trim() || undefined
+  const v: Read = k => {
+    const raw = env[`CONTAS_BOT_${k}`]?.trim()
+    return raw && envSafe(raw) ? raw : undefined
+  }
   return { ...basicsFromEnv(v), ...aiFromEnv(v) }
 }
 

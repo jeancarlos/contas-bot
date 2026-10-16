@@ -46,6 +46,7 @@ export type SetupText = {
   updated: (from: string, to: string) => string
   cancelled: string
   missing: (keys: string) => string
+  noQuotes: string
   emptyAsk: string
   emptyRefused: string
 }
@@ -97,6 +98,7 @@ const pt: SetupText = {
   updated: (from, to) => `✅ Atualizado: v${from} → v${to}`,
   cancelled: 'Cancelado, nada foi gravado.',
   missing: keys => `faltam respostas e não há terminal para perguntar: ${keys}`,
+  noQuotes: "sem aspas simples (') nem quebras de linha",
   emptyAsk:
     'Não achei histórico (data/contas.db ou data/state.json). Se o bot nunca foi usado num grupo, tudo bem: começar com o histórico vazio?',
   emptyRefused:
@@ -149,6 +151,7 @@ const en: SetupText = {
   updated: (from, to) => `✅ Updated: v${from} → v${to}`,
   cancelled: 'Cancelled, nothing was saved.',
   missing: keys => `answers are missing and there is no terminal to ask: ${keys}`,
+  noQuotes: "no single quotes (') or line breaks",
   emptyAsk:
     'No history found (data/contas.db or data/state.json). That is fine if the bot was never used in a group: start with an empty history?',
   emptyRefused:
@@ -203,6 +206,7 @@ const es: SetupText = {
   updated: (from, to) => `✅ Actualizado: v${from} → v${to}`,
   cancelled: 'Cancelado, no se guardó nada.',
   missing: keys => `faltan respuestas y no hay terminal para preguntar: ${keys}`,
+  noQuotes: "sin comillas simples (') ni saltos de línea",
   emptyAsk:
     'No encontré historial (data/contas.db o data/state.json). Si el bot nunca se usó en un grupo, está bien: ¿empezar con el historial vacío?',
   emptyRefused:

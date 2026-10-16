@@ -182,3 +182,43 @@ test('a fractional amount is rejected and leaves the previous state', () => {
   assert.throws(() => store.commit(JID, bad))
   assert.deepEqual(store.load(JID), STATE)
 })
+
+test('a database from a newer schema is refused and left as it was; an unversioned one is stamped', () => {
+  const p = dir()
+  const db = new DatabaseSync(p.dbPath)
+  db.exec('PRAGMA user_version = 2')
+  db.close()
+  assert.throws(() => openStore({ ...p, allowEmpty: false }), /schema 2/)
+  const after = new DatabaseSync(p.dbPath)
+  assert.equal((after.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 2)
+  assert.equal(after.prepare("SELECT name FROM sqlite_master WHERE name = 'groups'").get(), undefined)
+  after.close()
+  const q = dir()
+  new DatabaseSync(q.dbPath).close()
+  openStore({ ...q, allowEmpty: false }).store.close()
+  const stamped = new DatabaseSync(q.dbPath)
+  assert.equal((stamped.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1)
+  stamped.close()
+})
+
+test('a v1 amount too large to keep in cents imports as no amount and the group stays loadable', () => {
+  const p = dir()
+  const row = (amount: unknown) => ({
+    name: 'Luz',
+    amount,
+    by: 'Ana',
+    paid_at: '2026-10-01T00:00:00Z',
+    message_id: 'M',
+  })
+  writeFileSync(
+    p.v1Path,
+    JSON.stringify({
+      groups: {
+        [JID]: { _meta: { bills: ['Luz'], last_reset: '2026-10' }, months: { '2026-10': { luz: row(1e14) } } },
+      },
+    }),
+  )
+  const { store, imported } = openStore({ ...p, allowEmpty: false })
+  assert.equal(imported, 1)
+  assert.equal(store.load(JID)?.months['2026-10']?.[1]?.amount, null)
+})

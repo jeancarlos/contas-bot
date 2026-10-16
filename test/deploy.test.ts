@@ -45,3 +45,19 @@ test('every workflow action is pinned to a commit and only the release job can w
   assert.match(release, /^ {2}release:\n(?: {4}.*\n)*? {6}contents: write$/m)
   assert.doesNotMatch(release.slice(0, release.indexOf('\n  release:')), /contents: write/)
 })
+
+test('baileys is pinned exactly and the lockfile carries the patched sharp and music-metadata', () => {
+  const pkg = JSON.parse(read('package.json'))
+  const lock = JSON.parse(read('package-lock.json'))
+  const locked = (name: string): string => lock.packages[`node_modules/${name}`].version
+  assert.equal(pkg.dependencies['@whiskeysockets/baileys'], '7.0.0-rc14')
+  assert.equal(lock.packages[''].dependencies['@whiskeysockets/baileys'], '7.0.0-rc14')
+  assert.equal(locked('@whiskeysockets/baileys'), '7.0.0-rc14')
+  const atLeast = (v: string, min: number[]) => {
+    const n = v.split('.').map(Number)
+    const i = n.findIndex((x, j) => x !== min[j])
+    return i === -1 || (n[i] ?? 0) > (min[i] ?? 0)
+  }
+  assert.ok(atLeast(locked('sharp'), [0, 35, 5]), locked('sharp'))
+  assert.ok(atLeast(locked('music-metadata'), [11, 16, 1]), locked('music-metadata'))
+})

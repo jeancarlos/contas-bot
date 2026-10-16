@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { composeFile } from '../src/setup/core.ts'
 
@@ -94,4 +97,24 @@ test('the branch-name check accepts feature, fix, chore and dependabot branches 
     assert.ok(ok.test(b), b)
   for (const b of ['main', 'hotfix/x', 'feature/X Y', 'dependabot', 'dependabot/', 'my-dependabot/x', 'fix/a;b'])
     assert.ok(!ok.test(b), b)
+})
+
+test('the publish step passes each gh argument as one word, for a release and a prerelease', () => {
+  const release = read('.github/workflows/release.yml')
+  const block = /- name: Publish the release\n(?:.*\n)*? {8}run: \|\n((?: {10}.*\n?)+)/.exec(release)?.[1]
+  assert.ok(block)
+  const script = block.replace(/^ {10}/gm, '')
+  assert.doesNotMatch(script, /(^|[^"])\$(notes|pre)\b/)
+  const bin = mkdtempSync(join(tmpdir(), 'gh-'))
+  writeFileSync(join(bin, 'gh'), '#!/bin/sh\nfor a in "$@"; do printf "[%s]" "$a"; done\necho\n', { mode: 0o755 })
+  const run = (tag: string) =>
+    execFileSync('sh', ['-c', script], {
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_REF_NAME: tag, PATH: `${bin}:${process.env.PATH}` },
+    })
+  assert.equal(run('v2.0.0'), '[release][create][v2.0.0][dist/install.sh][--notes-file][dist/notes.md][--verify-tag]\n')
+  assert.equal(
+    run('v2.0.0-rc1'),
+    '[release][create][v2.0.0-rc1][dist/install.sh][--prerelease][--generate-notes][--verify-tag]\n',
+  )
 })

@@ -62,6 +62,7 @@ if (port > 0) {
       served: () => [...groups],
       connected: () => connected,
       log,
+      hosts: env('HTTP_HOSTS').split(','),
     },
     port,
   ).then(

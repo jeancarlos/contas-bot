@@ -20,6 +20,7 @@ import {
   withDefaults,
   missingAnswers,
   probeAi,
+  allowEmpty,
   type Answers,
 } from '../src/setup/core.ts'
 
@@ -266,4 +267,12 @@ test('savedIds reuses numeric PUID/PGID and falls back otherwise', () => {
   assert.deepEqual(savedIds({ PUID: '1234', PGID: '99' }, 1000, 1001), [1234, 99])
   assert.deepEqual(savedIds({ PUID: 'x' }, 1000, 1001), [1000, 1001])
   assert.deepEqual(savedIds({}, 1000, 1001), [1000, 1001])
+})
+
+test('allowEmpty: only without history, and only on a fresh install or with the saved consent', () => {
+  assert.equal(allowEmpty(true, true, {}), true)
+  assert.equal(allowEmpty(true, false, { ALLOW_EMPTY_STATE: '1' }), true)
+  assert.equal(allowEmpty(true, false, {}), false)
+  assert.equal(allowEmpty(true, false, { ALLOW_EMPTY_STATE: '0' }), false)
+  assert.equal(allowEmpty(false, true, { ALLOW_EMPTY_STATE: '1' }), false)
 })

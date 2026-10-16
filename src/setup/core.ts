@@ -31,6 +31,8 @@ export const AI_PRESETS = {
 export const defaultCurrency = (lang: Lang): string => (lang === 'pt-BR' ? 'BRL' : lang === 'en' ? 'USD' : 'EUR')
 export const validCurrency = (s: string): boolean => /^[A-Za-z]{3}$/.test(s.trim())
 export const validUrl = (s: string): boolean => /^https?:\/\/\S+$/.test(s.trim())
+export const allowEmpty = (noHistory: boolean, fresh: boolean, saved: Record<string, string>): boolean =>
+  noHistory && (fresh || saved.ALLOW_EMPTY_STATE === '1')
 export function validGroup(raw: string): boolean {
   try {
     parseGroupJids(raw)
@@ -67,7 +69,7 @@ export async function probeAi(ai: { url: string; key: string }, fetchFn: typeof 
   }
 }
 
-export function buildEnv(a: Answers, uid: number, gid: number, allowEmpty = false): string {
+export function buildEnv(a: Answers, uid: number, gid: number, empty = false): string {
   const ai = resolveAi(a)
   const lines: [string, string][] = [
     ['BOT_LANG', a.lang],
@@ -82,7 +84,7 @@ export function buildEnv(a: Answers, uid: number, gid: number, allowEmpty = fals
     ['PUID', String(uid)],
     ['PGID', String(gid)],
   ]
-  if (allowEmpty) lines.push(['ALLOW_EMPTY_STATE', '1'])
+  if (empty) lines.push(['ALLOW_EMPTY_STATE', '1'])
   return `${lines.map(([k, v]) => `${k}=${v}`).join('\n')}\n`
 }
 

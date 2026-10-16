@@ -218,18 +218,18 @@ test('summary.json lists a removed bill only when paid this month', () => {
   assert.equal(j.groups[0]?.unpaid, 2)
 })
 
-test('paused paid bills stay out of totals and match the pinned list footer', () => {
+test('a paused bill paid this month counts in every total and matches the pinned list footer', () => {
   const s = state('Luz')
   const month = s.months['2026-10']
   if (month) month[4] = { amount: 3000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M4' }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const footer = render(listMsg(s, '2026-10'), d.locale).split('\n').at(-1) ?? ''
-  assert.ok(footer.includes('1/3') && footer.includes('R$ 80,10'))
+  assert.ok(footer.includes('2/4') && footer.includes('R$ 110,10'), footer)
   const m = renderMetrics(d)
-  assert.ok(m.includes('contas_month_paid{group="grupo",month="2026-10"} 80.1\n'))
-  assert.ok(!m.includes('Net, Fibra'))
-  assert.equal((JSON.parse(get(d, '/summary.json').body) as { groups: { total: number }[] }).groups[0]?.total, 80.1)
-  assert.ok(!get(d, '/').body.includes('R$ 110,10'))
+  assert.ok(m.includes('contas_month_paid{group="grupo",month="2026-10"} 110.1\n'))
+  assert.ok(m.includes('contas_paid_amount{group="grupo",bill="Net, Fibra"} 30\n'))
+  assert.equal((JSON.parse(get(d, '/summary.json').body) as { groups: { total: number }[] }).groups[0]?.total, 110.1)
+  assert.ok(get(d, '/').body.includes('R$ 110,10'))
 })
 
 test('groups the bot does not serve appear on no route', () => {

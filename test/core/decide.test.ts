@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { type Ctx, decide } from '../../src/core/decide.ts'
+import { type Ctx, decide, listMsg } from '../../src/core/decide.ts'
+import { render } from '../../src/core/i18n.ts'
 import { normalize } from '../../src/core/text.ts'
 import { emptyState, type GroupState, type Input, type MsgKey } from '../../src/core/types.ts'
 
@@ -809,4 +810,21 @@ test('a rename may not take the name of a removed bill, so /despago always reach
     ['luz', 'gas', 'botijao'],
   )
   assert.deepEqual(paidList(run(r.state, msg('/despago gás 09/2026'))), [])
+})
+
+const footer = (s: GroupState, month: string) => render(listMsg(s, month), ctx.locale).split('\n').at(-1)
+
+test('a paid bill shows as paid and counts even while paused, and pausing never rewrites a past month', () => {
+  const now = run(
+    state('Luz', 'Internet'),
+    msg('/conta pausa internet'),
+    msg('/pago internet 100'),
+    msg('/pago luz 80'),
+  )
+  assert.equal(footer(now, '2026-10'), '*Pago:* 2/2 · *Total:* R$ 180,00')
+  const sept = run(state('Luz', 'Internet', 'Água'), msg('/pago internet 100 09/2026'), msg('/pago luz 80 09/2026'))
+  const before = footer(sept, '2026-09')
+  assert.equal(before, '*Pago:* 2/3 · *Total:* R$ 180,00')
+  assert.equal(footer(run(sept, msg('/conta pausa internet')), '2026-09'), before)
+  assert.equal(footer(run(sept, msg('/conta pausa água')), '2026-09'), '*Pago:* 2/2 · *Total:* R$ 180,00')
 })

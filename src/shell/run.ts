@@ -70,6 +70,8 @@ export function cachedGroups(store: Store, codes: string[]): { jids: string[]; t
   return { jids, toResolve: [...remaining] }
 }
 
+const quotable = (i: Input): MsgKey | null => (i.kind === 'billPicked' ? i.pick.to : 'key' in i ? i.key : null)
+
 export function makeShell(d: ShellDeps): Shell {
   const box = mailbox()
   const ctx: Ctx = { locale: d.locale, llm: d.llm.enabled }
@@ -181,7 +183,8 @@ export function makeShell(d: ShellDeps): Shell {
       d.store.commit(jid, state)
     } catch (err) {
       d.log.error({ err, jid, input: input.kind }, 'commit failed: nothing saved, nothing sent')
-      if ('key' in input) await d.wa(jid).sendText(text({ k: 'saveFailed' }), input.key)
+      const key = quotable(input)
+      if (key) await d.wa(jid).sendText(text({ k: 'saveFailed' }), key)
       return
     }
     asks.set(jid, state.asks)

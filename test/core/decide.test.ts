@@ -941,3 +941,15 @@ test('a bill named like a currency is paid with an amount, and its suggestion ro
   }
   assert.equal(run(state('Luz'), msg('/pago luz 80USD')).months['2026-10']?.[1]?.amount, 8000)
 })
+
+test('an amount with more than two decimals is refused, never rounded into a payment', () => {
+  for (const text of ['/pago luz 1,005', '/pago luz 0,0051', '/pago luz 0.005', '/pago luz R$ 0,004']) {
+    const r = decide(state('Luz'), msg(text), ctx)
+    assert.deepEqual(r.state.months, {}, text)
+    const amounts = r.effects.flatMap(e => (e.kind === 'reply' && 'amount' in e.msg ? [e.msg.amount] : []))
+    assert.ok(
+      amounts.every(a => a === null),
+      text,
+    )
+  }
+})

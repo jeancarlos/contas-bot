@@ -26,7 +26,7 @@ export type Wa = {
   unpin(messageId: string): Promise<void>
   getDescription(): Promise<string>
   setDescription(text: string): Promise<void>
-  download(media: MediaRef): Promise<Buffer>
+  download(media: MediaRef, signal?: AbortSignal): Promise<Buffer>
 }
 export type Log = {
   info(o: object, m?: string): void
@@ -38,7 +38,7 @@ export type ShellDeps = {
   wa(jid: string): Wa
   locale: Locale
   llm: Llm
-  pdfToPng(pdf: Buffer): Promise<Buffer>
+  pdfToPng(pdf: Buffer, signal?: AbortSignal): Promise<Buffer>
   log: Log
   now(): number
   version: string
@@ -56,38 +56,42 @@ export type Shell = {
 const NO_META: GroupMeta = { invite: null, announcedVersion: null, descriptionMigrated: false }
 const READ_TIMEOUT_MS = 90_000
 const RECEIPT_LANES = 2
-const after = (ms: number) => new Promise<null>(resolve => setTimeout(resolve, ms, null))
 
 export function lanes(n: number) {
   let free = n
-  const queue = new Set<() => void>()
+  const queues = new Map<string, (() => void)[]>()
   const release = () => {
-    const [next] = queue
-    if (!next) free++
-    else {
-      queue.delete(next)
-      next()
+    const [group, queue] = queues.entries().next().value ?? []
+    const next = queue?.shift()
+    if (group === undefined || !next) {
+      free++
+      return
     }
+    queues.delete(group)
+    if (queue?.length) queues.set(group, queue)
+    next()
   }
-  const turn = (deadline: Promise<null>) => {
+  const turn = (group: string) => {
     if (free > 0) {
       free--
-      return Promise.resolve(true)
+      return Promise.resolve()
     }
-    return new Promise<boolean>(resolve => {
-      const go = () => resolve(true)
-      queue.add(go)
-      void deadline.then(() => queue.delete(go) && resolve(false))
+    return new Promise<void>(resolve => {
+      queues.set(group, [...(queues.get(group) ?? []), resolve])
     })
   }
-  return async <T>(ms: number, work: () => Promise<T>): Promise<T | null> => {
-    const deadline = after(ms)
-    if (!(await turn(deadline))) return null
-    try {
-      return await Promise.race([work(), deadline])
-    } finally {
+  return async <T>(group: string, ms: number, work: (signal: AbortSignal) => Promise<T>): Promise<T | null> => {
+    await turn(group)
+    const abort = new AbortController()
+    const timer = setTimeout(() => abort.abort(new Error('receipt read timed out')), ms)
+    const deadline = new Promise<null>(resolve => abort.signal.addEventListener('abort', () => resolve(null)))
+    const running = work(abort.signal)
+    const settle = () => {
+      clearTimeout(timer)
       release()
     }
+    void running.then(settle, settle)
+    return Promise.race([running, deadline])
   }
 }
 
@@ -116,7 +120,8 @@ export function makeShell(d: ShellDeps): Shell {
   const reading = new Set<{ jid: string; id: string }>()
   const unasked = (s: GroupState): GroupState => ({ ...s, asks: [] })
   const lane = lanes(RECEIPT_LANES)
-  const bounded = <T>(work: () => Promise<T>) => lane(d.readTimeoutMs ?? READ_TIMEOUT_MS, work)
+  const bounded = <T>(jid: string, work: (signal: AbortSignal) => Promise<T>) =>
+    lane(jid, d.readTimeoutMs ?? READ_TIMEOUT_MS, work)
 
   const handle = (jid: string, input: Input) => box(jid, () => step(jid, input))
   const follow = (p: Promise<void>) => {
@@ -126,11 +131,11 @@ export function makeShell(d: ShellDeps): Shell {
     pending.add(tracked)
   }
 
-  async function receiptImage(jid: string, media: MediaRef) {
-    let image = await d.wa(jid).download(media)
+  async function receiptImage(jid: string, media: MediaRef, signal: AbortSignal) {
+    let image = await d.wa(jid).download(media, signal)
     let mime = media.mime
     if (mime === 'application/pdf') {
-      image = await d.pdfToPng(image)
+      image = await d.pdfToPng(image, signal)
       mime = 'image/png'
     }
     return { image, mime }
@@ -138,23 +143,24 @@ export function makeShell(d: ShellDeps): Shell {
 
   const cents = (amount: number | null) => (amount === null ? null : Math.round(amount * 100))
 
-  async function readReceipt(jid: string, media: MediaRef): Promise<number | null> {
+  async function readReceipt(jid: string, media: MediaRef, signal: AbortSignal): Promise<number | null> {
     try {
-      const { image, mime } = await receiptImage(jid, media)
-      return cents(await d.llm.readAmount(image, mime))
+      const { image, mime } = await receiptImage(jid, media, signal)
+      return cents(await d.llm.readAmount(image, mime, signal))
     } catch (err) {
       d.log.warn({ err, jid }, 'receipt unreadable')
       return null
     }
   }
 
-  async function pickReceipt(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>) {
+  async function pickReceipt(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>, signal: AbortSignal) {
     try {
-      const { image, mime } = await receiptImage(jid, fx.media)
+      const { image, mime } = await receiptImage(jid, fx.media, signal)
       const { index, amount } = await d.llm.pickBill(
         image,
         mime,
         fx.bills.map(b => b.name),
+        signal,
       )
       return { billId: (index === null ? undefined : fx.bills[index]?.id) ?? null, amount: cents(amount) }
     } catch (err) {
@@ -164,7 +170,10 @@ export function makeShell(d: ShellDeps): Shell {
   }
 
   async function pickBill(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>) {
-    const { billId, amount } = (await bounded(() => pickReceipt(jid, fx))) ?? { billId: null, amount: null }
+    const { billId, amount } = (await bounded(jid, signal => pickReceipt(jid, fx, signal))) ?? {
+      billId: null,
+      amount: null,
+    }
     await handle(jid, { kind: 'billPicked', pick: fx, billId, amount })
   }
 
@@ -172,7 +181,7 @@ export function makeShell(d: ShellDeps): Shell {
     const read = { jid, id: fx.to.id }
     reading.add(read)
     try {
-      const amount = await bounded(() => readReceipt(jid, fx.media))
+      const amount = await bounded(jid, signal => readReceipt(jid, fx.media, signal))
       await handle(jid, { kind: 'amountRead', key: fx.to, month: fx.month, billId: fx.billId, amount, at: d.now() })
     } finally {
       reading.delete(read)

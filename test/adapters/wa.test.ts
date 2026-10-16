@@ -973,3 +973,36 @@ test('message text is capped at 2000 characters', () => {
   const m = must(toMessage(wam('L1', { conversation: `/pago luz ${'x'.repeat(10_000)}` }), new Map()))
   assert.equal(m.text.length, 2000)
 })
+
+test('a download takes an abort signal: refused up front, handed to Baileys, and cuts a running stream', async () => {
+  const msgs: Messages = new Map()
+  const m = must(
+    toMessage(
+      wam('A1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
+  let calls = 0
+  const done = new AbortController()
+  done.abort(new Error('late'))
+  const never = (async () => {
+    calls++
+    return Readable.from([])
+  }) as unknown as typeof downloadMediaMessage
+  await assert.rejects(download(must(m.media), msgs, ctx, never, done.signal), /late/)
+  assert.equal(calls, 0)
+  const abort = new AbortController()
+  let given: unknown
+  const stream = new Readable({ read() {} })
+  const dl = (async (_m: WAMessage, _t: string, o: { options?: { signal?: AbortSignal } }) => {
+    given = o.options?.signal
+    stream.push(Buffer.from('ab'))
+    return stream
+  }) as unknown as typeof downloadMediaMessage
+  const run = download(must(m.media), msgs, ctx, dl, abort.signal)
+  await new Promise(r => setImmediate(r))
+  abort.abort(new Error('receipt read timed out'))
+  await assert.rejects(run, /timed out/)
+  assert.equal(given, abort.signal)
+  assert.equal(stream.destroyed, true)
+})

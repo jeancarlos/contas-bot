@@ -59,8 +59,8 @@ test('paymentRows: inclusive range ordered by month then bill, current bill name
   assert.equal(paymentRows(s, '2026-10', '2026-10').length, 1)
 })
 
-test('monthTotals: a paused paid bill counts in neither paid nor total', () => {
+test('monthTotals: a paused paid bill counts as paid and in the total', () => {
   const s = sample()
   s.months['2026-09'] = { ...s.months['2026-09'], 3: pay(5000, 'typed', 4) }
-  assert.deepEqual(monthTotals(s, ['2026-09']), [{ month: '2026-09', total: 10550, paid: 3, unpaid: 0 }])
+  assert.deepEqual(monthTotals(s, ['2026-09']), [{ month: '2026-09', total: 15550, paid: 4, unpaid: 0 }])
 })

@@ -98,7 +98,12 @@ export function listMsg(s: GroupState, month: string): ListMsg {
   const paid = s.months[month] ?? {}
   const items = s.bills
     .filter(b => !b.removed || paid[b.id])
-    .map(b => ({ name: b.name, paused: b.paused, paid: Boolean(paid[b.id]), amount: paid[b.id]?.amount ?? null }))
+    .map(b => ({
+      name: b.name,
+      paused: b.paused && !paid[b.id],
+      paid: Boolean(paid[b.id]),
+      amount: paid[b.id]?.amount ?? null,
+    }))
   return { k: 'list', month, items }
 }
 

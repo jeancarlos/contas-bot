@@ -531,7 +531,7 @@ function onJoin(d: Draft, j: Extract<Input, { kind: 'join' }>) {
   if (!j.startup) return
   for (const month of Object.values(d.s.months)) {
     for (const p of Object.values(month)) {
-      if (p.status !== 'pending') continue
+      if (p.status !== 'pending' || j.reading.includes(p.messageId)) continue
       p.status = 'none'
       reply(d, { id: p.messageId, fromMe: false, remoteJid: j.jid }, { k: 'noAmount' })
     }

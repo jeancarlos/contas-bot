@@ -60,7 +60,7 @@ export type Input =
   | { kind: 'billPicked'; pick: PickBill; billId: number | null; amount: number | null }
   | { kind: 'listPosted'; messageId: string }
   | { kind: 'tick'; at: number }
-  | { kind: 'join'; jid: string; at: number; startup: boolean }
+  | { kind: 'join'; jid: string; at: number; startup: boolean; reading: string[] }
 
 export type PickBill = {
   to: MsgKey

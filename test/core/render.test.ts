@@ -56,7 +56,7 @@ test('every message kind renders in every language', () => {
     { k: 'pagoSyntax' },
     { k: 'futureMonth' },
     { k: 'unknownCmd', typed: 'x', suggestion: null },
-    { k: 'unknownSub', typed: 'x', suggestion: 'pausa' },
+    { k: 'unknownSub', typed: 'x', suggestion: 'pause' },
     { k: 'updated' },
     { k: 'askAmount', bill: 'Luz' },
     { k: 'askConfirm', cmd: 'pago', bill: 'Luz', amount: 8000, month: null },

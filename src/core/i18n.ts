@@ -1,13 +1,21 @@
-import type { CommandName } from './commands.ts'
+import type { CommandName, SubName } from './commands.ts'
 import { monthTitle } from './month.ts'
 import type { Lang, ListMsg, Locale, Msg } from './types.ts'
 
 type Catalog = { [K in Msg['k']]: (m: Extract<Msg, { k: K }>, loc: Locale) => string }
-type Words = { cmd: Record<CommandName, string>; title: string; paid: string; total: string; noAmount: string }
+type Words = {
+  cmd: Record<CommandName, string>
+  sub: Record<SubName, string>
+  title: string
+  paid: string
+  total: string
+  noAmount: string
+}
 
 export const WORDS: Record<Lang, Words> = {
   'pt-BR': {
     cmd: { pago: 'pago', despago: 'despago', lista: 'lista', ajuda: 'ajuda', conta: 'conta' },
+    sub: { add: 'adiciona', remove: 'remove', pause: 'pausa', resume: 'continua', rename: 'renomeia' },
     title: 'Contas',
     paid: 'Pago',
     total: 'Total',
@@ -15,6 +23,7 @@ export const WORDS: Record<Lang, Words> = {
   },
   en: {
     cmd: { pago: 'paid', despago: 'unpaid', lista: 'list', ajuda: 'help', conta: 'bill' },
+    sub: { add: 'add', remove: 'remove', pause: 'pause', resume: 'resume', rename: 'rename' },
     title: 'Bills',
     paid: 'Paid',
     total: 'Total',
@@ -22,6 +31,7 @@ export const WORDS: Record<Lang, Words> = {
   },
   es: {
     cmd: { pago: 'pagado', despago: 'despagado', lista: 'lista', ajuda: 'ayuda', conta: 'cuenta' },
+    sub: { add: 'agrega', remove: 'elimina', pause: 'pausa', resume: 'reanuda', rename: 'renombra' },
     title: 'Cuentas',
     paid: 'Pagado',
     total: 'Total',
@@ -115,10 +125,12 @@ const ptBR: Catalog = {
   futureMonth: () => 'esse mês ainda não chegou',
   unknownCmd: m =>
     m.suggestion
-      ? `não conheço /${m.typed}, você quis dizer /${m.suggestion}? /ajuda mostra todos.`
+      ? `não conheço /${m.typed}, você quis dizer /${WORDS['pt-BR'].cmd[m.suggestion]}? /ajuda mostra todos.`
       : 'não conheço esse comando. /ajuda mostra todos.',
   unknownSub: m =>
-    m.suggestion ? `não conheço "${m.typed}", você quis dizer /conta ${m.suggestion}?` : CONTA_HELP['pt-BR'],
+    m.suggestion
+      ? `não conheço "${m.typed}", você quis dizer /conta ${WORDS['pt-BR'].sub[m.suggestion]}?`
+      : CONTA_HELP['pt-BR'],
   updated: () => 'atualizado',
   askAmount: m => `não consegui ler o valor de ${m.bill}. Qual foi? Responda só o valor, ex: 80,00`,
   askConfirm: (m, loc) => `você quis dizer \`${suggestion(m, loc)}\`? Responda *sim* pra confirmar.`,
@@ -177,9 +189,10 @@ const en: Catalog = {
   futureMonth: () => "that month hasn't come yet",
   unknownCmd: m =>
     m.suggestion
-      ? `I don't know /${m.typed}, did you mean /${m.suggestion}? /help lists them all.`
+      ? `I don't know /${m.typed}, did you mean /${WORDS.en.cmd[m.suggestion]}? /help lists them all.`
       : "I don't know that command. /help lists them all.",
-  unknownSub: m => (m.suggestion ? `I don't know "${m.typed}", did you mean /bill ${m.suggestion}?` : CONTA_HELP.en),
+  unknownSub: m =>
+    m.suggestion ? `I don't know "${m.typed}", did you mean /bill ${WORDS.en.sub[m.suggestion]}?` : CONTA_HELP.en,
   updated: () => 'updated',
   askAmount: m => `couldn't read the amount for ${m.bill}. How much was it? Reply with just the amount, e.g. 80.00`,
   askConfirm: (m, loc) => `did you mean \`${suggestion(m, loc)}\`? Reply *yes* to confirm.`,
@@ -238,9 +251,10 @@ const es: Catalog = {
   futureMonth: () => 'ese mes todavía no llegó',
   unknownCmd: m =>
     m.suggestion
-      ? `no conozco /${m.typed}, ¿quisiste decir /${m.suggestion}? /ayuda los muestra todos.`
+      ? `no conozco /${m.typed}, ¿quisiste decir /${WORDS.es.cmd[m.suggestion]}? /ayuda los muestra todos.`
       : 'no conozco ese comando. /ayuda los muestra todos.',
-  unknownSub: m => (m.suggestion ? `no conozco "${m.typed}", ¿quisiste decir /cuenta ${m.suggestion}?` : CONTA_HELP.es),
+  unknownSub: m =>
+    m.suggestion ? `no conozco "${m.typed}", ¿quisiste decir /cuenta ${WORDS.es.sub[m.suggestion]}?` : CONTA_HELP.es,
   updated: () => 'actualizado',
   askAmount: m => `no pude leer el monto de ${m.bill}. ¿Cuánto fue? Responde solo el monto, ej: 80,00`,
   askConfirm: (m, loc) => `¿quisiste decir \`${suggestion(m, loc)}\`? Responde *sí* para confirmar.`,

@@ -113,3 +113,22 @@ test('CLI ignores a polluted GIT_DIR and writes only versions up to the requeste
   assert.equal(run('1.2.0').status, 0)
   assert.equal(readFileSync(notes, 'utf8'), 'Maintenance release.')
 })
+
+test('a changelog note on a commit supplies or overrides its translations', () => {
+  const git = repo()
+  git('commit', '--allow-empty', '-m', 'feat: no trailers')
+  git('notes', '--ref=changelog', 'add', '-m', 'Changelog-pt-BR: sem trailers\nChangelog-es: sin trailers', 'HEAD')
+  git('commit', '--allow-empty', '-m', tr('fix: with trailers'))
+  git('notes', '--ref=changelog', 'add', '-m', 'Changelog-es: corregido', 'HEAD')
+  git('tag', 'v2.0.0')
+  const dir = git('rev-parse', '--show-toplevel').trim()
+  assert.deepEqual(buildChangelog(dir), [
+    {
+      version: '2.0.0',
+      entries: [
+        { en: 'with trailers', 'pt-BR': 'fix: with trailers pt', es: 'corregido' },
+        { en: 'no trailers', 'pt-BR': 'sem trailers', es: 'sin trailers' },
+      ],
+    },
+  ])
+})

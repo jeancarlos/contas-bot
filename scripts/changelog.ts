@@ -27,12 +27,13 @@ export function buildChangelog(repoDir: string): Release[] {
   const releases = tags.map((tag, i) => {
     const range = i ? `${tags[i - 1]}..${tag}` : tag
     const entries: Entry[] = []
-    for (const raw of git(repoDir, 'log', '--no-merges', '--format=%H%x00%B%x1e', range).split('\x1e')) {
-      const body = raw.split('\x00')[1]
+    const log = git(repoDir, 'log', '--no-merges', '--notes=changelog', '--format=%H%x00%B%x00%N%x1e', range)
+    for (const raw of log.split('\x1e')) {
+      const [, body, note = ''] = raw.split('\x00')
       if (!body) continue
       const m = LOGGED.exec((body.trim().split(/\r?\n/)[0] ?? '').trimEnd())
       if (!m) continue
-      const t = parseTrailers(body)
+      const t = { ...parseTrailers(body), ...parseTrailers(note) }
       const entry: Entry = { en: m[3] ?? '' }
       if (t['Changelog-pt-BR']) entry['pt-BR'] = t['Changelog-pt-BR']
       if (t['Changelog-es']) entry.es = t['Changelog-es']

@@ -15,6 +15,8 @@ jobs:
           persist-credentials: false
       - name: The tag must be on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Fetch changelog notes
+        run: git fetch origin 'refs/notes/changelog:refs/notes/changelog' || true
       - uses: actions/setup-node@v4
         with:
           node-version: 22

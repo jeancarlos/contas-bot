@@ -68,3 +68,13 @@ test('the bot sets a private umask before it creates any file', () => {
   assert.ok(umask > 0)
   for (const later of ['pino(', 'openStore(', 'connectWa(', 'startHttp(']) assert.ok(umask < src.indexOf(later), later)
 })
+
+test('the image upgrades its OS packages and ships without npm', () => {
+  const dockerfile = read('Dockerfile')
+  assert.match(dockerfile, /^RUN apt-get update && apt-get upgrade -y && apt-get install /m)
+  assert.match(
+    dockerfile,
+    /^RUN npm ci --omit=dev --ignore-scripts && rm -rf \/usr\/local\/lib\/node_modules\/npm \/usr\/local\/bin\/npm \/usr\/local\/bin\/npx$/m,
+  )
+  assert.match(dockerfile, /^USER node$/m)
+})

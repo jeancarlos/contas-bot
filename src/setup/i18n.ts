@@ -59,7 +59,7 @@ const pt: SetupText = {
   pairingQr: 'QR na tela (recomendado)',
   pairingCode: 'Código de 8 letras',
   phone: 'Número do WhatsApp do bot, com DDI e DDD',
-  phoneInvalid: 'número com 10 a 15 dígitos, ex: +55 49 92005-5837',
+  phoneInvalid: 'número com 10 a 15 dígitos, ex: +55 11 90000-0000',
   ai: 'Qual IA lê os comprovantes?',
   aiGemini: 'Google Gemini',
   aiGeminiHint: 'grátis',

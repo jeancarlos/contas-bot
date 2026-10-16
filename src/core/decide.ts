@@ -214,8 +214,25 @@ function oneOff(d: Draft, tokens: readonly string[], m: Cmd): boolean {
     return false
   }
   if (clash(d, o, now, m)) return false
-  pay(d, addOneOff(d, o), o.amount, o.month ?? now, m)
+  payOneOff(d, o, o.month ?? now, m)
   return true
+}
+
+function payOneOff(d: Draft, o: OneOff, month: string, m: Cmd) {
+  const bill = addOneOff(d, o)
+  const paid = d.s.months[month] ?? {}
+  const prev = paid[bill.id]
+  if (!prev) {
+    pay(d, bill, o.amount, month, m)
+    return
+  }
+  if (o.amount !== null) {
+    const amount = (prev.amount ?? 0) + o.amount
+    paid[bill.id] = { by: m.sender, paidAt: m.at, messageId: m.key.id, amount, status: 'typed' }
+  }
+  touch(d, bill.id)
+  d.fx.push({ kind: 'react', to: m.key })
+  showList(d, month, pinnedMonth(d, m.at), m.key)
 }
 
 function addOneOff(d: Draft, o: OneOff): Bill {
@@ -416,7 +433,7 @@ function answer(d: Draft, a: Question, m: MessageInput): boolean {
   const month = a.month ?? current(d, a.at)
   if (a.q === 'confirm') return yes && confirmed(d, a, month, asker)
   if (a.q === 'oneOff' && yes) {
-    pay(d, addOneOff(d, a), a.amount, month, asker)
+    payOneOff(d, a, month, asker)
     return true
   }
   const bill = (a.q === 'bill' ? chosen(d, text, a.choices) : undefined) ?? named(d, text, m.at)

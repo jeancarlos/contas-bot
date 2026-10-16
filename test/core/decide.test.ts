@@ -828,3 +828,55 @@ test('a paid bill shows as paid and counts even while paused, and pausing never 
   assert.equal(footer(run(sept, msg('/conta pausa internet')), '2026-09'), before)
   assert.equal(footer(run(sept, msg('/conta pausa água')), '2026-09'), '*Pago:* 2/2 · *Total:* R$ 180,00')
 })
+
+test('a late amount question and an open confirm from one sender coexist, each taking its own answer', () => {
+  const r1 = msg('/pago luz', receipt)
+  const k1 = r1.kind === 'message' ? r1.key : key()
+  const asked = run(state('Luz', 'Internet'), r1, msg('/pago internt 50', { at: OCT + 10_000 }), {
+    kind: 'amountRead',
+    key: k1,
+    month: '2026-10',
+    billId: 1,
+    amount: null,
+    at: OCT + 90_000,
+  })
+  assert.deepEqual(
+    asked.asks.map(a => a.q),
+    ['confirm', 'amount'],
+  )
+  const yes = decide(asked, msg('sim', { at: OCT + 100_000 }), ctx).state
+  assert.deepEqual(paidList(yes).sort(), ['2026-10:Internet', '2026-10:Luz'])
+  assert.equal(yes.months['2026-10']?.[2]?.amount, 5000)
+  assert.deepEqual(yes.asks, [])
+  const amount = decide(asked, msg('80', { at: OCT + 100_000 }), ctx).state
+  assert.equal(amount.months['2026-10']?.[1]?.amount, 8000)
+  assert.equal(amount.months['2026-10']?.[2], undefined)
+  assert.deepEqual(decide(asked, msg('bom dia', { at: OCT + 100_000 }), ctx).state.asks, [])
+})
+
+test('a new amount question replaces the older amount question but keeps the other open question', () => {
+  const [r1, r2] = [msg('/pago luz', receipt), msg('/pago água', receipt)]
+  const read = (m: Input, billId: number, at: number): Input => ({
+    kind: 'amountRead',
+    key: m.kind === 'message' ? m.key : key(),
+    month: '2026-10',
+    billId,
+    amount: null,
+    at,
+  })
+  const asked = run(
+    state('Luz', 'Água', 'Internet'),
+    r1,
+    r2,
+    msg('/pago internt 50', { at: OCT + 1000 }),
+    read(r1, 1, OCT + 2000),
+    read(r2, 2, OCT + 3000),
+  )
+  assert.deepEqual(
+    asked.asks.map(a => (a.q === 'amount' ? `amount ${a.billId}` : a.q)),
+    ['confirm', 'amount 2'],
+  )
+  const r = decide(asked, msg('80', { at: OCT + 4000 }), ctx).state
+  assert.equal(r.months['2026-10']?.[1]?.amount, null)
+  assert.equal(r.months['2026-10']?.[2]?.amount, 8000)
+})

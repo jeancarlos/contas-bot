@@ -43,7 +43,8 @@ const pinnedMonth = (d: Draft, at: number) => {
 const who = (key: MsgKey, sender: string) => key.participant ?? sender
 
 function ask(d: Draft, a: Question, to: MsgKey, msg: Msg) {
-  d.s.asks = [...d.s.asks.filter(x => x.who !== a.who || x.q === 'pick'), a]
+  const sameKind = (x: Ask) => x.who === a.who && x.q !== 'pick' && (x.q === 'amount') === (a.q === 'amount')
+  d.s.asks = [...d.s.asks.filter(x => !sameKind(x)), a]
   reply(d, to, msg)
 }
 
@@ -398,10 +399,10 @@ function remember(s: GroupState, id: string, changed: boolean, warned = false) {
   if (s.handled.length > HANDLED_MAX) s.handled.splice(0, s.handled.length - HANDLED_MAX)
 }
 
-function takeAsk(d: Draft, m: MessageInput, retype: boolean): Question | undefined {
+function takeAsk(d: Draft, m: MessageInput, retype: boolean): Question[] {
   const by = who(m.key, m.sender)
   const live = (x: Ask) => x.q === 'pick' || m.at - x.at <= ASK_TTL
-  const open = d.s.asks.find((x): x is Question => x.who === by && x.q !== 'pick' && live(x))
+  const open = d.s.asks.filter((x): x is Question => x.who === by && x.q !== 'pick' && live(x)).reverse()
   d.s.asks = d.s.asks.filter(x => live(x) && (x.who !== by || (x.q === 'pick' && !retype)))
   return open
 }
@@ -458,7 +459,7 @@ function onMessage(d: Draft, m: MessageInput) {
   const retype = (c?.cmd === 'pago' || c?.cmd === 'despago') && !(m.media ?? m.quoted)
   const open = takeAsk(d, m, retype)
   if (c) remember(d.s, m.key.id, run(d, c, m))
-  else if (open && answer(d, open, m)) remember(d.s, m.key.id, true)
+  else if (open.some(a => answer(d, a, m))) remember(d.s, m.key.id, true)
 }
 
 const paidBy = (s: GroupState, id: string) =>

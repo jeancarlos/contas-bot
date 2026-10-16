@@ -88,8 +88,8 @@ export function buildEnv(a: Answers, uid: number, gid: number): string {
 export function parseEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const line of text.split('\n')) {
-    const m = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
-    if (m) out[m[1]] = m[2]
+    const [, k, v] = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim()) ?? []
+    if (k !== undefined && v !== undefined) out[k] = v
   }
   return out
 }
@@ -134,17 +134,27 @@ export function detectMode(hasEnv: boolean, creds: string | null): Mode {
   return paired(creds) ? 'update' : 'repair'
 }
 
-export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
+type Read = (k: string) => string | undefined
+
+function basicsFromEnv(v: Read): Partial<Answers> {
   const a: Partial<Answers> = {}
-  const v = (k: string) => env[`CONTAS_BOT_${k}`]?.trim() || undefined
   const lang = v('LANG')
   if (lang && (LANGS as string[]).includes(lang)) a.lang = lang as Lang
   const cur = v('CURRENCY')
   if (cur && validCurrency(cur)) a.currency = cur.toUpperCase()
   const pairing = v('PAIRING')
   if (pairing === 'qr' || pairing === 'code') a.pairing = pairing
-  const phone = v('PHONE')
-  if (phone && normalizePhone(phone)) a.phone = normalizePhone(phone) ?? undefined
+  const phone = normalizePhone(v('PHONE') ?? '')
+  if (phone) a.phone = phone
+  const group = v('GROUP')
+  if (group && validGroup(group)) a.group = group
+  const tz = v('TZ')
+  if (tz) a.tz = tz
+  return a
+}
+
+function aiFromEnv(v: Read): Partial<Answers> {
+  const a: Partial<Answers> = {}
   const ai = v('AI')
   if (ai && (AIS as string[]).includes(ai)) a.ai = ai as Ai
   const key = v('LLM_KEY')
@@ -153,11 +163,19 @@ export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
   if (url && validUrl(url)) a.llmUrl = url
   const model = v('VISION_MODEL')
   if (model) a.visionModel = model
-  const group = v('GROUP')
-  if (group && validGroup(group)) a.group = group
-  const tz = v('TZ')
-  if (tz) a.tz = tz
   return a
+}
+
+export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
+  const v: Read = k => env[`CONTAS_BOT_${k}`]?.trim() || undefined
+  return { ...basicsFromEnv(v), ...aiFromEnv(v) }
+}
+
+function aiFromUrl(url: string, model: string | undefined): Partial<Answers> {
+  if (url === '') return { ai: 'none' }
+  if (url === AI_PRESETS.gemini.url) return { ai: 'gemini' }
+  if (url === AI_PRESETS.openai.url) return { ai: 'openai' }
+  return { ai: 'custom', llmUrl: url, visionModel: model ?? '' }
 }
 
 export function answersFromDotenv(env: Record<string, string>): Partial<Answers> {
@@ -168,17 +186,7 @@ export function answersFromDotenv(env: Record<string, string>): Partial<Answers>
   if (env.BOT_PHONE) a.phone = env.BOT_PHONE
   if (env.GROUP_INVITE_LINKS !== undefined) a.group = env.GROUP_INVITE_LINKS
   if (env.TZ !== undefined) a.tz = env.TZ
-  const url = env.LLM_BASE_URL
-  if (url !== undefined) {
-    if (url === '') a.ai = 'none'
-    else if (url === AI_PRESETS.gemini.url) a.ai = 'gemini'
-    else if (url === AI_PRESETS.openai.url) a.ai = 'openai'
-    else {
-      a.ai = 'custom'
-      a.llmUrl = url
-      a.visionModel = env.LLM_VISION_MODEL ?? ''
-    }
-  }
+  if (env.LLM_BASE_URL !== undefined) Object.assign(a, aiFromUrl(env.LLM_BASE_URL, env.LLM_VISION_MODEL))
   if (env.LLM_API_KEY) a.llmKey = env.LLM_API_KEY
   return a
 }

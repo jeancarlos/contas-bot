@@ -29,13 +29,13 @@ const amountOf = async (content: string) =>
 test('readAmount sends the image alone, as a data URI, with stream:false', async () => {
   const { fn, calls } = fakeFetch(reply('{"amount":6237.6}'))
   assert.equal(await llmWith(fn).readAmount(Buffer.from('img'), 'image/jpeg'), 6237.6)
-  const [{ url, headers, body }] = calls
+  const { url, headers, body } = calls[0] ?? assert.fail('no request made')
   assert.equal(url, 'http://x/v1/chat/completions')
   assert.equal(headers.authorization, 'Bearer k')
   assert.equal(body.stream, false)
   assert.equal(body.model, 'v')
-  assert.match(String(body.messages[0].content), /EUR/)
-  assert.deepEqual(body.messages[1].content, [
+  assert.match(String(body.messages[0]?.content), /EUR/)
+  assert.deepEqual(body.messages[1]?.content, [
     { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${Buffer.from('img').toString('base64')}` } },
   ])
 })
@@ -80,7 +80,7 @@ test('makeLlm without a base URL is disabled and never calls fetch', async () =>
 test('makeLlm omits the authorization header when the API key is empty', async () => {
   const { fn, calls } = fakeFetch(reply('{"amount":10}'))
   await llmWith(fn, '').readAmount(Buffer.from('x'), 'image/png')
-  assert.equal(calls[0].headers.authorization, undefined)
+  assert.equal(calls[0]?.headers.authorization, undefined)
 })
 
 const pickOf = async (content: string, names = ['Luz', 'Agua']) =>
@@ -92,9 +92,9 @@ test('pickBill sends the numbered names with the image and parses index and amou
     index: 1,
     amount: 80.1,
   })
-  const content = calls[0].body.messages[1].content as { type: string; text?: string }[]
-  assert.match(String(content[0].text), /0: Luz\n1: Agua/)
-  assert.equal(content[1].type, 'image_url')
+  const content = calls[0]?.body.messages[1]?.content as { type: string; text?: string }[]
+  assert.match(String(content[0]?.text), /0: Luz\n1: Agua/)
+  assert.equal(content[1]?.type, 'image_url')
 })
 
 test('pickBill nulls what is unparseable, out of range or insane, and a disabled or failing LLM', async () => {

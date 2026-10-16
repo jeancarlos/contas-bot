@@ -426,8 +426,8 @@ test('/pago avulsa takes the amount at either end, a past month, and reuses the 
   assert.equal(s.months['2026-10']?.[ids[0] ?? 0]?.amount, 3000)
   assert.equal(s.months['2026-09']?.[ids[0] ?? 0]?.amount, 2500)
   const again = decide(s, msg('/pago avulsa uber 40'), ctx)
-  assert.equal(again.state.months['2026-10']?.[ids[0] ?? 0]?.amount, 4000)
-  assert.deepEqual(replies(again.effects), ['updated'])
+  assert.equal(again.state.months['2026-10']?.[ids[0] ?? 0]?.amount, 7000)
+  assert.deepEqual(replies(again.effects), [])
 })
 
 test('/pago avulsa refuses a misparsed name and creates nothing', () => {
@@ -879,4 +879,28 @@ test('a new amount question replaces the older amount question but keeps the oth
   const r = decide(asked, msg('80', { at: OCT + 4000 }), ctx).state
   assert.equal(r.months['2026-10']?.[1]?.amount, null)
   assert.equal(r.months['2026-10']?.[2]?.amount, 8000)
+})
+
+test('a second one-off with the same name in the same month adds its amount, without asking anything new', () => {
+  const s = run(state('Luz'), msg('/pago avulsa farmácia 50'))
+  const id = s.bills.find(b => b.key === 'farmacia')?.id ?? 0
+  const twice = decide(s, msg('/pago avulsa Farmácia 60'), ctx)
+  assert.equal(twice.state.months['2026-10']?.[id]?.amount, 11000)
+  assert.equal(twice.state.months['2026-10']?.[id]?.status, 'typed')
+  assert.deepEqual(kinds(twice.effects), ['react', 'postList'])
+  assert.equal(footer(twice.state, '2026-10'), '*Pago:* 1/2 · *Total:* R$ 110,00')
+  const offered = run(s, msg('/pago farmácia 60'), msg('sim'))
+  assert.equal(offered.months['2026-10']?.[id]?.amount, 11000)
+  const otherMonth = run(s, msg('/pago avulsa farmácia 60 09/2026'))
+  assert.equal(otherMonth.months['2026-10']?.[id]?.amount, 5000)
+  assert.equal(otherMonth.months['2026-09']?.[id]?.amount, 6000)
+  for (const c of [ctx, { ...ctx, llm: false }]) {
+    const unread = decide(s, msg('/pago avulsa farmácia', receipt), c)
+    assert.equal(unread.state.months['2026-10']?.[id]?.amount, 5000)
+    assert.deepEqual(kinds(unread.effects), ['react', 'postList'])
+    assert.deepEqual(unread.state.asks, [])
+  }
+  const reading = run(state('Luz'), msg('/pago avulsa farmácia', receipt), msg('/pago avulsa farmácia 60'))
+  assert.equal(reading.months['2026-10']?.[2]?.amount, 6000)
+  assert.equal(reading.months['2026-10']?.[2]?.status, 'typed')
 })

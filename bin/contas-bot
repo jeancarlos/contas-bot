@@ -40,7 +40,7 @@ case "${1:-help}" in
   status)
     state=$(docker inspect -f '{{.State.Status}}' contas-bot 2>/dev/null || echo "—")
     if grep -q '"me"' auth/creds.json 2>/dev/null; then pairedv=✅; else pairedv=❌; fi
-    groups=$(grep -o '"[0-9-]*@g\.us"' data/state.json 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    groups=$(grep -ahoE '[0-9]+(-[0-9]+)?@g\.us' data/contas.db data/state.json 2>/dev/null | sort -u | wc -l | tr -d ' ')
     say "🤖 contas-bot v$(installed) · container: $state · pareado: $pairedv · grupos: $groups" \
         "🤖 contas-bot v$(installed) · container: $state · paired: $pairedv · groups: $groups" \
         "🤖 contas-bot v$(installed) · contenedor: $state · vinculado: $pairedv · grupos: $groups"

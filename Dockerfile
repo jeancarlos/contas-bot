@@ -7,4 +7,5 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY src ./src
 COPY bin ./bin
 ENV NODE_ENV=production APP_VERSION=$APP_VERSION
+USER node
 CMD ["node", "src/shell/index.ts"]

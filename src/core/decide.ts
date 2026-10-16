@@ -276,7 +276,7 @@ function validName(d: Draft, name: string, to: MsgKey, self?: Bill): string | nu
     reply(d, to, { k: 'nameInvalid' })
     return null
   }
-  const other = d.s.bills.find(b => b.key === key && b !== self && !b.removed)
+  const other = d.s.bills.find(b => b.key === key && b !== self && (self !== undefined || !b.removed))
   if (other) {
     reply(d, to, { k: 'nameTaken', name: other.name })
     return null

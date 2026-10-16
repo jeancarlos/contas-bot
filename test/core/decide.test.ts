@@ -796,3 +796,17 @@ test('a no closes the question and pays nothing, even when it prefixes a bill na
     assert.deepEqual(which.asks, [], no)
   }
 })
+
+test('a rename may not take the name of a removed bill, so /despago always reaches the bill on the list', () => {
+  const s = run(state('Luz'), msg('/pago avulsa gás 120 09/2026'), msg('/conta adiciona botijão'))
+  const r = decide(s, msg('/conta renomeia botijão = Gás'), ctx)
+  assert.deepEqual(
+    r.effects.flatMap(e => (e.kind === 'reply' ? [e.msg] : [])),
+    [{ k: 'nameTaken', name: 'gás' }],
+  )
+  assert.deepEqual(
+    r.state.bills.map(b => b.key),
+    ['luz', 'gas', 'botijao'],
+  )
+  assert.deepEqual(paidList(run(r.state, msg('/despago gás 09/2026'))), [])
+})

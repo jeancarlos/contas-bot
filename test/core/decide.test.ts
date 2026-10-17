@@ -884,7 +884,7 @@ test('a late amount question and an open confirm from one sender coexist, each t
   assert.deepEqual(decide(asked, msg('bom dia', { at: OCT + 100_000 }), ctx).state.asks, [])
 })
 
-test('a new amount question replaces the older amount question but keeps the other open question', () => {
+test('two open amount questions from one sender take no bare number, which points to /pago instead', () => {
   const [r1, r2] = [msg('/pago luz', receipt), msg('/pago água', receipt)]
   const read = (m: Input, billId: number, at: number): Input => ({
     kind: 'amountRead',
@@ -901,14 +901,42 @@ test('a new amount question replaces the older amount question but keeps the oth
     msg('/pago internt 50', { at: OCT + 1000 }),
     read(r1, 1, OCT + 2000),
     read(r2, 2, OCT + 3000),
+    read(r2, 2, OCT + 3500),
   )
   assert.deepEqual(
     asked.asks.map(a => (a.q === 'amount' ? `amount ${a.billId}` : a.q)),
-    ['confirm', 'amount 2'],
+    ['confirm', 'amount 1', 'amount 2'],
   )
-  const r = decide(asked, msg('80', { at: OCT + 4000 }), ctx).state
-  assert.equal(r.months['2026-10']?.[1]?.amount, null)
-  assert.equal(r.months['2026-10']?.[2]?.amount, 8000)
+  const bare = decide(asked, msg('80', { at: OCT + 4000 }), ctx)
+  assert.deepEqual(replies(bare.effects), ['pagoSyntax'])
+  assert.equal(bare.state.months['2026-10']?.[1]?.amount, null)
+  assert.equal(bare.state.months['2026-10']?.[2]?.amount, null)
+  const typed = decide(bare.state, msg('/pago luz 80', { at: OCT + 5000 }), ctx).state
+  assert.equal(typed.months['2026-10']?.[1]?.amount, 8000)
+  assert.equal(typed.months['2026-10']?.[2]?.amount, null)
+  const yes = decide(asked, msg('sim', { at: OCT + 4000 }), ctx).state
+  assert.equal(yes.months['2026-10']?.[3]?.amount, 5000)
+  const noAi = { ...ctx, llm: false }
+  const both = [msg('/pago luz', receipt), msg('/pago água', receipt)].reduce(
+    (st, i) => decide(st, i, noAi).state,
+    state('Luz', 'Água'),
+  )
+  const answered = decide(both, msg('120'), noAi)
+  assert.deepEqual(replies(answered.effects), ['pagoSyntax'])
+  assert.deepEqual(
+    [answered.state.months['2026-10']?.[1]?.amount, answered.state.months['2026-10']?.[2]?.amount],
+    [null, null],
+  )
+  const pending = run(state('Luz', 'Água'), msg('/pago luz', receipt), msg('/pago água', receipt))
+  const swept = decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT + 1000, startup: true, reading: [] }, ctx)
+  assert.deepEqual(replies(swept.effects), ['askAmount', 'askAmount'])
+  assert.equal(swept.state.asks.length, 2)
+  const after = decide(swept.state, msg('120', { at: OCT + 2000 }), ctx)
+  assert.deepEqual(replies(after.effects), ['pagoSyntax'])
+  assert.deepEqual(
+    [after.state.months['2026-10']?.[1]?.amount, after.state.months['2026-10']?.[2]?.amount],
+    [null, null],
+  )
 })
 
 test('a second one-off with the same name in the same month adds its amount, without asking anything new', () => {

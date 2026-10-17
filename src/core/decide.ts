@@ -45,8 +45,11 @@ const pinnedMonth = (d: Draft, at: number) => {
 const who = (key: MsgKey, sender: string) => key.participant ?? sender
 
 function ask(d: Draft, a: Question, to: MsgKey, msg: Msg) {
-  const sameKind = (x: Ask) => x.who === a.who && x.q !== 'pick' && (x.q === 'amount') === (a.q === 'amount')
-  d.s.asks = [...d.s.asks.filter(x => !sameKind(x)), a]
+  const same = (x: Ask) =>
+    a.q === 'amount'
+      ? x.q === 'amount' && x.billId === a.billId && x.month === a.month
+      : x.q !== 'amount' && x.q !== 'pick'
+  d.s.asks = [...d.s.asks.filter(x => x.who !== a.who || !same(x)), a]
   reply(d, to, msg)
 }
 
@@ -422,11 +425,12 @@ function remember(s: GroupState, id: string, changed: boolean, warned = false) {
   if (s.handled.length > HANDLED_MAX) s.handled.splice(0, s.handled.length - HANDLED_MAX)
 }
 
-function takeAsk(d: Draft, m: MessageInput): Question[] {
+function takeAsk(d: Draft, m: MessageInput, command: boolean): Question[] {
   const by = who(m.key, m.sender)
   const live = (x: Ask) => x.q === 'pick' || m.at - x.at <= ASK_TTL
   const open = d.s.asks.filter((x): x is Question => x.who === by && x.q !== 'pick' && live(x)).reverse()
-  d.s.asks = d.s.asks.filter(x => live(x) && (x.who !== by || x.q === 'pick'))
+  const keep = (x: Ask) => x.who !== by || x.q === 'pick' || (command && x.q === 'amount')
+  d.s.asks = d.s.asks.filter(x => live(x) && keep(x))
   return open
 }
 
@@ -462,14 +466,19 @@ function named(d: Draft, text: string, at: number): Named | undefined {
   return r.ok ? r : undefined
 }
 
-function fillAmount(d: Draft, a: Extract<Ask, { q: 'amount' }>, text: string, m: MessageInput): boolean {
+function bareAmount(d: Draft, text: string): number | null {
   const toks = text.split(' ').filter(Boolean)
   const { marked, bare } = findMoney(toks, d.ctx.locale.decimal)
   const [hit, ...more] = [...marked, ...bare]
+  if (!hit || more.length > 0 || hit.start !== 0 || hit.end !== toks.length) return null
+  return hit.cents
+}
+
+function fillAmount(d: Draft, a: Extract<Ask, { q: 'amount' }>, text: string, m: MessageInput): boolean {
+  const cents = bareAmount(d, text)
   const p = d.s.months[a.month]?.[a.billId]
-  if (!hit || more.length > 0 || hit.start !== 0 || hit.end !== toks.length) return false
-  if (!p || p.messageId !== a.messageId) return false
-  p.amount = hit.cents
+  if (cents === null || !p || p.messageId !== a.messageId) return false
+  p.amount = cents
   p.status = 'typed'
   d.fx.push({ kind: 'react', to: m.key })
   showList(d, a.month, pinnedMonth(d, m.at), m.key)
@@ -479,8 +488,10 @@ function fillAmount(d: Draft, a: Extract<Ask, { q: 'amount' }>, text: string, m:
 function onMessage(d: Draft, m: MessageInput) {
   if (m.key.fromMe || d.s.handled.some(h => h.id === m.key.id)) return
   const c = parseCommand(m.text)
-  const open = takeAsk(d, m)
+  const open = takeAsk(d, m, c !== null)
+  const amounts = open.filter(a => a.q === 'amount').length
   if (c) remember(d.s, m.key.id, run(d, c, m))
+  else if (amounts > 1 && bareAmount(d, clean(m.text)) !== null) reply(d, m.key, { k: 'pagoSyntax' })
   else if (open.some(a => answer(d, a, m))) remember(d.s, m.key.id, true)
 }
 

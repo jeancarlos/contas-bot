@@ -939,7 +939,7 @@ test('two open amount questions from one sender take no bare number, which point
   )
 })
 
-test('a second one-off with the same name in the same month adds its amount, without asking anything new', () => {
+test('a second one-off with the same name in the same month adds its typed amount, and without one points to the syntax', () => {
   const s = run(state('Luz'), msg('/pago avulsa farmácia 50'))
   const id = s.bills.find(b => b.key === 'farmacia')?.id ?? 0
   const twice = decide(s, msg('/pago avulsa Farmácia 60'), ctx)
@@ -955,8 +955,14 @@ test('a second one-off with the same name in the same month adds its amount, wit
   for (const c of [ctx, { ...ctx, llm: false }]) {
     const unread = decide(s, msg('/pago avulsa farmácia', receipt), c)
     assert.equal(unread.state.months['2026-10']?.[id]?.amount, 5000)
-    assert.deepEqual(kinds(unread.effects), ['react', 'postList'])
+    assert.deepEqual(kinds(unread.effects), ['reply'])
+    assert.deepEqual(replies(unread.effects), ['oneOffSyntax'])
     assert.deepEqual(unread.state.asks, [])
+    assert.equal(unread.state.handled.at(-1)?.changed, false)
+    const yes = run(s, msg('/pago farmácia', receipt))
+    const offered = decide(yes, msg('sim'), c)
+    assert.deepEqual(replies(offered.effects), ['oneOffSyntax'])
+    assert.equal(offered.state.months['2026-10']?.[id]?.amount, 5000)
   }
   const reading = run(state('Luz'), msg('/pago avulsa farmácia', receipt), msg('/pago avulsa farmácia 60'))
   assert.equal(reading.months['2026-10']?.[2]?.amount, 6000)

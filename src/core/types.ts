@@ -91,7 +91,7 @@ export type Msg =
   | { k: 'unknownCmd'; typed: string; suggestion: CommandName | null }
   | { k: 'unknownSub'; typed: string; suggestion: SubName | null }
   | { k: 'updated' }
-  | { k: 'askAmount'; bill: string }
+  | { k: 'askAmount'; bill: string; read: boolean }
   | { k: 'askConfirm'; cmd: 'pago' | 'despago'; bill: string; amount: number | null; month: string | null }
   | { k: 'askBill'; names: string[] }
   | { k: 'askOneOff'; name: string }

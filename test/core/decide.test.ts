@@ -682,16 +682,20 @@ function picking(s: GroupState) {
 
 const cards = () => state('Luz', 'Cartão Nu', 'Cartão Itaú')
 
-test('a late pick is dropped once any of its candidates was paid or unpaid after the receipt, and kept otherwise', () => {
+test('a late pick asks which bill once any of its candidates was paid or unpaid after the receipt, and pays otherwise', () => {
   for (const by of [msg, other]) {
-    for (const text of ['/pago cartão nu 120', '/despago cartão itaú']) {
+    for (const text of ['/pago cartão nu 120', '/pago cartão nu 120 09/2026', '/despago cartão itaú']) {
       const p = picking(cards())
       const typed = decide(p.state, by(text), ctx).state
       for (const billId of [3, null]) {
         const r = decide(typed, { kind: 'billPicked', pick: p.pick, billId, amount: 9900 }, ctx)
-        assert.deepEqual(r.effects, [], text)
+        assert.deepEqual(replies(r.effects), ['askBill'], text)
         assert.equal(r.state.months['2026-10']?.[3], undefined, text)
-        assert.deepEqual(r.state.asks, [], text)
+        assert.deepEqual(
+          r.state.asks.map(a => a.q),
+          ['bill'],
+          text,
+        )
       }
     }
   }
@@ -745,7 +749,7 @@ test('a late pick never overwrites a payment of the chosen bill typed after the 
     const p = picking(cards())
     const typed = decide(p.state, by('/pago cartão nu 120'), ctx).state
     const r = p.picked(typed, 2, 9900)
-    assert.deepEqual(r.effects, [])
+    assert.deepEqual(replies(r.effects), ['askBill'])
     assert.equal(r.state.months['2026-10']?.[2]?.amount, 12000)
     assert.equal(r.state.months['2026-10']?.[2]?.status, 'typed')
   }
@@ -760,7 +764,7 @@ test('a late pick never undoes a /despago of the chosen bill sent after the rece
     const p = picking(s)
     const undone = decide(p.state, by('/despago cartão nu'), ctx).state
     const r = p.picked(undone, 2, 9900)
-    assert.deepEqual(r.effects, [])
+    assert.deepEqual(replies(r.effects), ['askBill'])
     assert.equal(r.state.months['2026-10']?.[2], undefined)
   }
 })

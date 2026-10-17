@@ -49,9 +49,9 @@ function ask(d: Draft, a: Question, to: MsgKey, msg: Msg) {
   reply(d, to, msg)
 }
 
-function askAmount(d: Draft, billId: number, month: string, key: MsgKey, by: string, at: number) {
+function askAmount(d: Draft, billId: number, month: string, key: MsgKey, by: string, at: number, read = true) {
   const bill = d.s.bills.find(b => b.id === billId)?.name ?? ''
-  ask(d, { who: who(key, by), at, q: 'amount', month, billId, messageId: key.id }, key, { k: 'askAmount', bill })
+  ask(d, { who: who(key, by), at, q: 'amount', month, billId, messageId: key.id }, key, { k: 'askAmount', bill, read })
 }
 
 function confirm(d: Draft, cmd: 'pago' | 'despago', bill: Bill, amount: number | null, month: string | null, m: Cmd) {
@@ -164,7 +164,7 @@ function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd,
   if (prev) reply(d, m.key, { k: 'updated' })
   if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: bill.id })
   else showList(d, month, pinnedMonth(d, m.at), m.key)
-  if (media && !reading && p.amount === null) askAmount(d, bill.id, month, m.key, m.sender, m.at)
+  if (media && !reading && p.amount === null) askAmount(d, bill.id, month, m.key, m.sender, m.at, false)
 }
 
 function pago(d: Draft, arg: string, m: Cmd): boolean {

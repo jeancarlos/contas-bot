@@ -107,7 +107,7 @@ const ptBR: Catalog = {
       '/pago <conta> [valor] [mês/ano] — marca como paga',
       '   ex: /pago luz · /pago cartão nu 6.237,60 · /pago luz 80 09/2026',
       '/pago avulsa <nome> <valor> — gasto extra, só na lista do mês',
-      '/despago <conta> [mês/ano] — desmarca',
+      '/despago <conta> [mês/ano] — desmarca (ou /reverter)',
       '/lista — reposta e fixa a lista do mês',
       '/conta — gerencia as contas',
       '/ajuda — esta mensagem',
@@ -132,7 +132,10 @@ const ptBR: Catalog = {
       ? `não conheço "${m.typed}", você quis dizer /conta ${WORDS['pt-BR'].sub[m.suggestion]}?`
       : CONTA_HELP['pt-BR'],
   updated: () => 'atualizado',
-  askAmount: m => `não consegui ler o valor de ${m.bill}. Qual foi? Responda só o valor, ex: 80,00`,
+  askAmount: m =>
+    m.read
+      ? `não consegui ler o valor de ${m.bill}. Qual foi? Responda só o valor, ex: 80,00`
+      : `qual foi o valor de ${m.bill}? Responda só o valor, ex: 80,00`,
   askConfirm: (m, loc) => `você quis dizer \`${suggestion(m, loc)}\`? Responda *sim* pra confirmar.`,
   askBill: m => `qual conta? Responda o nome: ${m.names.join(', ')}`,
   askOneOff: m => `não achei "${m.name}". Responda *sim* pra lançar como avulsa, ou o nome da conta.`,
@@ -171,7 +174,7 @@ const en: Catalog = {
       '/paid <bill> [amount] [month/year] — mark as paid',
       '   e.g. /paid power · /paid credit card 6,237.60 · /paid power 80 09/2026',
       '/paid extra <name> <amount> — one-off expense, only on that month list',
-      '/unpaid <bill> [month/year] — unmark',
+      '/unpaid <bill> [month/year] — unmark (or /revert)',
       "/list — repost and pin this month's list",
       '/bill — manage the bills',
       '/help — this message',
@@ -194,7 +197,10 @@ const en: Catalog = {
   unknownSub: m =>
     m.suggestion ? `I don't know "${m.typed}", did you mean /bill ${WORDS.en.sub[m.suggestion]}?` : CONTA_HELP.en,
   updated: () => 'updated',
-  askAmount: m => `couldn't read the amount for ${m.bill}. How much was it? Reply with just the amount, e.g. 80.00`,
+  askAmount: m =>
+    m.read
+      ? `couldn't read the amount for ${m.bill}. How much was it? Reply with just the amount, e.g. 80.00`
+      : `how much was ${m.bill}? Reply with just the amount, e.g. 80.00`,
   askConfirm: (m, loc) => `did you mean \`${suggestion(m, loc)}\`? Reply *yes* to confirm.`,
   askBill: m => `which bill? Reply with its name: ${m.names.join(', ')}`,
   askOneOff: m => `couldn't find "${m.name}". Reply *yes* to record it as a one-off, or with the bill name.`,
@@ -233,7 +239,7 @@ const es: Catalog = {
       '/pagado <cuenta> [monto] [mes/año] — marca como pagada',
       '   ej: /pagado luz · /pagado tarjeta 6.237,60 · /pagado luz 80 09/2026',
       '/pagado extra <nombre> <monto> — gasto suelto, solo en la lista del mes',
-      '/despagado <cuenta> [mes/año] — desmarca',
+      '/despagado <cuenta> [mes/año] — desmarca (o /revertir)',
       '/lista — vuelve a publicar y fijar la lista del mes',
       '/cuenta — gestiona las cuentas',
       '/ayuda — este mensaje',
@@ -256,7 +262,10 @@ const es: Catalog = {
   unknownSub: m =>
     m.suggestion ? `no conozco "${m.typed}", ¿quisiste decir /cuenta ${WORDS.es.sub[m.suggestion]}?` : CONTA_HELP.es,
   updated: () => 'actualizado',
-  askAmount: m => `no pude leer el monto de ${m.bill}. ¿Cuánto fue? Responde solo el monto, ej: 80,00`,
+  askAmount: m =>
+    m.read
+      ? `no pude leer el monto de ${m.bill}. ¿Cuánto fue? Responde solo el monto, ej: 80,00`
+      : `¿cuánto fue ${m.bill}? Responde solo el monto, ej: 80,00`,
   askConfirm: (m, loc) => `¿quisiste decir \`${suggestion(m, loc)}\`? Responde *sí* para confirmar.`,
   askBill: m => `¿qué cuenta? Responde el nombre: ${m.names.join(', ')}`,
   askOneOff: m =>

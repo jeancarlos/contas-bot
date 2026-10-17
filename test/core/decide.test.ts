@@ -506,6 +506,8 @@ test('an unreadable receipt asks the sender for the amount and takes only their 
   const receipt = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
   const asked = decide(decide(state('Luz'), receipt, ctx).state, amountRead(receipt, null), ctx).state
   assert.equal(asked.asks.length, 1)
+  const failed = decide(decide(state('Luz'), receipt, ctx).state, amountRead(receipt, null), ctx)
+  assert.ok(failed.effects.some(e => e.kind === 'reply' && e.msg.k === 'askAmount' && e.msg.read))
   const fromOther = decide(asked, other('90'), ctx)
   assert.deepEqual(fromOther.effects, [])
   const r = decide(fromOther.state, msg('R$ 80,50'), ctx)
@@ -536,6 +538,7 @@ test('without AI a receipt asks for the amount right away', () => {
   const noLlm = { ...ctx, llm: false }
   const r = decide(state('Luz'), msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } }), noLlm)
   assert.deepEqual(replies(r.effects), ['askAmount'])
+  assert.ok(r.effects.some(e => e.kind === 'reply' && e.msg.k === 'askAmount' && !e.msg.read))
   assert.equal(decide(r.state, msg('80'), noLlm).state.months['2026-10']?.[1]?.amount, 8000)
   const known = decide(state('Luz'), msg('/pago luz 80', { media: { mime: 'image/png', handle: 'h' } }), noLlm)
   assert.deepEqual(known.state.asks, [])

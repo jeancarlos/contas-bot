@@ -31,7 +31,10 @@ export async function pair(
   mode: Pairing,
   phone: string,
   on: { qr(ascii: string, raw: string): void; code(code: string): void },
-  deps: { makeSocket: typeof makeWASocket; version: typeof waVersionOnce } = { makeSocket: makeWASocket, version: waVersionOnce },
+  deps: { makeSocket: typeof makeWASocket; version: typeof waVersionOnce } = {
+    makeSocket: makeWASocket,
+    version: waVersionOnce,
+  },
 ): Promise<boolean> {
   const { state, saveCreds } = await useMultiFileAuthState(authDir)
   const logger = pino({ level: 'silent' })

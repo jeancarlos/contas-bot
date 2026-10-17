@@ -487,7 +487,9 @@ function onMessage(d: Draft, m: MessageInput) {
   if (m.key.fromMe || d.s.handled.some(h => h.id === m.key.id)) return
   const c = parseCommand(m.text)
   const open = takeAsk(d, m, c !== null)
-  const amounts = open.filter(a => a.q === 'amount').length
+  const amounts = open.filter(
+    a => a.q === 'amount' && d.s.months[a.month]?.[a.billId]?.messageId === a.messageId,
+  ).length
   if (c) remember(d.s, m.key.id, run(d, c, m))
   else if (amounts > 1 && bareAmount(d, clean(m.text)) !== null) reply(d, m.key, { k: 'pagoSyntax' })
   else if (open.some(a => answer(d, a, m))) remember(d.s, m.key.id, true)

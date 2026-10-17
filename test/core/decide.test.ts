@@ -941,6 +941,13 @@ test('two open amount questions from one sender take no bare number, which point
     [after.state.months['2026-10']?.[1]?.amount, after.state.months['2026-10']?.[2]?.amount],
     [null, null],
   )
+  const stale = [msg('/pago luz', receipt), msg('/pago luz 80'), msg('/pago água', receipt)].reduce(
+    (st, i) => decide(st, i, noAi).state,
+    state('Luz', 'Água'),
+  )
+  const lone = decide(stale, msg('50'), noAi)
+  assert.deepEqual(replies(lone.effects), [])
+  assert.deepEqual([lone.state.months['2026-10']?.[1]?.amount, lone.state.months['2026-10']?.[2]?.amount], [8000, 5000])
 })
 
 test('a second one-off with the same name in the same month adds its typed amount, and without one points to the syntax', () => {

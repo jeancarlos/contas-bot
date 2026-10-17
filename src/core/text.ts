@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 export function normalize(s: string): string {
   if (/^[a-z0-9]*$/.test(s)) return s
   return s

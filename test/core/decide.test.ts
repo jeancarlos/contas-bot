@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { type Ctx, decide, listMsg } from '../../src/core/decide.ts'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import type { CommandName, SubName } from './commands.ts'
 import { monthTitle } from './month.ts'
 import type { Lang, ListMsg, Locale, Msg } from './types.ts'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { isIP } from 'node:net'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import pino from 'pino'

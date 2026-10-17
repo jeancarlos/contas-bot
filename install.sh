@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jean Souza
 set -eu
 main() {
   VERSION="__VERSION__"

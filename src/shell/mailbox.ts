@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 export type Mailbox = (jid: string, job: () => Promise<void>) => Promise<void>
 
 export function mailbox(): Mailbox {

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jean Souza
 set -eu
 cd "$(dirname "$0")/.."
 img=contas-bot:smoke

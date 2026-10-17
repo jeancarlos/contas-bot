@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { clean, levenshtein, normalize } from './text.ts'
 
 export const COMMANDS = {

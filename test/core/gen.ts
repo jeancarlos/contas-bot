@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import type { Ctx } from '../../src/core/decide.ts'
 import { normalize } from '../../src/core/text.ts'
 import { emptyState, type GroupState, type Input, type MediaRef, type MsgKey } from '../../src/core/types.ts'

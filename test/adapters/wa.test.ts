@@ -273,15 +273,18 @@ test('parseGroupJids extracts the invite code past a trailing slash and a query 
 test('parseGroupJids matches an uppercase host and suffix case-insensitively, but keeps the invite code case as-is', () => {
   assert.deepEqual(parseGroupJids('https://Chat.WhatsApp.com/AbCd123').inviteCodes, ['AbCd123'])
   assert.deepEqual([...parseGroupJids('120363@G.US').jids], ['120363@G.US'])
+  assert.throws(
+    () => parseGroupJids('https://evil.example/chat.whatsapp.com/AbCd123'),
+    /not a group jid or invite link/,
+  )
 })
 
 test('parseGroupJids strips a #fragment and rejects a link with no path segment after the host', () => {
   assert.deepEqual(parseGroupJids('https://chat.whatsapp.com/AbCd123#frag').inviteCodes, ['AbCd123'])
   for (const entry of ['https://chat.whatsapp.com/', 'chat.whatsapp.com']) {
-    assert.throws(
-      () => parseGroupJids(entry),
-      new RegExp(`GROUP_INVITE_LINKS: not a group jid or invite link: ${entry.replace(/[.]/g, '\\.')}`),
-    )
+    assert.throws(() => parseGroupJids(entry), {
+      message: `GROUP_INVITE_LINKS: not a group jid or invite link: ${entry}`,
+    })
   }
 })
 

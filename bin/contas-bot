@@ -35,10 +35,10 @@ case "${1:-help}" in
     tmp=$(mktemp) || exit 1
     trap 'rm -f "$tmp"' EXIT
     curl -fsSL -o "$tmp" "https://github.com/$REPO/releases/download/v$new/install.sh" || exit 1
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if gh attestation --help >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
       gh attestation verify "$tmp" --repo "$REPO" >/dev/null 2>&1 || { say "❌ a assinatura do instalador não confere: nada foi alterado" "❌ the installer's attestation does not verify: nothing was changed" "❌ la atestación del instalador no coincide: no se cambió nada" >&2; exit 1; }
     else
-      say "⚠️ sem gh autenticado: instalador não verificado" "⚠️ no authenticated gh: installer not verified" "⚠️ sin gh autenticado: instalador no verificado" >&2
+      say "⚠️ sem gh autenticado ou gh sem attestation: instalador não verificado" "⚠️ no authenticated gh with attestation support: installer not verified" "⚠️ sin gh autenticado o sin attestation: instalador no verificado" >&2
     fi
     CONTAS_BOT_DIR="$DIR" sh "$tmp"; exit $?
     ;;

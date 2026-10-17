@@ -333,15 +333,31 @@ test('join onboards a new group once: lastReset, the intro and the list, no demo
   )
 })
 
-test('a startup join turns pending amounts into none once, quoting each receipt', () => {
+test('a startup join asks the payer of each pending amount, quoting each receipt', () => {
   const m = msg('/pago luz', { media: { mime: 'image/png', handle: 'h' } })
   const k = m.kind === 'message' ? m.key : key()
   const pending = decide(state('Luz'), m, ctx).state
+  assert.equal(pending.months['2026-10']?.[1]?.byJid, 'p@s.whatsapp.net')
   const r = decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true, reading: [] }, ctx)
   assert.equal(r.state.months['2026-10']?.[1]?.status, 'none')
   assert.deepEqual(r.effects, [
-    { kind: 'reply', to: { id: k.id, fromMe: false, remoteJid: 'g@g.us' }, msg: { k: 'noAmount' } },
+    {
+      kind: 'reply',
+      to: { id: k.id, fromMe: false, remoteJid: 'g@g.us' },
+      msg: { k: 'askAmount', bill: 'Luz', read: true },
+    },
   ])
+  assert.deepEqual(r.state.asks, [
+    { who: 'p@s.whatsapp.net', at: OCT, q: 'amount', month: '2026-10', billId: 1, messageId: k.id },
+  ])
+  assert.deepEqual(decide(r.state, other('80'), ctx).effects, [])
+  const answered = decide(r.state, msg('80'), ctx).state.months['2026-10']?.[1]
+  assert.deepEqual([answered?.amount, answered?.status], [8000, 'typed'])
+  const legacy = structuredClone(pending)
+  const p = legacy.months['2026-10']?.[1]
+  if (p) p.byJid = null
+  const asked = decide(legacy, { kind: 'join', jid: 'g@g.us', at: OCT, startup: true, reading: [] }, ctx)
+  assert.equal(asked.state.asks[0]?.who, 'Ana')
   assert.deepEqual(
     decide(pending, { kind: 'join', jid: 'g@g.us', at: OCT, startup: false, reading: [] }, ctx).effects,
     [],
@@ -738,7 +754,9 @@ test('a late pick never overwrites a payment of the chosen bill typed after the 
 test('a late pick never undoes a /despago of the chosen bill sent after the receipt', () => {
   for (const by of [msg, other]) {
     const s = cards()
-    s.months['2026-10'] = { 2: { amount: 5000, status: 'typed', by: 'Ana', paidAt: OCT - 1000, messageId: 'old' } }
+    s.months['2026-10'] = {
+      2: { amount: 5000, status: 'typed', by: 'Ana', paidAt: OCT - 1000, messageId: 'old', byJid: null },
+    }
     const p = picking(s)
     const undone = decide(p.state, by('/despago cartão nu'), ctx).state
     const r = p.picked(undone, 2, 9900)
@@ -1028,4 +1046,11 @@ test('typo suggestions and the bare slash answer in the group language', () => {
   for (const [c, text, want] of cases) assert.ok(said(c, text)[0]?.includes(want), `${text}: ${said(c, text)}`)
   assert.deepEqual(said(ctx, '/'), [render({ k: 'unknownCmd', typed: 'xyz', suggestion: null }, ctx.locale)])
   assert.deepEqual(said(ctx, '/xyz luz'), said(ctx, '/'))
+})
+
+test('a payment remembers the participant id of whoever paid, or null when the message has none', () => {
+  const r = decide(state('Luz', 'Água'), msg('/pago luz 80'), ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.byJid, 'p@s.whatsapp.net')
+  const direct = msg('/pago água 10', { key: { id: 'd1', fromMe: false, remoteJid: 'g@g.us' } })
+  assert.equal(decide(r.state, direct, ctx).state.months['2026-10']?.[2]?.byJid, null)
 })

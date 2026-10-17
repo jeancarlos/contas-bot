@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS payments (
   paid_by TEXT NOT NULL,
   paid_at INTEGER NOT NULL,
   message_id TEXT NOT NULL,
+  paid_by_jid TEXT,
   PRIMARY KEY (group_jid, month, bill_id),
   FOREIGN KEY (group_jid, bill_id) REFERENCES bills(group_jid, id)
 );
@@ -72,20 +73,38 @@ type PaymentRow = {
   paid_by: string
   paid_at: number
   message_id: string
+  paid_by_jid: string | null
 }
 type HandledRow = { message_id: string; changed_state: number; warned: number }
+
+const SCHEMA_VERSION = 2
+
+function migrate(db: DatabaseSync, from: number) {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    if (from === 1) db.exec('ALTER TABLE payments ADD COLUMN paid_by_jid TEXT')
+    db.exec(SCHEMA)
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    db.close()
+    throw e
+  }
+}
 
 function open(path: string) {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA busy_timeout = 5000')
   const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
-  if (version > 1) {
+  if (version > SCHEMA_VERSION) {
     db.close()
-    throw new Error(`${path} has schema ${version}, newer than this version of contas-bot understands (1)`)
+    throw new Error(
+      `${path} has schema ${version}, newer than this version of contas-bot understands (${SCHEMA_VERSION})`,
+    )
   }
-  db.exec(SCHEMA)
-  if (version === 0) db.exec('PRAGMA user_version = 1')
+  if (version < SCHEMA_VERSION) migrate(db, version)
   const sql = {
     group: db.prepare('SELECT * FROM groups WHERE jid = ?'),
     groups: db.prepare('SELECT jid FROM groups ORDER BY jid'),
@@ -107,8 +126,8 @@ function open(path: string) {
     clearHandled: db.prepare('DELETE FROM handled WHERE group_jid = ?'),
     bill: db.prepare('INSERT INTO bills (group_jid, id, name, key, paused, removed) VALUES (?, ?, ?, ?, ?, ?)'),
     payment: db.prepare(
-      `INSERT INTO payments (group_jid, month, bill_id, amount, amount_status, paid_by, paid_at, message_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO payments (group_jid, month, bill_id, amount, amount_status, paid_by, paid_at, message_id, paid_by_jid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     handle: db.prepare(
       'INSERT INTO handled (group_jid, seq, message_id, changed_state, warned) VALUES (?, ?, ?, ?, ?)',
@@ -138,7 +157,7 @@ function open(path: string) {
     for (const b of s.bills) sql.bill.run(jid, b.id, b.name, b.key, Number(b.paused), Number(b.removed))
     for (const [month, paid] of Object.entries(s.months))
       for (const [billId, p] of Object.entries(paid))
-        sql.payment.run(jid, month, Number(billId), p.amount, p.status, p.by, p.paidAt, p.messageId)
+        sql.payment.run(jid, month, Number(billId), p.amount, p.status, p.by, p.paidAt, p.messageId, p.byJid)
     s.handled.forEach((h, seq) => {
       sql.handle.run(jid, seq, h.id, Number(h.changed), Number(h.warned))
     })
@@ -160,6 +179,7 @@ function open(path: string) {
         amount: p.amount,
         status: p.amount_status,
         by: p.paid_by,
+        byJid: p.paid_by_jid,
         paidAt: p.paid_at,
         messageId: p.message_id,
       }

@@ -63,7 +63,6 @@ test('every message kind renders in every language', () => {
     { k: 'askConfirm', cmd: 'pago', bill: 'Luz', amount: 8000, month: null },
     { k: 'askBill', names: ['Luz', 'Água'] },
     { k: 'askOneOff', name: 'Farmácia' },
-    { k: 'noAmount' },
     { k: 'editIgnored', payment: true },
     { k: 'editIgnored', payment: false },
     { k: 'nameTaken', name: 'Luz' },

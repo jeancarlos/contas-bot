@@ -113,7 +113,7 @@ function randomState(seed: number): GroupState {
     const paid: GroupState['months'][string] = {}
     for (const b of s.bills) {
       const amount = r.next() < 0.3 ? null : r.int(1e9) + 1
-      if (r.next() < 0.5) paid[b.id] = { amount, status: 'typed', by: 'x', paidAt: 0, messageId: 'm' }
+      if (r.next() < 0.5) paid[b.id] = { amount, status: 'typed', by: 'x', paidAt: 0, messageId: 'm', byJid: null }
     }
     s.months[month] = paid
   }

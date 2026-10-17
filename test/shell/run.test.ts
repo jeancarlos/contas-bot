@@ -270,17 +270,25 @@ test('a new release is announced once to an existing group, as a gif with a text
   assert.deepEqual(text.calls, [{ op: 'send', arg: body }])
 })
 
-test('only the first join after a start turns pending amounts into none, quoting the receipt', async () => {
+test('only the first join after a start asks the payer for each pending amount, quoting the receipt', async () => {
   const s = bills('Luz')
-  s.months['2026-10'] = { 1: { amount: null, status: 'pending', by: 'Ana', paidAt: OCT, messageId: 'r1' } }
+  const pending = { amount: null, status: 'pending', by: 'Ana', paidAt: OCT, messageId: 'r1' } as const
+  s.months['2026-10'] = { 1: { ...pending, byJid: 'p@s.whatsapp.net' } }
   const { shell, store, calls } = setup({ state: s, meta: MIGRATED })
   await shell.join(JID)
   await shell.idle()
   assert.equal(store.load(JID)?.months['2026-10']?.[1]?.status, 'none')
   assert.deepEqual(calls, [
     { op: 'commit' },
-    { op: 'send', arg: 'r1: não li o valor do comprovante, marquei sem valor' },
+    { op: 'send', arg: 'r1: não consegui ler o valor de Luz. Qual foi? Responda só o valor, ex: 80,00' },
   ])
+  await shell.handle(JID, msg('80'))
+  await shell.idle()
+  assert.deepEqual(store.load(JID)?.months['2026-10']?.[1], {
+    ...s.months['2026-10'][1],
+    amount: 8000,
+    status: 'typed',
+  })
   store.commit(JID, s)
   calls.length = 0
   await shell.join(JID)
@@ -385,7 +393,7 @@ function gate<T>(value: T) {
   return { open, wait: async () => opened.then(() => value) }
 }
 
-test('a backlog receipt read that resolves after the startup join keeps its amount and gets no noAmount', async () => {
+test('a backlog receipt read that resolves after the startup join keeps its amount and gets no question', async () => {
   const read = gate(80.1)
   const { shell, store, calls } = setup({ state: bills('Luz'), meta: MIGRATED, llm: read.wait })
   await shell.handle(JID, msg('/pago luz', { media: { mime: 'image/jpeg', handle: 'img' } }))
@@ -395,7 +403,7 @@ test('a backlog receipt read that resolves after the startup join keeps its amou
   assert.equal(store.load(JID)?.months['2026-10']?.[1]?.status, 'read')
   assert.equal(store.load(JID)?.months['2026-10']?.[1]?.amount, 8010)
   assert.equal(
-    calls.some(c => c.arg?.includes('não li o valor')),
+    calls.some(c => c.arg?.includes('Qual foi?')),
     false,
   )
 })

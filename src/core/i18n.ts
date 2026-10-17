@@ -139,7 +139,6 @@ const ptBR: Catalog = {
   askConfirm: (m, loc) => `você quis dizer \`${suggestion(m, loc)}\`? Responda *sim* pra confirmar.`,
   askBill: m => `qual conta? Responda o nome: ${m.names.join(', ')}`,
   askOneOff: m => `não achei "${m.name}". Responda *sim* pra lançar como avulsa, ou o nome da conta.`,
-  noAmount: () => 'não li o valor do comprovante, marquei sem valor',
   editIgnored: m =>
     m.payment ? 'edição não altera pagamento: use /despago' : 'edição não refaz o comando: mande um novo',
   nameTaken: m => `já existe uma conta "${m.name}"`,
@@ -204,7 +203,6 @@ const en: Catalog = {
   askConfirm: (m, loc) => `did you mean \`${suggestion(m, loc)}\`? Reply *yes* to confirm.`,
   askBill: m => `which bill? Reply with its name: ${m.names.join(', ')}`,
   askOneOff: m => `couldn't find "${m.name}". Reply *yes* to record it as a one-off, or with the bill name.`,
-  noAmount: () => "couldn't read the amount on the receipt, marked without one",
   editIgnored: m =>
     m.payment ? "an edit doesn't change a payment: use /unpaid" : "an edit doesn't redo the command: send a new one",
   nameTaken: m => `there is already a bill "${m.name}"`,
@@ -270,7 +268,6 @@ const es: Catalog = {
   askBill: m => `¿qué cuenta? Responde el nombre: ${m.names.join(', ')}`,
   askOneOff: m =>
     `no encontré "${m.name}". Responde *sí* para registrarlo como gasto suelto, o el nombre de la cuenta.`,
-  noAmount: () => 'no leí el monto del comprobante, la marqué sin monto',
   editIgnored: m =>
     m.payment ? 'una edición no cambia el pago: usa /despagado' : 'una edición no rehace el comando: envía uno nuevo',
   nameTaken: m => `ya existe una cuenta "${m.name}"`,

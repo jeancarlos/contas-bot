@@ -9,6 +9,7 @@ const pay = (amount: number | null, status: Payment['status'], paidAt: number): 
   by: 'Ana',
   paidAt,
   messageId: `m${paidAt}`,
+  byJid: null,
 })
 
 function sample(): GroupState {

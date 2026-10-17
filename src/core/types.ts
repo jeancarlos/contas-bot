@@ -5,7 +5,14 @@ export type Locale = { lang: Lang; currency: string; decimal: ',' | '.'; timeZon
 
 export type Bill = { id: number; name: string; key: string; paused: boolean; removed: boolean }
 export type AmountStatus = 'typed' | 'read' | 'pending' | 'none'
-export type Payment = { amount: number | null; status: AmountStatus; by: string; paidAt: number; messageId: string }
+export type Payment = {
+  amount: number | null
+  status: AmountStatus
+  by: string
+  byJid: string | null
+  paidAt: number
+  messageId: string
+}
 export type Handled = { id: string; changed: boolean; warned: boolean }
 export type Ask = { who: string; at: number } & (
   | { q: 'amount'; month: string; billId: number; messageId: string }
@@ -95,7 +102,6 @@ export type Msg =
   | { k: 'askConfirm'; cmd: 'pago' | 'despago'; bill: string; amount: number | null; month: string | null }
   | { k: 'askBill'; names: string[] }
   | { k: 'askOneOff'; name: string }
-  | { k: 'noAmount' }
   | { k: 'editIgnored'; payment: boolean }
   | { k: 'nameTaken'; name: string }
   | { k: 'nameInvalid' }

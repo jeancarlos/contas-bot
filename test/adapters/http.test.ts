@@ -17,8 +17,8 @@ const state = (name: string): GroupState => ({
   ],
   nextBillId: 5,
   months: {
-    '2026-10': { 1: { amount: 8010, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M1' } },
-    '2026-09': { 4: { amount: null, status: 'none', by: 'Ana', paidAt: AT, messageId: 'M2' } },
+    '2026-10': { 1: { amount: 8010, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M1', byJid: null } },
+    '2026-09': { 4: { amount: null, status: 'none', by: 'Ana', paidAt: AT, messageId: 'M2', byJid: null } },
   },
   handled: [],
   pinnedId: null,
@@ -102,7 +102,7 @@ test('csv header, quoting and json rows', () => {
 test('csv neutralises spreadsheet formulas', () => {
   const d = deps()
   const s = state('=HYPERLINK("x")')
-  s.months['2026-10'] = { 1: { amount: 100, status: 'typed', by: '+1', paidAt: AT, messageId: 'M' } }
+  s.months['2026-10'] = { 1: { amount: 100, status: 'typed', by: '+1', paidAt: AT, messageId: 'M', byJid: null } }
   const csv = get(
     { ...d, store: { groups: () => ['grupo@g.us'], load: () => s } },
     '/export.csv?from=2026-10&to=2026-10',
@@ -204,7 +204,7 @@ test('summary.json lists a removed bill only when paid this month', () => {
     { id: 6, name: 'Morta', key: 'morta', paused: false, removed: true },
   )
   const month = s.months['2026-10']
-  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M3' }
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M3', byJid: null }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const j = JSON.parse(get(d, '/summary.json').body) as {
     groups: { unpaid: number; bills: { name: string; paid: boolean }[] }[]
@@ -221,7 +221,7 @@ test('summary.json lists a removed bill only when paid this month', () => {
 test('a paused bill paid this month counts in every total and matches the pinned list footer', () => {
   const s = state('Luz')
   const month = s.months['2026-10']
-  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M4' }
+  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M4', byJid: null }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const footer = render(listMsg(s, '2026-10'), d.locale).split('\n').at(-1) ?? ''
   assert.ok(footer.includes('2/4') && footer.includes('R$ 110,10'), footer)
@@ -245,7 +245,7 @@ test('same-name bills in one month emit a single summed paid_amount sample', () 
   const s = state('Luz')
   s.bills.push({ id: 5, name: 'Luz', key: 'luz', paused: false, removed: true })
   const month = s.months['2026-10']
-  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M5' }
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M5', byJid: null }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const lines = renderMetrics(d)
     .split('\n')

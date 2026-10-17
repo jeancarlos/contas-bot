@@ -138,6 +138,21 @@ export function cachedGroups(store: Store, codes: string[]): { jids: string[]; t
   return { jids, toResolve: [...remaining] }
 }
 
+export function ticker(tick: () => void) {
+  let up = false
+  return {
+    connected: () => up,
+    status(connected: boolean) {
+      const back = connected && !up
+      up = connected
+      if (back) tick()
+    },
+    minute() {
+      if (up) tick()
+    },
+  }
+}
+
 const quotable = (i: Input): MsgKey | null => (i.kind === 'billPicked' ? i.pick.to : 'key' in i ? i.key : null)
 
 export function makeShell(d: ShellDeps): Shell {

@@ -61,15 +61,7 @@ jobs:
           trap 'kill "$bot" 2>/dev/null; echo "--- bot log"; cat "$RUNNER_TEMP/bot.log"' EXIT
           curl -fsS --retry 30 --retry-delay 1 --retry-connrefused -o metrics.txt "http://127.0.0.1:$HTTP_PORT/metrics"
           cat metrics.txt
-          rc=0
-          docker run --rm -i --entrypoint promtool prom/prometheus:v3.5.0 check metrics < metrics.txt > promtool.txt 2>&1 || rc=$?
-          cat promtool.txt
-          # promtool exits 3 on lint-only problems; missing HELP text is tolerated until /metrics emits # HELP lines.
-          case "$rc" in
-            0) ;;
-            3) if grep -v ' no help text$' promtool.txt; then exit 1; fi ;;
-            *) exit 1 ;;
-          esac
+          docker run --rm -i --entrypoint promtool prom/prometheus:v3.5.0 check metrics < metrics.txt
           grep -Eq '^contas_whatsapp_connected [01]$' metrics.txt
           curl -fsS "http://127.0.0.1:$HTTP_PORT/summary.json" \
             | node -e 'const s = JSON.parse(require("fs").readFileSync(0, "utf8")); if (!Array.isArray(s.groups)) process.exit(1)'

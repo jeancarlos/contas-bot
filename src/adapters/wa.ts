@@ -61,6 +61,14 @@ function inviteCode(link: string): string {
   return code
 }
 
+function isInviteLink(entry: string): boolean {
+  try {
+    return new URL(entry.includes('://') ? entry : `https://${entry}`).hostname === 'chat.whatsapp.com'
+  } catch {
+    return false
+  }
+}
+
 export function parseGroupJids(raw: string): { jids: Set<string>; inviteCodes: string[] } {
   const jids = new Set<string>()
   const inviteCodes: string[] = []
@@ -68,7 +76,7 @@ export function parseGroupJids(raw: string): { jids: Set<string>; inviteCodes: s
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)) {
-    if (entry.toLowerCase().includes('chat.whatsapp.com')) {
+    if (isInviteLink(entry)) {
       inviteCodes.push(inviteCode(entry))
       continue
     }

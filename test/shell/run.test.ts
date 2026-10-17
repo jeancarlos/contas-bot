@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { openStore, type Store } from '../../src/adapters/store.ts'
+import type { Release } from '../../src/announce.ts'
 import type { GroupMeta } from '../../src/adapters/v1.ts'
 import { makeLocale } from '../../src/core/i18n.ts'
 import { normalize } from '../../src/core/text.ts'
@@ -23,12 +24,15 @@ const SECTION = [
   '/pago <conta> [valor] · /lista · /help',
 ].join('\n')
 
+const RELEASES: Release[] = [{ version: '2.0.0', entries: [{ en: 'bills', 'pt-BR': 'contas por /conta' }] }]
+
 type Call = { op: string; arg?: string }
 type WaOpts = {
   desc?: string
   failSetDescription?: boolean
   failDownload?: boolean
   failVideo?: boolean
+  fail?: (op: string, arg?: string) => boolean
   download?: (signal: AbortSignal | undefined) => Promise<Buffer>
 }
 
@@ -36,21 +40,25 @@ function fakeWa(calls: Call[], o: WaOpts): Wa {
   let n = 0
   return {
     async sendText(text, quoted) {
+      if (o.fail?.('send', text)) throw new Error('send refused')
       calls.push({ op: 'send', arg: quoted ? `${quoted.id}: ${text}` : text })
       return `sent${++n}`
     },
     async sendVideo(_video, caption) {
-      if (o.failVideo) throw new Error('video refused')
+      if (o.failVideo || o.fail?.('video')) throw new Error('video refused')
       calls.push({ op: 'video', arg: caption })
       return `sent${++n}`
     },
     async react(key) {
+      if (o.fail?.('react')) throw new Error('react refused')
       calls.push({ op: 'react', arg: key.id })
     },
     async pin(id) {
+      if (o.fail?.('pin')) throw new Error('pin refused')
       calls.push({ op: 'pin', arg: id })
     },
     async unpin(id) {
+      if (o.fail?.('unpin')) throw new Error('unpin refused')
       calls.push({ op: 'unpin', arg: id })
     },
     async getDescription() {
@@ -86,6 +94,9 @@ type Setup = {
   pdf?: (signal: AbortSignal | undefined) => Promise<Buffer>
   pick?: (names: string[]) => Promise<{ index: number | null; amount: number | null }>
   gif?: boolean
+  version?: string
+  releases?: Release[] | null
+  failSetMeta?: boolean
   readTimeoutMs?: number
   readWaitMs?: number
 }
@@ -108,6 +119,10 @@ function setup(o: Setup = {}) {
         throw new Error('disk full')
       real.commit(jid, state)
     },
+    setMeta(jid, meta) {
+      if (o.failSetMeta) throw new Error('disk full')
+      real.setMeta(jid, meta)
+    },
   }
   const wa = fakeWa(calls, o.wa ?? {})
   const pdfs: string[] = []
@@ -128,9 +143,9 @@ function setup(o: Setup = {}) {
     },
     log: { info() {}, warn: (o: object, m?: string) => warns.push({ ...o, m }), error() {} },
     now: () => OCT,
-    version: '2.0.0',
+    version: o.version ?? '2.0.0',
     announce: {
-      releases: [{ version: '2.0.0', entries: [{ en: 'bills', 'pt-BR': 'contas por /conta' }] }],
+      releases: o.releases === undefined ? RELEASES : o.releases,
       gif: async () => (o.gif ? Buffer.from('gif') : null),
     },
     readTimeoutMs: o.readTimeoutMs ?? 50,
@@ -630,4 +645,101 @@ test('minute ticks wait while WhatsApp is disconnected, and one tick runs right 
   ticks.status(true)
   assert.equal(runs.length, 3)
   await Promise.all(runs)
+})
+
+const OLDER = { ...MIGRATED, announcedVersion: '1.2.0' }
+const BODY = '🎉🤖 contas-bot v2.0.0\n\n• contas por /conta'
+
+async function joined(o: Setup) {
+  const t = setup({ state: bills('Luz'), meta: OLDER, ...o })
+  await t.shell.join(JID)
+  await t.shell.idle()
+  return t
+}
+
+test('without a gif the release is announced as text', async () => {
+  const { calls, store } = await joined({})
+  assert.deepEqual(calls, [{ op: 'send', arg: BODY }])
+  assert.equal(store.meta(JID)?.announcedVersion, '2.0.0')
+})
+
+test('an announcement no send gets through is not recorded, the join still succeeds, and the next join retries', async () => {
+  let down = true
+  const { shell, calls, store } = await joined({ gif: true, wa: { fail: op => down && op !== 'pin' } })
+  assert.deepEqual(calls, [])
+  assert.equal(store.meta(JID)?.announcedVersion, '1.2.0')
+  down = false
+  await shell.join(JID)
+  await shell.idle()
+  assert.deepEqual(calls, [{ op: 'video', arg: BODY }])
+  assert.equal(store.meta(JID)?.announcedVersion, '2.0.0')
+})
+
+test('a dev build never announces and never records a version', async () => {
+  const old = await joined({ version: 'dev' })
+  assert.deepEqual(old.calls, [])
+  assert.equal(old.store.meta(JID)?.announcedVersion, '1.2.0')
+  const fresh = setup({ version: 'dev' })
+  await fresh.shell.join(JID)
+  await fresh.shell.idle()
+  assert.equal(fresh.store.meta(JID)?.announcedVersion, null)
+})
+
+test('a release with nothing to say is marked announced without a message', async () => {
+  const { calls, store } = await joined({ releases: [{ version: '2.0.0', entries: [] }] })
+  assert.deepEqual(calls, [])
+  assert.equal(store.meta(JID)?.announcedVersion, '2.0.0')
+})
+
+test('the same or an older version is not announced again', async () => {
+  for (const announcedVersion of ['2.0.0', '3.0.0']) {
+    const { calls, store } = await joined({ meta: { ...MIGRATED, announcedVersion } })
+    assert.deepEqual(calls, [])
+    assert.equal(store.meta(JID)?.announcedVersion, announcedVersion)
+  }
+})
+
+test('missing release notes announce nothing and keep the version for later, onboarding still records it', async () => {
+  const { calls, store } = await joined({ releases: null })
+  assert.deepEqual(calls, [])
+  assert.equal(store.meta(JID)?.announcedVersion, '1.2.0')
+  const fresh = setup({ releases: null })
+  await fresh.shell.join(JID)
+  await fresh.shell.idle()
+  assert.equal(fresh.store.meta(JID)?.announcedVersion, '2.0.0')
+})
+
+test('an announcement whose version cannot be saved is announced again on the next join', async () => {
+  const t = setup({ state: bills('Luz'), meta: OLDER, failSetMeta: true })
+  await t.shell.join(JID).catch(() => {})
+  await t.shell.idle()
+  assert.deepEqual(t.calls, [{ op: 'send', arg: BODY }])
+  assert.equal(t.store.meta(JID)?.announcedVersion, '1.2.0')
+})
+
+test('a failed pin still unpins the old list, and a failed unpin still keeps the new list id', async () => {
+  for (const failing of ['pin', 'unpin']) {
+    const s = bills('Luz')
+    s.pinnedId = 'old'
+    const { shell, store, calls } = setup({ state: s, meta: MIGRATED, wa: { fail: op => op === failing } })
+    await shell.handle(JID, msg('/lista'))
+    await shell.idle()
+    const other = failing === 'pin' ? { op: 'unpin', arg: 'old' } : { op: 'pin', arg: 'sent1' }
+    assert.ok(
+      calls.some(c => c.op === other.op && c.arg === other.arg),
+      failing,
+    )
+    assert.equal(store.load(JID)?.pinnedId, 'sent1', failing)
+  }
+})
+
+test('a failed reaction or update notice does not stop the list from being posted and pinned', async () => {
+  const s = bills('Luz')
+  s.months['2026-10'] = { 1: { amount: 8000, status: 'typed', by: 'Ana', paidAt: OCT, messageId: 'a', byJid: null } }
+  const fail = (op: string, arg?: string) => op === 'react' || (op === 'send' && arg === 'atualizado')
+  const { shell, store, calls } = setup({ state: s, meta: MIGRATED, wa: { fail } })
+  await shell.handle(JID, msg('/pago luz 90'))
+  await shell.idle()
+  assert.equal(store.load(JID)?.months['2026-10']?.[1]?.amount, 9000)
+  assert.deepEqual(ops(calls), ['commit', 'send', 'commit', 'pin'])
 })

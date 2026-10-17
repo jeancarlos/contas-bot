@@ -1054,3 +1054,80 @@ test('a payment remembers the participant id of whoever paid, or null when the m
   const direct = msg('/pago água 10', { key: { id: 'd1', fromMe: false, remoteJid: 'g@g.us' } })
   assert.equal(decide(r.state, direct, ctx).state.months['2026-10']?.[2]?.byJid, null)
 })
+
+const media = { mime: 'image/png', handle: 'h' }
+const paidAmount = (s: GroupState, id = 1) => s.months['2026-10']?.[id]?.amount
+
+test('a receipt without a caption is never read, and /despago with a receipt does not read it', () => {
+  const s = state('Luz')
+  assert.deepEqual(decide(s, msg('', { media }), ctx).effects, [])
+  const paid = decide(s, msg('/pago luz 80'), ctx).state
+  const r = decide(paid, msg('/despago luz', { media }), ctx)
+  assert.ok(!kinds(r.effects).includes('readAmount'))
+  assert.equal(r.state.months['2026-10']?.[1], undefined)
+})
+
+test('/revert, /reverter and /revertir unpay like /despago, and a bare /despago names what is missing', () => {
+  const paid = decide(state('Luz'), msg('/pago luz 80'), ctx).state
+  for (const alias of ['/revert', '/reverter', '/revertir']) {
+    assert.equal(decide(paid, msg(`${alias} luz`), ctx).state.months['2026-10']?.[1], undefined, alias)
+  }
+  assert.deepEqual(replies(decide(paid, msg('/despago'), ctx).effects), ['missingBill'])
+})
+
+test('/ajuda answers with the help and an unrelated command with the generic pointer', () => {
+  const s = state('Luz')
+  const help = decide(s, msg('/ajuda'), ctx).effects
+  assert.deepEqual(replies(help), ['help'])
+  const xyz = decide(s, msg('/xyz'), ctx).effects
+  assert.deepEqual(
+    xyz.flatMap(e => (e.kind === 'reply' ? [e.msg] : [])),
+    [{ k: 'unknownCmd', typed: 'xyz', suggestion: null }],
+  )
+})
+
+test('two distinct messages with identical text both apply', () => {
+  const once = decide(state('Luz'), msg('/pago avulsa uber 10'), ctx).state
+  const twice = decide(once, msg('/pago avulsa uber 10'), ctx).state
+  const uber = twice.bills.find(b => b.key === 'uber')
+  assert.equal(paidAmount(twice, uber?.id), 2000)
+  const luz = decide(decide(state('Luz'), msg('/pago luz 80'), ctx).state, msg('/pago luz 80'), ctx)
+  assert.deepEqual(replies(luz.effects), ['updated'])
+})
+
+test('the handled list keeps only the newest 500 message ids', () => {
+  let s = state('Luz')
+  for (let i = 0; i < 600; i++) s = decide(s, msg('/pago luz 80', { key: key(`h${i}`) }), ctx).state
+  assert.equal(s.handled.length, 500)
+  assert.equal(s.handled[0]?.id, 'h100')
+  assert.equal(s.handled.at(-1)?.id, 'h599')
+  assert.deepEqual(decide(s, msg('/pago luz 90', { key: key('h599') }), ctx).effects, [])
+})
+
+test('a bill named 101 is paid by /pago 101', () => {
+  const r = decide(state('101', 'Luz'), msg('/pago 101'), ctx)
+  assert.equal(r.state.months['2026-10']?.[1]?.status, 'none')
+  assert.equal(r.state.months['2026-10']?.[2], undefined)
+})
+
+test('money edge cases pay the right amount or no amount, never a wrong one', () => {
+  const right: [string, number][] = [
+    ['/pago plano tim 100', 10000],
+    ['/pago luz brl 10', 1000],
+    ['/pago luz US$ 80', 8000],
+  ]
+  for (const [text, cents] of right) {
+    const s = decide(state('Plano TIM', 'Luz'), msg(text), ctx).state
+    assert.deepEqual(
+      Object.values(s.months['2026-10'] ?? {}).map(p => p.amount),
+      [cents],
+      text,
+    )
+  }
+  for (const text of ['/pago luz 1,23.45', '/pago luz -10', '/pago luz .5', '/pago luz R$ 0,004']) {
+    const asked = decide(state('Luz'), msg(text), ctx)
+    assert.equal(asked.state.months['2026-10'], undefined, text)
+    const yes = decide(asked.state, msg('sim'), ctx).state
+    assert.equal(paidAmount(yes) ?? null, null, text)
+  }
+})

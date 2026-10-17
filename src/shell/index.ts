@@ -9,7 +9,7 @@ import { makeLocale } from '../core/i18n.ts'
 import { monthOf } from '../core/month.ts'
 import { makeLlm } from '../llm.ts'
 import { pdfToPng } from '../pdf.ts'
-import { cachedGroups, makeShell, type Wa } from './run.ts'
+import { cachedGroups, makeShell, ticker, type Wa } from './run.ts'
 
 process.umask(0o077)
 
@@ -53,7 +53,6 @@ else log.info({ groups: [...groups], inviteLinks: inviteCodes.length }, 'serving
 const cached = cachedGroups(store, inviteCodes)
 for (const jid of cached.jids) groups.add(jid)
 
-let connected = false
 const port = httpPort(env('HTTP_PORT'), log)
 if (port > 0) {
   startHttp(
@@ -62,7 +61,7 @@ if (port > 0) {
       locale,
       currentMonth: () => monthOf(Date.now(), locale.timeZone),
       served: () => [...groups],
-      connected: () => connected,
+      connected: () => ticks.connected(),
       log,
       hosts: env('HTTP_HOSTS').split(','),
     },
@@ -90,6 +89,9 @@ const shell = makeShell({
 })
 
 const failed = (what: string, jid: string) => (err: unknown) => log.error({ err, jid }, what)
+const ticks = ticker(() => {
+  for (const jid of groups) shell.handle(jid, { kind: 'tick', at: Date.now() }).catch(failed('tick failed', jid))
+})
 const join = (jid: string) => {
   shell.join(jid).then(() => log.info({ jid }, 'group joined'), failed('join failed, retrying on next connection', jid))
 }
@@ -105,9 +107,7 @@ wa = await connectWa({
     for (const jid of jids) join(jid)
   },
   onJoined: join,
-  onStatus: c => {
-    connected = c
-  },
+  onStatus: c => ticks.status(c),
   onInput: (jid, input) => {
     shell.handle(jid, input).catch(failed('input handling failed', jid))
   },
@@ -121,7 +121,5 @@ wa = await connectWa({
   },
 })
 
-setInterval(() => {
-  for (const jid of groups) shell.handle(jid, { kind: 'tick', at: Date.now() }).catch(failed('tick failed', jid))
-}, 60_000)
+setInterval(ticks.minute, 60_000)
 log.info('contas-bot ready')

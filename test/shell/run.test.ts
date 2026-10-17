@@ -8,7 +8,7 @@ import type { GroupMeta } from '../../src/adapters/v1.ts'
 import { makeLocale } from '../../src/core/i18n.ts'
 import { normalize } from '../../src/core/text.ts'
 import { emptyState, type GroupState, type Input } from '../../src/core/types.ts'
-import { cachedGroups, lanes, makeShell, type Wa } from '../../src/shell/run.ts'
+import { cachedGroups, lanes, makeShell, ticker, type Wa } from '../../src/shell/run.ts'
 
 const JID = 'g1@g.us'
 const OCT = Date.UTC(2026, 9, 10, 15)
@@ -597,4 +597,29 @@ test('a receipt that waits too long for a lane ends with no amount and one quest
     [1, 2].map(id => store.load(JID)?.months['2026-10']?.[id]?.status),
     ['pending', 'pending'],
   )
+})
+
+test('minute ticks wait while WhatsApp is disconnected, and one tick runs right after each reconnect', async () => {
+  const NOV = Date.UTC(2026, 10, 1, 15)
+  const { shell, store, calls } = setup({ state: bills('Luz'), meta: MIGRATED })
+  const runs: Promise<void>[] = []
+  const ticks = ticker(() => runs.push(shell.handle(JID, { kind: 'tick', at: NOV })))
+  ticks.minute()
+  assert.equal(runs.length, 0)
+  assert.equal(store.load(JID)?.lastReset, '2026-10')
+  assert.equal(ticks.connected(), false)
+  ticks.status(true)
+  ticks.status(true)
+  assert.equal(ticks.connected(), true)
+  await Promise.all(runs)
+  assert.equal(runs.length, 1)
+  assert.equal(store.load(JID)?.lastReset, '2026-11')
+  assert.ok(calls.some(c => c.op === 'send' && c.arg?.includes('Novembro')))
+  ticks.minute()
+  ticks.status(false)
+  ticks.minute()
+  assert.equal(runs.length, 2)
+  ticks.status(true)
+  assert.equal(runs.length, 3)
+  await Promise.all(runs)
 })

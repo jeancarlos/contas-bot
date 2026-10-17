@@ -529,9 +529,10 @@ function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
   const p = i.pick
   const open = d.s.asks.find((x): x is Picking => x.q === 'pick' && x.messageId === p.to.id)
   d.s.asks = d.s.asks.filter(x => x !== open)
-  if (!open || p.bills.some(b => open.touched.includes(b.id))) return
+  if (!open) return
   const m: Cmd = { key: p.to, sender: p.sender, at: p.at }
-  const bill = p.bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
+  const touched = p.bills.some(b => open.touched.includes(b.id))
+  const bill = !touched && p.bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
   if (!bill) {
     askWhich(d, p.bills, p.amount, p.month, { ...m, media: p.media })
     return

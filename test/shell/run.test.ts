@@ -7,8 +7,8 @@ import { openStore, type Store } from '../../src/adapters/store.ts'
 import type { Release } from '../../src/announce.ts'
 import type { GroupMeta } from '../../src/adapters/v1.ts'
 import { makeLocale } from '../../src/core/i18n.ts'
-import { normalize } from '../../src/core/text.ts'
-import { emptyState, type GroupState, type Input } from '../../src/core/types.ts'
+import { state } from '../core/gen.ts'
+import type { GroupState, Input } from '../../src/core/types.ts'
 import { cachedGroups, lanes, makeShell, ticker, type Wa } from '../../src/shell/run.ts'
 
 const JID = 'g1@g.us'
@@ -76,13 +76,7 @@ function fakeWa(calls: Call[], o: WaOpts): Wa {
   }
 }
 
-function bills(...names: string[]): GroupState {
-  const s = emptyState()
-  s.bills = names.map((name, i) => ({ id: i + 1, name, key: normalize(name), paused: false, removed: false }))
-  s.nextBillId = names.length + 1
-  s.lastReset = '2026-10'
-  return s
-}
+const bills = (...names: string[]) => state(names)
 
 type Setup = {
   state?: GroupState

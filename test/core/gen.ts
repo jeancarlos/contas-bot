@@ -95,18 +95,26 @@ type Gen = { r: R; ids: string[]; s: GroupState; at: number; key: (id: string) =
 
 const someId = (g: Gen, fallback: string) => (g.ids.length ? g.r.pick(g.ids) : fallback)
 
+const maybe = <T extends object>(r: R, p: number, v: T): T | Record<string, never> => (r.next() < p ? v : {})
+
+function freshOrReusedId(g: Gen): string {
+  const reuse = g.r.next() < 0.05 && g.ids.length > 0
+  const id = reuse ? g.r.pick(g.ids) : `m${g.ids.length}`
+  g.ids.push(id)
+  return id
+}
+
 function message(g: Gen): Input {
-  const { r, ids } = g
-  const id = r.next() < 0.05 && ids.length ? r.pick(ids) : `m${ids.length}`
-  ids.push(id)
+  const { r } = g
+  const id = freshOrReusedId(g)
   return {
     kind: 'message',
     key: g.key(id),
     sender: g.who.split('@')[0] ?? '',
     text: text(r),
     at: g.at,
-    ...(r.next() < 0.2 ? { media: media(id) } : {}),
-    ...(r.next() < 0.1 ? { quoted: media(`q${id}`) } : {}),
+    ...maybe(r, 0.2, { media: media(id) }),
+    ...maybe(r, 0.1, { quoted: media(`q${id}`) }),
   }
 }
 
@@ -118,14 +126,23 @@ function amountRead(g: Gen): Input {
   return { kind: 'amountRead', key: g.key(someId(g, 'x')), month, billId: r.int(s.nextBillId + 1), amount, at: g.at }
 }
 
+const half = <T>(r: R, v: T): T | null => (r.next() < 0.5 ? null : v)
+
+function pickTarget(g: Gen): MsgKey {
+  const open = g.s.asks.find(a => a.q === 'pick')
+  return open?.q === 'pick'
+    ? { id: open.messageId, fromMe: false, remoteJid: 'g@g.us', participant: open.who }
+    : g.key('zz')
+}
+
+const maybeBillId = (g: Gen): number | null => (g.r.next() < 0.2 ? null : g.r.int(g.s.nextBillId + 1))
+
 function billPicked(g: Gen): Input {
   const { r, s } = g
-  const open = s.asks.find(a => a.q === 'pick')
-  const to =
-    open?.q === 'pick' ? { id: open.messageId, fromMe: false, remoteJid: 'g@g.us', participant: open.who } : g.key('zz')
+  const to = pickTarget(g)
   const bills = s.bills.map(b => ({ id: b.id, name: b.name }))
-  const month = r.next() < 0.5 ? null : '2026-09'
-  const amount = r.next() < 0.5 ? null : 500
+  const month = half(r, '2026-09')
+  const amount = half(r, 500)
   return {
     kind: 'billPicked',
     pick: {
@@ -137,8 +154,8 @@ function billPicked(g: Gen): Input {
       amount,
       bills: bills.slice(0, r.int(bills.length + 1)),
     },
-    billId: r.next() < 0.2 ? null : r.int(s.nextBillId + 1),
-    amount: r.next() < 0.5 ? null : 700,
+    billId: maybeBillId(g),
+    amount: half(r, 700),
   }
 }
 

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { parseCommand } from '../../src/core/commands.ts'
 import { type Ctx, decide } from '../../src/core/decide.ts'
 import { render } from '../../src/core/i18n.ts'
-import { resolve } from '../../src/core/resolve.ts'
+import { type Resolution, resolve } from '../../src/core/resolve.ts'
 import type { Bill, Msg } from '../../src/core/types.ts'
 import { ctxEn, ctxPt, NAMES, OCT, rng, state, text } from './gen.ts'
 
@@ -11,12 +11,20 @@ const SEEDS = 2000
 type Offer = Extract<Msg, { k: 'suggest' | 'askConfirm' }>
 const isOffer = (m: Msg): m is Offer => m.k === 'suggest' || m.k === 'askConfirm'
 
-function mismatch(m: Offer, bills: readonly Bill[], ctx: Ctx): string | null {
-  const code = /`([^`]*)`/.exec(render(m, ctx.locale))?.[1] ?? ''
+const sameOffer = (rr: Resolution | null, m: Offer) =>
+  rr?.ok === true && rr.bill.name === m.bill && rr.amount === m.amount && rr.month === m.month
+
+const copyCode = (m: Offer, ctx: Ctx) => /`([^`]*)`/.exec(render(m, ctx.locale))?.[1] ?? ''
+
+function resolveCode(code: string, bills: readonly Bill[], ctx: Ctx): Resolution | null {
   const c = parseCommand(code)
-  const rr = c && 'arg' in c ? resolve(c.arg, bills, '2026-10', ctx.locale.decimal) : null
-  const ok = rr?.ok && rr.bill.name === m.bill && rr.amount === m.amount && rr.month === m.month
-  return ok ? null : `${code} -> ${JSON.stringify(rr)}`
+  return c && 'arg' in c ? resolve(c.arg, bills, '2026-10', ctx.locale.decimal) : null
+}
+
+function mismatch(m: Offer, bills: readonly Bill[], ctx: Ctx): string | null {
+  const code = copyCode(m, ctx)
+  const rr = resolveCode(code, bills, ctx)
+  return sameOffer(rr, m) ? null : `${code} -> ${JSON.stringify(rr)}`
 }
 
 test('every copy-ready suggestion resolves to the same bill, amount and month', () => {

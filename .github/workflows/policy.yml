@@ -1,0 +1,44 @@
+name: policy
+on:
+  schedule:
+    - cron: '17 7 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release-attestations:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+      packages: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          tag=$(gh release view --repo "$REPO" --json tagName -q .tagName)
+          gh release download "$tag" --repo "$REPO" --pattern install.sh
+          gh attestation verify install.sh --repo "$REPO"
+          gh attestation verify "oci://ghcr.io/$REPO:${tag#v}" --repo "$REPO"
+
+  issues-answered:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          cutoff=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          late=$(gh issue list --repo "$REPO" --state open --limit 200 --json number,title,createdAt,comments \
+            -q "[.[] | select(.createdAt < \"$cutoff\" and (.comments | length) == 0)] | .[] | \"#\(.number) \(.title)\"")
+          [ -z "$late" ] || {
+            echo "::error::issues with no reply after 14 days:"
+            echo "$late"
+            exit 1
+          }

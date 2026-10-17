@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jean Souza
 set -eu
 REPO=jeancarlos/contas-bot
 API=${CONTAS_BOT_API:-https://api.github.com/repos/$REPO/releases/latest}

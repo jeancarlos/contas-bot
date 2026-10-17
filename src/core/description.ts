@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { NAME_MAX } from './decide.ts'
 import { clean, normalize } from './text.ts'
 import type { GroupState } from './types.ts'

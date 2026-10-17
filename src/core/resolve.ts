@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { findMoney, type MoneyHit, parseNumber } from './money.ts'
 import { parseMonthToken } from './month.ts'
 import { closest, normalize } from './text.ts'

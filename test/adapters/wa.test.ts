@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { test } from 'node:test'

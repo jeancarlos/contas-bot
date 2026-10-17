@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { DEFAULT_CONNECTION_CONFIG, fetchLatestWaWebVersion, type WAVersion } from '@whiskeysockets/baileys'
 
 type Fetch = () => Promise<{ version: WAVersion; isLatest?: boolean }>

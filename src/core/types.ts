@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import type { CommandName, SubName } from './commands.ts'
 
 export type Lang = 'pt-BR' | 'en' | 'es'

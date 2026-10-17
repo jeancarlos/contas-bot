@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { open, readFile, realpath } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative } from 'node:path'
 import type { Lang } from './core/types.ts'

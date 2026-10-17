@@ -24,20 +24,29 @@ export function lintCommitMessage(msg: string): string[] {
   if (/^Merge /.test(subject) || /^(fixup|squash)! /.test(subject) || FREE.test(subject)) return []
   const m = LOGGED.exec(subject)
   if (!m) return []
+  return [...titleErrors(m[3] ?? ''), ...trailerErrors(text)]
+}
+
+function titleErrors(title: string): string[] {
   const errors: string[] = []
-  const title = m[3] ?? ''
   if (title.trim() === '') errors.push('subject is empty')
   if (title.length > MAX) errors.push(`subject is ${title.length} chars after the prefix (max ${MAX})`)
+  return errors
+}
+
+function trailerErrors(text: string): string[] {
+  const errors: string[] = []
   const lines = text.split('\n')
   const folded = lines.some((l, i) => i > 0 && /^[ \t]+\S/.test(l) && /^Changelog-(pt-BR|es):/.test(lines[i - 1] ?? ''))
   if (folded) errors.push('trailer must fit on one line')
   const t = parseTrailers(text)
-  for (const name of TRAILERS) {
-    const v = t[name]
-    if (!v) errors.push(`missing ${name}: <one line for the group, ≤ ${MAX} chars>`)
-    else if (v.length > MAX) errors.push(`${name} is ${v.length} chars (max ${MAX})`)
-  }
+  for (const name of TRAILERS) errors.push(...trailerLengthErrors(name, t[name]))
   return errors
+}
+
+function trailerLengthErrors(name: string, v: string | undefined): string[] {
+  if (!v) return [`missing ${name}: <one line for the group, ≤ ${MAX} chars>`]
+  return v.length > MAX ? [`${name} is ${v.length} chars (max ${MAX})`] : []
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

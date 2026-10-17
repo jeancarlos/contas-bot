@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>contas-bot</title>
+<meta name="description" content="Your household bills, handled in the WhatsApp group you already use.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--mut:#555;--card:#f4f4f5;--acc:#128c7e}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#aaa;--card:#1d1d1f;--acc:#25d366}}
+body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.6 system-ui,sans-serif}
+main{max-width:42rem;margin:0 auto;padding:2rem 1rem 4rem}
+h1{font-size:2.2rem;margin:0 0 .25rem}
+h2{margin-top:2.5rem}
+.tag{font-size:1.25rem;font-weight:700;color:var(--acc)}
+pre{background:var(--card);padding:1rem;border-radius:.5rem;overflow-x:auto;font-size:.9rem;line-height:1.4}
+blockquote{margin:1rem 0;padding-left:1rem;border-left:4px solid var(--acc);color:var(--mut)}
+a{color:var(--acc)}
+.badges img{margin:0 .25rem .25rem 0}
+</style>
+</head>
+<body>
+<main>
+<h1>contas-bot</h1>
+<p class="tag">Your household bills, handled in the WhatsApp group you already use.</p>
+<p>Everyone has that group: someone pays the electricity, drops the receipt in the chat, and then someone else scrolls up and retypes the whole checklist ("Luz ✅, Água ⬜, Aluguel ⬜…") so nobody loses track. Every month. By hand.</p>
+<p>contas-bot takes that job. Add it to the group and it keeps the list for you: it reads every receipt, ticks the bill off, pulls the amount off the image, adds up the month, and keeps the latest list pinned at the top of the chat. Nobody installs an app, nobody learns a new tool. You keep chatting the way you already do.</p>
+<blockquote>🇧🇷 Feito para grupos brasileiros: o bot fala português, entende <code>R$ 6.237,60</code> e lê comprovantes de Pix, boleto e cartão.</blockquote>
+<h2>What it feels like</h2>
+<pre>Gabi:  [photo of the Pix receipt] luz
+Bot:   ✅
+Bot:   📋 *Contas - Setembro/2026*
+
+       ✅ Luz - R$ 231,45
+       ✅ Cartão Nu - R$ 6.237,60
+       ⬜ Água
+       ⬜ Aluguel
+       ⏸️ Academia
+
+       *Pago:* 2/4 · *Total:* R$ 6.469,05
+       📌 (pinned)</pre>
+<h2>Install</h2>
+<p>You need Docker. Then paste this into a terminal:</p>
+<pre>curl -fsSL https://github.com/jeancarlos/contas-bot/releases/latest/download/install.sh | sh</pre>
+<p><a href="https://github.com/jeancarlos/contas-bot#install">Full install guide</a> · <a href="https://github.com/jeancarlos/contas-bot">Source on GitHub</a> · GPL-3.0-or-later</p>
+<p class="badges">
+<a href="https://scorecard.dev/viewer/?uri=github.com/jeancarlos/contas-bot"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/jeancarlos/contas-bot/badge"></a>
+<a href="https://github.com/jeancarlos/contas-bot/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jeancarlos/contas-bot/actions/workflows/ci.yml/badge.svg"></a>
+<a href="https://github.com/jeancarlos/contas-bot/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/jeancarlos/contas-bot"></a>
+</p>
+</main>
+</body>
+</html>

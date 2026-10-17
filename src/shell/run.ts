@@ -106,6 +106,7 @@ export function lanes(n: number, limits = { graceMs: LANE_GRACE_MS, waitMs: LANE
     if (!(await turn(group))) return null
     const abort = new AbortController()
     let held = true
+    let grace: ReturnType<typeof setTimeout> | undefined
     const done = () => {
       if (!held) return
       held = false
@@ -114,11 +115,15 @@ export function lanes(n: number, limits = { graceMs: LANE_GRACE_MS, waitMs: LANE
       release()
     }
     const timer = setTimeout(() => abort.abort(new Error('receipt read timed out')), ms)
-    const grace = setTimeout(() => {
-      stuck?.()
-      done()
-    }, ms + limits.graceMs)
-    const deadline = new Promise<null>(resolve => abort.signal.addEventListener('abort', () => resolve(null)))
+    const deadline = new Promise<null>(resolve =>
+      abort.signal.addEventListener('abort', () => {
+        resolve(null)
+        grace = setTimeout(() => {
+          stuck?.()
+          done()
+        }, limits.graceMs)
+      }),
+    )
     const running = work(abort.signal)
     void running.then(done, done)
     return Promise.race([running, deadline])

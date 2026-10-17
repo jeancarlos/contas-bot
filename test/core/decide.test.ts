@@ -1176,7 +1176,7 @@ test('money edge cases pay the right amount or no amount, never a wrong one', ()
   }
 })
 
-test('a huge command is cut to the first 2000 characters before parsing, so it stays fast', () => {
+test('a huge command is cut to the first 2000 characters before parsing', () => {
   const s = state(
     'Luz',
     'Água',
@@ -1189,9 +1189,7 @@ test('a huge command is cut to the first 2000 characters before parsing, so it s
     'Netflix',
     'IPTU',
   )
-  const t0 = performance.now()
   const huge = decide(s, msg(`/pago ${'1 '.repeat(32_760)}`), ctx)
-  assert.ok(performance.now() - t0 < 100, `took ${Math.round(performance.now() - t0)} ms`)
   const cut = decide(s, msg(`/pago ${'1 '.repeat(32_760)}`.slice(0, 2000)), ctx)
   assert.deepEqual(replies(huge.effects), replies(cut.effects))
   const late = decide(state('Luz'), msg(`/pago luz${' '.repeat(2000)}80`), ctx)

@@ -1,0 +1,210 @@
+{
+  "groups": {
+    "120363000000000001@g.us": {
+      "_meta": {
+        "pinned": {
+          "id": "3E267CDD56BB5D82C6510E",
+          "fromMe": true,
+          "remoteJid": "120363000000000001@g.us"
+        },
+        "last_reset": "2026-10",
+        "bills": [
+          "Luz",
+          "Água",
+          "Aluguel",
+          "Condomínio",
+          "Carro",
+          "Academia (pausado)",
+          "Mercado pago",
+          "Cartão nu",
+          "Algar telefone",
+          "Algar internet",
+          "HBO",
+          "Spotify"
+        ],
+        "section": true,
+        "listed": true,
+        "handled": [
+          "4AD0058DFE5674DC0924",
+          "ACCBC2DB2119997AB792D70E795D89CA",
+          "3A0DCF9F25B6E97D5671",
+          "3AED0A250F81E9305DDA",
+          "3A358F001B5A0F20CEFB",
+          "3A87D6CFD198B98EC87E",
+          "3A73D63B518FC72B366B",
+          "3A97E7614673BCD0FBE5",
+          "3A348A60A61B3A9EF5BB",
+          "3ACAA1DFB9B338DE9F65",
+          "3E2ED9B8F218AD3BC0C924",
+          "3E8806DD0DD0A9185B3F9D",
+          "AC75DA3B5EE6B20DF8809A54083A40D8",
+          "4AC05A58B6BBAF9F525E",
+          "4A802565CF05F1D3472A",
+          "4A76CE3A356C62961429",
+          "3A9EFD90E710F4829689",
+          "3ABE25F6B11123999FAC",
+          "4AF2D272B751F1A94B50",
+          "4A537BCD78A5C46A09D5",
+          "4A47305949A1EFBAEFB2",
+          "4A904F1D135D33852E73",
+          "4A21F23ACDDE3810FA94",
+          "3A9229377F64AF97DD86",
+          "3AB04D9C69130EDC62CD",
+          "3A8E9F3841407EC45346",
+          "3AA4002843D59ED89C25",
+          "3AB7541BD60E907FC97D",
+          "3A1D18948453A51CC442",
+          "3A2B813BAC139B644899",
+          "3A4CFD143A4D949CA4FB"
+        ],
+        "announced_version": "1.3.0"
+      },
+      "months": {
+        "2026-09": {
+          "mercado pago": {
+            "name": "Mercado pago",
+            "paid_at": "2026-09-11T00:25:21.977Z",
+            "amount": 1449.84,
+            "by": "Ana",
+            "message_id": "4A04863A29B6C34F56FA"
+          },
+          "cartao nu": {
+            "name": "Cartão nu",
+            "paid_at": "2026-09-11T00:25:56.178Z",
+            "amount": 5177.21,
+            "by": "Ana",
+            "message_id": "4A6DCAB8790066AE8879"
+          },
+          "carro": {
+            "name": "Carro",
+            "paid_at": "2026-09-11T00:27:09.541Z",
+            "amount": 2161.2,
+            "by": "Ana",
+            "message_id": "4A032D11D3514465B197"
+          },
+          "aqua": {
+            "name": "Aqua",
+            "paid_at": "2026-09-11T00:27:40.663Z",
+            "amount": 49.69,
+            "by": "Ana",
+            "message_id": "3ABAB8057E27529AEC5D"
+          },
+          "condominio": {
+            "name": "Condomínio",
+            "paid_at": "2026-09-11T00:28:19.122Z",
+            "amount": 364.09,
+            "by": "Ana",
+            "message_id": "4A81B761C67A3FF14173"
+          },
+          "aluguel": {
+            "name": "Aluguel",
+            "paid_at": "2026-09-11T02:39:35.554Z",
+            "amount": 960,
+            "by": "Ana",
+            "message_id": "4AE855A98EF1A4EC38FF"
+          },
+          "agua": {
+            "name": "Água",
+            "paid_at": "2026-09-11T02:43:59.910Z",
+            "amount": 49.69,
+            "by": "Ana",
+            "message_id": "3A8A8689D7F2BBB0ADD4"
+          },
+          "spotify": {
+            "name": "Spotify",
+            "paid_at": "2026-09-11T02:51:11.131Z",
+            "amount": 26.48,
+            "by": "Ana",
+            "message_id": "3A5C4619B4A069C03A06"
+          },
+          "algar internet": {
+            "name": "Algar internet",
+            "paid_at": "2026-09-14T18:35:21.423Z",
+            "amount": 155.83,
+            "by": "Ana",
+            "message_id": "4ABD78601FC82EDD52AE"
+          },
+          "hbo": {
+            "name": "HBO",
+            "paid_at": "2026-09-14T18:38:17.586Z",
+            "amount": 33.12,
+            "by": "Ana",
+            "message_id": "4A4A6E8325F3165557D6"
+          },
+          "algar telefone": {
+            "name": "Algar telefone",
+            "paid_at": "2026-09-14T18:40:58.131Z",
+            "amount": 42.47,
+            "by": "Ana",
+            "message_id": "4AB967882A901E0617A9"
+          },
+          "luz": {
+            "name": "Luz",
+            "paid_at": "2026-09-24T18:29:53.749Z",
+            "amount": 259.59,
+            "by": "Ana",
+            "message_id": "3A4A29DDA8443AEFE65A"
+          }
+        },
+        "2026-10": {
+          "cartao nu": {
+            "name": "Cartão nu",
+            "paid_at": "2026-10-09T21:47:26.020Z",
+            "amount": 4660.87,
+            "by": "Ana",
+            "message_id": "4A38E6C7460622E9579C"
+          },
+          "condominio": {
+            "name": "Condomínio",
+            "paid_at": "2026-10-09T21:49:32.459Z",
+            "amount": 408.02,
+            "by": "Ana",
+            "message_id": "4AA43EE3D5BB3D480E44"
+          },
+          "aluguel": {
+            "name": "Aluguel",
+            "paid_at": "2026-10-09T21:59:36.456Z",
+            "amount": 1200,
+            "by": "Ana",
+            "message_id": "3A0E2EAF5ABC04FE989D"
+          },
+          "mercado pago": {
+            "name": "Mercado pago",
+            "paid_at": "2026-10-09T22:53:01.666Z",
+            "amount": 703.03,
+            "by": "Ana",
+            "message_id": "4A97616B045D4C9E7B6D"
+          },
+          "carro": {
+            "name": "Carro",
+            "paid_at": "2026-10-09T22:57:30.129Z",
+            "amount": 2159.79,
+            "by": "Ana",
+            "message_id": "4A3F7879B3A8D1C70635"
+          },
+          "algar telefone": {
+            "name": "Algar telefone",
+            "paid_at": "2026-10-13T11:36:45.621Z",
+            "amount": 33.12,
+            "by": "Ana",
+            "message_id": "3A5AAC7595BC99B7C1A4"
+          },
+          "algar internet": {
+            "name": "Algar internet",
+            "paid_at": "2026-10-13T11:39:14.853Z",
+            "amount": 152.73,
+            "by": "Ana",
+            "message_id": "3AA3D98917FB6F837290"
+          },
+          "hbo": {
+            "name": "HBO",
+            "paid_at": "2026-10-13T11:38:06.720Z",
+            "amount": 33.12,
+            "by": "Ana",
+            "message_id": "3A03D414463F0D75EED1"
+          }
+        }
+      }
+    }
+  }
+}

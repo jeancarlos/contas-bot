@@ -1,5 +1,5 @@
-import { parseGroupJids } from '../wa.ts'
-import type { Lang } from '../i18n.ts'
+import { parseGroupJids } from '../adapters/wa.ts'
+import type { Lang } from '../core/types.ts'
 
 export type Ai = 'gemini' | 'openai' | 'custom' | 'none'
 export type Pairing = 'qr' | 'code'
@@ -31,6 +31,9 @@ export const AI_PRESETS = {
 export const defaultCurrency = (lang: Lang): string => (lang === 'pt-BR' ? 'BRL' : lang === 'en' ? 'USD' : 'EUR')
 export const validCurrency = (s: string): boolean => /^[A-Za-z]{3}$/.test(s.trim())
 export const validUrl = (s: string): boolean => /^https?:\/\/\S+$/.test(s.trim())
+export const envSafe = (s: string): boolean => !/['\r\n]/.test(s)
+export const allowEmpty = (noHistory: boolean, fresh: boolean, saved: Record<string, string>): boolean =>
+  noHistory && (fresh || saved.ALLOW_EMPTY_STATE === '1')
 export function validGroup(raw: string): boolean {
   try {
     parseGroupJids(raw)
@@ -67,7 +70,7 @@ export async function probeAi(ai: { url: string; key: string }, fetchFn: typeof 
   }
 }
 
-export function buildEnv(a: Answers, uid: number, gid: number): string {
+export function buildEnv(a: Answers, uid: number, gid: number, empty = false): string {
   const ai = resolveAi(a)
   const lines: [string, string][] = [
     ['BOT_LANG', a.lang],
@@ -82,14 +85,21 @@ export function buildEnv(a: Answers, uid: number, gid: number): string {
     ['PUID', String(uid)],
     ['PGID', String(gid)],
   ]
-  return `${lines.map(([k, v]) => `${k}=${v}`).join('\n')}\n`
+  if (empty) lines.push(['ALLOW_EMPTY_STATE', '1'])
+  return `${lines.map(([k, v]) => `${k}=${envValue(k, v)}`).join('\n')}\n`
+}
+
+function envValue(key: string, v: string): string {
+  if (!envSafe(v)) throw new Error(`${key} contains a single quote or a line break`)
+  return /^[\w.:/@,+-]*$/.test(v) ? v : `'${v}'`
 }
 
 export function parseEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const line of text.split('\n')) {
-    const m = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
-    if (m) out[m[1]] = m[2]
+    const [, k, v] = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim()) ?? []
+    if (k !== undefined && v !== undefined)
+      out[k] = v.length > 1 && v.startsWith("'") && v.endsWith("'") ? v.slice(1, -1) : v
   }
   return out
 }
@@ -103,6 +113,10 @@ export function composeFile(image: string): string {
     '    restart: unless-stopped',
     '    init: true',
     `    user: "\${PUID}:\${PGID}"`,
+    '    cap_drop:',
+    '      - ALL',
+    '    security_opt:',
+    '      - no-new-privileges:true',
     '    env_file: .env',
     '    environment:',
     '      - AUTH_DIR=/app/auth',
@@ -134,17 +148,27 @@ export function detectMode(hasEnv: boolean, creds: string | null): Mode {
   return paired(creds) ? 'update' : 'repair'
 }
 
-export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
+type Read = (k: string) => string | undefined
+
+function basicsFromEnv(v: Read): Partial<Answers> {
   const a: Partial<Answers> = {}
-  const v = (k: string) => env[`CONTAS_BOT_${k}`]?.trim() || undefined
   const lang = v('LANG')
   if (lang && (LANGS as string[]).includes(lang)) a.lang = lang as Lang
   const cur = v('CURRENCY')
   if (cur && validCurrency(cur)) a.currency = cur.toUpperCase()
   const pairing = v('PAIRING')
   if (pairing === 'qr' || pairing === 'code') a.pairing = pairing
-  const phone = v('PHONE')
-  if (phone && normalizePhone(phone)) a.phone = normalizePhone(phone) ?? undefined
+  const phone = normalizePhone(v('PHONE') ?? '')
+  if (phone) a.phone = phone
+  const group = v('GROUP')
+  if (group && validGroup(group)) a.group = group
+  const tz = v('TZ')
+  if (tz) a.tz = tz
+  return a
+}
+
+function aiFromEnv(v: Read): Partial<Answers> {
+  const a: Partial<Answers> = {}
   const ai = v('AI')
   if (ai && (AIS as string[]).includes(ai)) a.ai = ai as Ai
   const key = v('LLM_KEY')
@@ -153,11 +177,22 @@ export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
   if (url && validUrl(url)) a.llmUrl = url
   const model = v('VISION_MODEL')
   if (model) a.visionModel = model
-  const group = v('GROUP')
-  if (group && validGroup(group)) a.group = group
-  const tz = v('TZ')
-  if (tz) a.tz = tz
   return a
+}
+
+export function answersFromEnv(env: NodeJS.ProcessEnv): Partial<Answers> {
+  const v: Read = k => {
+    const raw = env[`CONTAS_BOT_${k}`]?.trim()
+    return raw && envSafe(raw) ? raw : undefined
+  }
+  return { ...basicsFromEnv(v), ...aiFromEnv(v) }
+}
+
+function aiFromUrl(url: string, model: string | undefined): Partial<Answers> {
+  if (url === '') return { ai: 'none' }
+  if (url === AI_PRESETS.gemini.url) return { ai: 'gemini' }
+  if (url === AI_PRESETS.openai.url) return { ai: 'openai' }
+  return { ai: 'custom', llmUrl: url, visionModel: model ?? '' }
 }
 
 export function answersFromDotenv(env: Record<string, string>): Partial<Answers> {
@@ -168,17 +203,7 @@ export function answersFromDotenv(env: Record<string, string>): Partial<Answers>
   if (env.BOT_PHONE) a.phone = env.BOT_PHONE
   if (env.GROUP_INVITE_LINKS !== undefined) a.group = env.GROUP_INVITE_LINKS
   if (env.TZ !== undefined) a.tz = env.TZ
-  const url = env.LLM_BASE_URL
-  if (url !== undefined) {
-    if (url === '') a.ai = 'none'
-    else if (url === AI_PRESETS.gemini.url) a.ai = 'gemini'
-    else if (url === AI_PRESETS.openai.url) a.ai = 'openai'
-    else {
-      a.ai = 'custom'
-      a.llmUrl = url
-      a.visionModel = env.LLM_VISION_MODEL ?? ''
-    }
-  }
+  if (env.LLM_BASE_URL !== undefined) Object.assign(a, aiFromUrl(env.LLM_BASE_URL, env.LLM_VISION_MODEL))
   if (env.LLM_API_KEY) a.llmKey = env.LLM_API_KEY
   return a
 }

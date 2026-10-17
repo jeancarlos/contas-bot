@@ -1,9 +1,11 @@
 import * as p from '@clack/prompts'
-import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Lang } from './i18n.ts'
+import type { Lang } from './core/types.ts'
 import {
   AI_PRESETS,
+  allowEmpty,
+  envSafe,
   LANGS,
   answersFromDotenv,
   answersFromEnv,
@@ -25,6 +27,7 @@ import {
   validUrl,
   withDefaults,
   type Answers,
+  type Mode,
   type Pairing,
 } from './setup/core.ts'
 import { SETUP_TEXT, type SetupText } from './setup/i18n.ts'
@@ -78,8 +81,7 @@ function describe(a: {
   ].join('\n')
 }
 
-async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<Answers> {
-  const a: Partial<Answers> = { ...pre }
+async function askBasics(a: Partial<Answers>) {
   a.lang = check(
     await p.select<Lang>({
       message: 'Idioma · Language',
@@ -123,6 +125,37 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
         ),
       ) ?? ''
   }
+}
+
+async function askEndpoint(a: Partial<Answers>) {
+  a.llmUrl = check(
+    await p.text({
+      message: tx.aiUrl,
+      initialValue: a.llmUrl,
+      validate: v => (!validUrl(v ?? '') ? tx.aiUrlInvalid : envSafe(v ?? '') ? undefined : tx.noQuotes),
+    }),
+  ).trim()
+  a.visionModel = check(
+    await p.text({
+      message: tx.aiModel,
+      initialValue: a.visionModel,
+      validate: v => (!v?.trim() ? tx.required : envSafe(v) ? undefined : tx.noQuotes),
+    }),
+  ).trim()
+}
+
+async function askKey(ai: Exclude<Answers['ai'], 'none'>, kept: string | undefined): Promise<string> {
+  const preset = ai === 'custom' ? '' : AI_PRESETS[ai].keyUrl
+  const typed = check(
+    await p.password({
+      message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
+      validate: v => (preset && !kept && !v?.trim() ? tx.required : envSafe(v ?? '') ? undefined : tx.noQuotes),
+    }),
+  ).trim()
+  return typed || kept || ''
+}
+
+async function askAi(a: Partial<Answers>, source?: Partial<Answers>) {
   a.ai = check(
     await p.select<Answers['ai']>({
       message: tx.ai,
@@ -138,31 +171,8 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
   const explicit = a.llmKey || undefined
   a.llmKey = undefined
   while (a.ai !== 'none') {
-    if (a.ai === 'custom') {
-      a.llmUrl = check(
-        await p.text({
-          message: tx.aiUrl,
-          initialValue: a.llmUrl,
-          validate: v => (validUrl(v ?? '') ? undefined : tx.aiUrlInvalid),
-        }),
-      ).trim()
-      a.visionModel = check(
-        await p.text({
-          message: tx.aiModel,
-          initialValue: a.visionModel,
-          validate: v => (v?.trim() ? undefined : tx.required),
-        }),
-      ).trim()
-    }
-    const preset = a.ai === 'custom' ? '' : AI_PRESETS[a.ai].keyUrl
-    const kept = explicit ?? keyFor({ ai: a.ai, llmUrl: a.llmUrl }, source)
-    const typed = check(
-      await p.password({
-        message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
-        validate: v => (preset && !kept && !v?.trim() ? tx.required : undefined),
-      }),
-    ).trim()
-    a.llmKey = typed || kept || ''
+    if (a.ai === 'custom') await askEndpoint(a)
+    a.llmKey = await askKey(a.ai, explicit ?? keyFor({ ai: a.ai, llmUrl: a.llmUrl }, source))
     const s = p.spinner()
     s.start(tx.aiChecking)
     const ok = await probeAi(
@@ -171,11 +181,17 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
     s.stop(ok ? tx.aiOk : tx.aiFailed)
     if (ok || !check(await p.confirm({ message: tx.aiRetry }))) break
   }
+}
+
+async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<Answers> {
+  const a: Partial<Answers> = { ...pre }
+  await askBasics(a)
+  await askAi(a, source)
   a.group = check(
     await p.text({
       message: tx.group,
       initialValue: a.group,
-      validate: v => (validGroup(v ?? '') ? undefined : tx.groupInvalid),
+      validate: v => (!validGroup(v ?? '') ? tx.groupInvalid : envSafe(v ?? '') ? undefined : tx.noQuotes),
     }),
   ).trim()
   const full = withDefaults(a) as Answers
@@ -188,9 +204,15 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
   return full
 }
 
+const exists = (f: string) =>
+  access(join(DIR, f)).then(
+    () => true,
+    () => false,
+  )
+
 async function install(
   pre: Partial<Answers>,
-  o: { touchAuth?: boolean; source?: Partial<Answers>; saved?: Record<string, string> } = {},
+  o: { touchAuth?: boolean; source?: Partial<Answers>; saved?: Record<string, string>; fresh?: boolean } = {},
 ): Promise<Answers> {
   let a: Answers
   if (interactive) {
@@ -206,10 +228,11 @@ async function install(
   }
   tx = SETUP_TEXT[a.lang]
   if (o.touchAuth !== false) await ensureAuthDir()
-  await mkdir(join(DIR, 'data'), { recursive: true })
+  const empty = allowEmpty(await noHistory(), o.fresh === true, o.saved ?? {})
+  await ensureDataDir()
   await writeFile(
     join(DIR, '.env'),
-    buildEnv(a, ...savedIds(o.saved ?? {}, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000)),
+    buildEnv(a, ...savedIds(o.saved ?? {}, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000), empty),
     { mode: 0o600 },
   )
   await chmod(join(DIR, '.env'), 0o600)
@@ -218,9 +241,28 @@ async function install(
   return a
 }
 
-async function ensureAuthDir() {
-  await mkdir(join(DIR, 'auth'), { recursive: true, mode: 0o700 })
-  await chmod(join(DIR, 'auth'), 0o700)
+async function privateDir(name: string) {
+  await mkdir(join(DIR, name), { recursive: true, mode: 0o700 })
+  await chmod(join(DIR, name), 0o700)
+}
+const ensureAuthDir = () => privateDir('auth')
+const ensureDataDir = () => privateDir('data')
+const noHistory = async () => !(await exists('data/state.json')) && !(await exists('data/contas.db'))
+
+async function consentEmpty(mode: Mode, saved: Record<string, string>, rewrites: boolean) {
+  if (mode === 'install' || saved.ALLOW_EMPTY_STATE === '1' || !(await noHistory())) return
+  if (!interactive) {
+    process.stderr.write(`${tx.emptyRefused}\n`)
+    process.exit(1)
+  }
+  if (!check(await p.confirm({ message: tx.emptyAsk, initialValue: false }))) {
+    p.cancel(tx.cancelled)
+    process.exit(1)
+  }
+  saved.ALLOW_EMPTY_STATE = '1'
+  if (rewrites) return
+  const text = (await read('.env')) ?? ''
+  await appendFile(join(DIR, '.env'), `${text === '' || text.endsWith('\n') ? '' : '\n'}ALLOW_EMPTY_STATE=1\n`)
 }
 async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>): Promise<boolean> {
   p.note(describe({ ...d, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }), tx.existingTitle)
@@ -235,6 +277,18 @@ async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>
       }),
     ) === 'review'
   )
+}
+
+async function update(
+  review: { prefill: Partial<Answers>; source: Partial<Answers>; saved: Record<string, string> } | null,
+) {
+  const from = imageTag((await read('docker-compose.yml')) ?? '') ?? '?'
+  if (review) await install(review.prefill, { touchAuth: false, source: review.source, saved: review.saved })
+  else {
+    await ensureDataDir()
+    await writeRuntime()
+  }
+  p.outro(tx.updated(from, VERSION))
 }
 
 async function main() {
@@ -254,15 +308,16 @@ async function main() {
   const prefill = interactive
     ? mergeAnswers(answersFromEnv(process.env), { ...fromDotenv, llmKey: undefined })
     : answersFromEnv(process.env)
+  await consentEmpty(mode, saved, Boolean(review))
   if (mode === 'update') {
-    const from = imageTag((await read('docker-compose.yml')) ?? '') ?? '?'
-    if (review) await install(prefill, { touchAuth: false, source: fromDotenv, saved })
-    else await writeRuntime()
-    p.outro(tx.updated(from, VERSION))
+    await update(review ? { prefill, source: fromDotenv, saved } : null)
     return
   }
-  if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved })
-  else await ensureAuthDir()
+  if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved, fresh: mode === 'install' })
+  else {
+    await ensureAuthDir()
+    await ensureDataDir()
+  }
   if (process.env.CONTAS_BOT_NO_PAIR === '1') {
     p.outro(tx.saved)
     return

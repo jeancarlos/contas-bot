@@ -12,8 +12,8 @@ const clean = (msg: string) => msg.split(/\r?\n/).filter(l => !l.startsWith('#')
 export function parseTrailers(msg: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const line of clean(msg).split('\n')) {
-    const m = /^([A-Za-z][A-Za-z0-9-]*):\s*(.*)$/.exec(line.trim())
-    if (m && TRAILERS.includes(m[1] as (typeof TRAILERS)[number])) out[m[1]] = m[2].trim()
+    const [, name = '', value = ''] = /^([A-Za-z][A-Za-z0-9-]*):\s*(.*)$/.exec(line.trim()) ?? []
+    if (TRAILERS.includes(name as (typeof TRAILERS)[number])) out[name] = value.trim()
   }
   return out
 }
@@ -25,10 +25,11 @@ export function lintCommitMessage(msg: string): string[] {
   const m = LOGGED.exec(subject)
   if (!m) return []
   const errors: string[] = []
-  if (m[3].trim() === '') errors.push('subject is empty')
-  if (m[3].length > MAX) errors.push(`subject is ${m[3].length} chars after the prefix (max ${MAX})`)
+  const title = m[3] ?? ''
+  if (title.trim() === '') errors.push('subject is empty')
+  if (title.length > MAX) errors.push(`subject is ${title.length} chars after the prefix (max ${MAX})`)
   const lines = text.split('\n')
-  const folded = lines.some((l, i) => i > 0 && /^[ \t]+\S/.test(l) && /^Changelog-(pt-BR|es):/.test(lines[i - 1]))
+  const folded = lines.some((l, i) => i > 0 && /^[ \t]+\S/.test(l) && /^Changelog-(pt-BR|es):/.test(lines[i - 1] ?? ''))
   if (folded) errors.push('trailer must fit on one line')
   const t = parseTrailers(text)
   for (const name of TRAILERS) {

@@ -20,8 +20,11 @@ import {
   withDefaults,
   missingAnswers,
   probeAi,
+  allowEmpty,
+  envSafe,
   type Answers,
 } from '../src/setup/core.ts'
+import { SETUP_TEXT } from '../src/setup/i18n.ts'
 
 const base: Answers = {
   lang: 'pt-BR',
@@ -37,10 +40,10 @@ const base: Answers = {
 }
 
 test('normalizePhone accepts the ways people type a number', () => {
-  assert.equal(normalizePhone('+55 (49) 92005-5837'), '5549920055837')
-  assert.equal(normalizePhone('55.49.9200.55837'), '5549920055837')
+  assert.equal(normalizePhone('+55 (11) 90000-0000'), '5511900000000')
+  assert.equal(normalizePhone('55.11.9000.00000'), '5511900000000')
   assert.equal(normalizePhone('123'), null)
-  assert.equal(normalizePhone('55 49 abc'), null)
+  assert.equal(normalizePhone('55 11 abc'), null)
 })
 
 test('validGroup accepts jids, lists and links like the bot', () => {
@@ -266,4 +269,53 @@ test('savedIds reuses numeric PUID/PGID and falls back otherwise', () => {
   assert.deepEqual(savedIds({ PUID: '1234', PGID: '99' }, 1000, 1001), [1234, 99])
   assert.deepEqual(savedIds({ PUID: 'x' }, 1000, 1001), [1000, 1001])
   assert.deepEqual(savedIds({}, 1000, 1001), [1000, 1001])
+})
+
+test('values that compose would expand or cut are single-quoted and read back unchanged', () => {
+  const tricky = 'sk-ab$HOME-x #tail'
+  const a: Answers = { ...base, ai: 'custom', llmUrl: 'http://h:1/v1?a=$X', llmKey: tricky, visionModel: 'm #1' }
+  const text = buildEnv(a, 1000, 1000)
+  assert.match(text, /^LLM_API_KEY='sk-ab\$HOME-x #tail'$/m)
+  assert.match(text, /^LLM_VISION_MODEL='m #1'$/m)
+  assert.match(text, /^LLM_BASE_URL='http:\/\/h:1\/v1\?a=\$X'$/m)
+  assert.match(text, /^BOT_LANG=pt-BR$/m)
+  assert.match(text, /^TZ=America\/Sao_Paulo$/m)
+  const env = parseEnv(text)
+  assert.equal(env.LLM_API_KEY, tricky)
+  const back = answersFromDotenv(env)
+  assert.equal(back.llmKey, tricky)
+  assert.equal(back.llmUrl, 'http://h:1/v1?a=$X')
+  assert.equal(back.visionModel, 'm #1')
+  assert.equal(parseEnv("A='x'\nB=''\nC='\nD=it's").A, 'x')
+  assert.deepEqual(parseEnv("B=''\nC='\nD=it's"), { B: '', C: "'", D: "it's" })
+})
+
+test('a value with a single quote or a line break is refused at the prompt and never written', () => {
+  assert.equal(envSafe('sk-ab$HOME #x'), true)
+  assert.equal(envSafe("it's"), false)
+  assert.equal(envSafe('a\nb'), false)
+  assert.equal(envSafe('a\rb'), false)
+  assert.throws(() => buildEnv({ ...base, llmKey: "it's" }, 1, 1), /LLM_API_KEY/)
+  assert.throws(
+    () => buildEnv({ ...base, ai: 'custom', llmUrl: 'http://h', visionModel: 'a\nb' }, 1, 1),
+    /LLM_VISION_MODEL/,
+  )
+  assert.equal(answersFromEnv({ CONTAS_BOT_LLM_KEY: "it's" }).llmKey, undefined)
+  assert.equal(answersFromEnv({ CONTAS_BOT_VISION_MODEL: "it's" }).visionModel, undefined)
+})
+
+test('allowEmpty: only without history, and only on a fresh install or with the saved consent', () => {
+  assert.equal(allowEmpty(true, true, {}), true)
+  assert.equal(allowEmpty(true, false, { ALLOW_EMPTY_STATE: '1' }), true)
+  assert.equal(allowEmpty(true, false, {}), false)
+  assert.equal(allowEmpty(true, false, { ALLOW_EMPTY_STATE: '0' }), false)
+  assert.equal(allowEmpty(false, true, { ALLOW_EMPTY_STATE: '1' }), false)
+})
+
+test('the phone examples are placeholders that normalize like a real number', () => {
+  for (const tx of Object.values(SETUP_TEXT)) {
+    const example = /\+[\d ().-]+$/.exec(tx.phoneInvalid)?.[0] ?? ''
+    assert.ok(normalizePhone(example), example)
+  }
+  assert.match(SETUP_TEXT['pt-BR'].phoneInvalid, /\+55 11 90000-0000$/)
 })

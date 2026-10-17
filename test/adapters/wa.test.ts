@@ -22,8 +22,8 @@ import {
   wireGroupEvents,
 } from '../../src/adapters/wa.ts'
 import { type Ctx, decide } from '../../src/core/decide.ts'
-import { normalize } from '../../src/core/text.ts'
-import { type EditInput, emptyState, type GroupState, type MessageInput } from '../../src/core/types.ts'
+import { state } from '../core/gen.ts'
+import type { EditInput, GroupState, MessageInput } from '../../src/core/types.ts'
 
 const G = 'grupo@g.us'
 const P = 'membro@s.whatsapp.net'
@@ -812,13 +812,7 @@ const ctxPt: Ctx = {
 const OCT = Date.UTC(2026, 9, 10, 15)
 const atOct = (id: string, message: proto.IMessage, participant = P) =>
   wam(id, message, { key: { id, remoteJid: G, fromMe: false, participant }, messageTimestamp: OCT / 1000 })
-function billsState(...names: string[]): GroupState {
-  const s = emptyState()
-  s.bills = names.map((name, i) => ({ id: i + 1, name, key: normalize(name), paused: false, removed: false }))
-  s.nextBillId = names.length + 1
-  s.lastReset = '2026-10'
-  return s
-}
+const billsState = (...names: string[]) => state(names)
 const step = (s: GroupState, m: WAMessage, msgs: Messages) => {
   const input = toMessage(m, msgs)
   return input ? decide(s, input, ctxPt).state : s

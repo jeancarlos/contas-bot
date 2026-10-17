@@ -10,12 +10,14 @@ const NONE: ReadonlySet<string> = new Set()
 export const isCurrency = (tok: string, notMoney = NONE): boolean =>
   !notMoney.has(normalize(tok)) && (SYMBOL_RE.test(tok) || CODES.has(tok.toUpperCase()) || WORDS.has(normalize(tok)))
 
+const firstDefined = (xs: readonly (string | undefined)[]): string => xs.find(x => x !== undefined) ?? ''
+
 function attachedNumber(tok: string, notMoney: ReadonlySet<string>): string | null {
   const symbol = ATTACHED_RE.exec(tok)
-  if (symbol) return symbol[1] ?? symbol[2] ?? ''
+  if (symbol) return firstDefined(symbol.slice(1))
   const code = CODE_ATTACHED_RE.exec(tok)
-  if (!code || !isCurrency(code[1] ?? code[4] ?? '', notMoney)) return null
-  return code[2] ?? code[3] ?? ''
+  if (!code || !isCurrency(firstDefined([code[1], code[4]]), notMoney)) return null
+  return firstDefined([code[2], code[3]])
 }
 
 export function parseNumber(t: string, decimal: ',' | '.'): number | null {

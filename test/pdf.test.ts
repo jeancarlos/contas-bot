@@ -27,7 +27,7 @@ test('pdfToPng rejects a file that is not a PDF', { skip: !hasPoppler && 'pdftop
   await assert.rejects(pdfToPng(Buffer.from('not a pdf')))
 })
 
-test('pdfToPng stops when its abort signal fires', async () => {
+test('pdfToPng stops when its abort signal fires', { skip: !hasPoppler && 'pdftoppm not installed' }, async () => {
   const abort = new AbortController()
   abort.abort(new Error('receipt read timed out'))
   await assert.rejects(pdfToPng(MINIMAL_PDF, abort.signal), /abort/i)

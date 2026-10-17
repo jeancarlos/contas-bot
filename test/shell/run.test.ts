@@ -565,6 +565,31 @@ test('work that ignores its abort and never settles gives its lane back after th
   assert.equal(await lane('g', 1000, async () => 3), 3)
 })
 
+const block = (ms: number) => {
+  const end = performance.now() + ms
+  while (performance.now() < end) {}
+}
+
+test('a late event loop cannot fire the grace before the deadline and leave the caller hanging', async () => {
+  const lane = lanes(1, { graceMs: 20, waitMs: 1000 })
+  let stuck = 0
+  const older = setTimeout(() => {}, 30)
+  block(25)
+  const hung = lane(
+    'g',
+    10,
+    () => {
+      block(40)
+      return new Promise<number>(() => {})
+    },
+    () => stuck++,
+  )
+  assert.equal(await hung, null)
+  assert.equal(await lane('g', 1000, async () => 3), 3)
+  assert.equal(stuck, 1)
+  clearTimeout(older)
+})
+
 test('a job waiting too long for a lane gives up without running, and the queue stays clean', async () => {
   const lane = lanes(1, { graceMs: 1000, waitMs: 20 })
   let open = () => {}

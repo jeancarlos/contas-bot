@@ -112,9 +112,12 @@ test('the publish step passes each gh argument as one word, for a release and a 
       encoding: 'utf8',
       env: { ...process.env, GITHUB_REF_NAME: tag, PATH: `${bin}:${process.env.PATH}` },
     })
-  assert.equal(run('v2.0.0'), '[release][create][v2.0.0][dist/install.sh][--notes-file][dist/notes.md][--verify-tag]\n')
+  assert.equal(
+    run('v2.0.0'),
+    '[release][create][v2.0.0][dist/install.sh][dist/install.sh.intoto.jsonl][--notes-file][dist/notes.md][--verify-tag]\n',
+  )
   assert.equal(
     run('v2.0.0-rc1'),
-    '[release][create][v2.0.0-rc1][dist/install.sh][--prerelease][--generate-notes][--verify-tag]\n',
+    '[release][create][v2.0.0-rc1][dist/install.sh][dist/install.sh.intoto.jsonl][--prerelease][--generate-notes][--verify-tag]\n',
   )
 })

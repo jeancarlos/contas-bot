@@ -1,5 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { lintCommitMessage, parseTrailers } from '../scripts/changelog-lint.ts'
 
 const ok =
@@ -85,4 +89,30 @@ test('a trailer with an indented continuation line fails', () => {
     lintCommitMessage('feat: x\n\nChangelog-pt-BR: a\nChangelog-es: b\n\tmore\n').join('\n'),
     /trailer must fit on one line/,
   )
+})
+
+const lint = (...args: string[]) =>
+  spawnSync(process.execPath, ['scripts/changelog-lint.ts', ...args], { encoding: 'utf8' })
+
+function messageFile(text: string) {
+  const f = join(mkdtempSync(join(tmpdir(), 'msg-')), 'COMMIT_EDITMSG')
+  writeFileSync(f, text)
+  return f
+}
+
+test('cli exits 2 with usage when no file is given', () => {
+  const r = lint()
+  assert.equal(r.status, 2)
+  assert.match(r.stderr, /usage/)
+})
+
+test('cli exits 1 and prints the example for a bad message', () => {
+  const r = lint(messageFile('feat: something\n'))
+  assert.equal(r.status, 1)
+  assert.match(r.stderr, /missing Changelog-pt-BR/)
+  assert.match(r.stderr, /example/)
+})
+
+test('cli exits 0 for a good message', () => {
+  assert.equal(lint(messageFile(ok)).status, 0)
 })

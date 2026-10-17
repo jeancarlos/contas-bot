@@ -31,16 +31,20 @@ export async function pair(
   mode: Pairing,
   phone: string,
   on: { qr(ascii: string, raw: string): void; code(code: string): void },
+  deps: { makeSocket: typeof makeWASocket; version: typeof waVersionOnce } = {
+    makeSocket: makeWASocket,
+    version: waVersionOnce,
+  },
 ): Promise<boolean> {
   const { state, saveCreds } = await useMultiFileAuthState(authDir)
   const logger = pino({ level: 'silent' })
-  const { version } = await waVersionOnce()
+  const { version } = await deps.version()
   return new Promise(resolve => {
     let done = false
     let asked = false
     let restarted = false
     const start = () => {
-      const s = makeWASocket({ auth: state, logger, version, markOnlineOnConnect: false, syncFullHistory: false })
+      const s = deps.makeSocket({ auth: state, logger, version, markOnlineOnConnect: false, syncFullHistory: false })
       const stop = (): void => {
         s.end(undefined).catch(() => {})
       }

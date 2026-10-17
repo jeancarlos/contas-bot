@@ -17,8 +17,8 @@ const state = (name: string): GroupState => ({
   ],
   nextBillId: 5,
   months: {
-    '2026-10': { 1: { amount: 8010, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M1' } },
-    '2026-09': { 4: { amount: null, status: 'none', by: 'Gabi', paidAt: AT, messageId: 'M2' } },
+    '2026-10': { 1: { amount: 8010, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M1', byJid: null } },
+    '2026-09': { 4: { amount: null, status: 'none', by: 'Ana', paidAt: AT, messageId: 'M2', byJid: null } },
   },
   handled: [],
   pinnedId: null,
@@ -42,12 +42,17 @@ const get = (d: HttpDeps, path: string) => handle(d, new URL(path, 'http://x'))
 
 test('renderMetrics exposes the four gauges', () => {
   const m = renderMetrics(deps({ connected: () => false }))
-  for (const t of ['whatsapp_connected', 'bills_unpaid', 'paid_amount', 'month_total'])
-    assert.ok(m.includes(`# TYPE contas_${t} gauge`))
+  const lines = m.split('\n')
+  for (const t of ['whatsapp_connected', 'bills_unpaid', 'paid_amount', 'month_paid']) {
+    const type = lines.indexOf(`# TYPE contas_${t} gauge`)
+    assert.ok(type > 0, t)
+    assert.match(lines[type - 1] ?? '', new RegExp(`^# HELP contas_${t} \\S.*$`))
+  }
+  assert.equal(lines.filter(l => l.startsWith('# HELP ')).length, 4)
   assert.ok(m.includes('contas_whatsapp_connected 0\n'))
   assert.ok(m.includes('contas_bills_unpaid{group="grupo"} 2\n'))
   assert.ok(m.includes('contas_paid_amount{group="grupo",bill="Luz"} 80.1\n'))
-  assert.equal(m.split('\n').filter(l => l.startsWith('contas_month_total{group="grupo"')).length, 24)
+  assert.equal(m.split('\n').filter(l => l.startsWith('contas_month_paid{group="grupo"')).length, 24)
 })
 
 test('escapes label values and html', () => {
@@ -79,8 +84,8 @@ test('csv header, quoting and json rows', () => {
   assert.equal(csv.status, 200)
   const lines = csv.body.trimEnd().split('\r\n')
   assert.equal(lines[0], 'group,month,bill,amount,status,paid_by,paid_at')
-  assert.ok(lines.includes('grupo,2026-10,Luz,80.1,typed,Gabi,2026-10-05T12:00:00.000Z'))
-  assert.ok(lines.includes('grupo,2026-09,"Net, Fibra",,none,Gabi,2026-10-05T12:00:00.000Z'))
+  assert.ok(lines.includes('grupo,2026-10,Luz,80.1,typed,Ana,2026-10-05T12:00:00.000Z'))
+  assert.ok(lines.includes('grupo,2026-09,"Net, Fibra",,none,Ana,2026-10-05T12:00:00.000Z'))
   const rows = JSON.parse(get(d, '/export.json').body)
   assert.deepEqual(rows[1], {
     group: 'grupo',
@@ -88,7 +93,7 @@ test('csv header, quoting and json rows', () => {
     bill: 'Luz',
     amountCents: 8010,
     status: 'typed',
-    by: 'Gabi',
+    by: 'Ana',
     paidAt: AT,
     amount: 80.1,
   })
@@ -97,7 +102,7 @@ test('csv header, quoting and json rows', () => {
 test('csv neutralises spreadsheet formulas', () => {
   const d = deps()
   const s = state('=HYPERLINK("x")')
-  s.months['2026-10'] = { 1: { amount: 100, status: 'typed', by: '+1', paidAt: AT, messageId: 'M' } }
+  s.months['2026-10'] = { 1: { amount: 100, status: 'typed', by: '+1', paidAt: AT, messageId: 'M', byJid: null } }
   const csv = get(
     { ...d, store: { groups: () => ['grupo@g.us'], load: () => s } },
     '/export.csv?from=2026-10&to=2026-10',
@@ -117,10 +122,11 @@ test('a request never writes the store', () => {
   for (const p of ['/', '/metrics', '/export.csv', '/export.json']) assert.equal(get(d, p).status, 200)
 })
 
-function rawGet(server: Server, target: string): Promise<string> {
+function rawGet(server: Server, target: string, host: string | null = 'x'): Promise<string> {
   return new Promise((resolve, reject) => {
+    const header = host === null ? '' : `host: ${host}\r\n`
     const sock = connect((server.address() as AddressInfo).port, '127.0.0.1', () =>
-      sock.write(`GET ${target} HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n`),
+      sock.write(`GET ${target} HTTP/1.1\r\n${header}connection: close\r\n\r\n`),
     )
     let out = ''
     sock.on('data', c => {
@@ -198,7 +204,7 @@ test('summary.json lists a removed bill only when paid this month', () => {
     { id: 6, name: 'Morta', key: 'morta', paused: false, removed: true },
   )
   const month = s.months['2026-10']
-  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M3' }
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M3', byJid: null }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const j = JSON.parse(get(d, '/summary.json').body) as {
     groups: { unpaid: number; bills: { name: string; paid: boolean }[] }[]
@@ -212,18 +218,18 @@ test('summary.json lists a removed bill only when paid this month', () => {
   assert.equal(j.groups[0]?.unpaid, 2)
 })
 
-test('paused paid bills stay out of totals and match the pinned list footer', () => {
+test('a paused bill paid this month counts in every total and matches the pinned list footer', () => {
   const s = state('Luz')
   const month = s.months['2026-10']
-  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M4' }
+  if (month) month[4] = { amount: 3000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M4', byJid: null }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const footer = render(listMsg(s, '2026-10'), d.locale).split('\n').at(-1) ?? ''
-  assert.ok(footer.includes('1/3') && footer.includes('R$ 80,10'))
+  assert.ok(footer.includes('2/4') && footer.includes('R$ 110,10'), footer)
   const m = renderMetrics(d)
-  assert.ok(m.includes('contas_month_total{group="grupo",month="2026-10"} 80.1\n'))
-  assert.ok(!m.includes('Net, Fibra'))
-  assert.equal((JSON.parse(get(d, '/summary.json').body) as { groups: { total: number }[] }).groups[0]?.total, 80.1)
-  assert.ok(!get(d, '/').body.includes('R$ 110,10'))
+  assert.ok(m.includes('contas_month_paid{group="grupo",month="2026-10"} 110.1\n'))
+  assert.ok(m.includes('contas_paid_amount{group="grupo",bill="Net, Fibra"} 30\n'))
+  assert.equal((JSON.parse(get(d, '/summary.json').body) as { groups: { total: number }[] }).groups[0]?.total, 110.1)
+  assert.ok(get(d, '/').body.includes('R$ 110,10'))
 })
 
 test('groups the bot does not serve appear on no route', () => {
@@ -239,7 +245,7 @@ test('same-name bills in one month emit a single summed paid_amount sample', () 
   const s = state('Luz')
   s.bills.push({ id: 5, name: 'Luz', key: 'luz', paused: false, removed: true })
   const month = s.months['2026-10']
-  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Gabi', paidAt: AT, messageId: 'M5' }
+  if (month) month[5] = { amount: 1000, status: 'typed', by: 'Ana', paidAt: AT, messageId: 'M5', byJid: null }
   const d = deps({ store: { groups: () => ['grupo@g.us'], load: () => s } })
   const lines = renderMetrics(d)
     .split('\n')
@@ -262,4 +268,28 @@ test('httpPort: unset, empty and 0 are off silently; invalid is off with one war
   assert.equal(httpPort('8080', log), 8080)
   for (const bad of ['abc', '-1', '65536', '80.5', '1e3']) assert.equal(httpPort(bad, log), 0)
   assert.equal(warns.length, 5)
+})
+
+test('only an IP, a dotless name or a listed host gets an answer, so DNS rebinding reads nothing', async () => {
+  const server = await startHttp(deps({ hosts: ['contas.casa.lan', ' Painel.Example:8443 '] }), 0)
+  try {
+    const status = async (host: string | null) => (await rawGet(server, '/export.csv', host)).slice(9, 12)
+    for (const host of [
+      '127.0.0.1',
+      '127.0.0.1:8080',
+      '192.168.1.20:8080',
+      '[::1]:8080',
+      'localhost',
+      'contas-bot:8080',
+      'contas.casa.lan',
+      'CONTAS.casa.lan:8080',
+      'painel.example',
+    ])
+      assert.equal(await status(host), '200', host)
+    for (const host of ['rebind.attacker.example:8080', 'casa.lan', 'contas.casa.lan.evil.example', 'localhost.'])
+      assert.equal(await status(host), '421', host)
+    assert.equal(await status(null), '400')
+  } finally {
+    server.close()
+  }
 })

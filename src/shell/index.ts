@@ -9,7 +9,9 @@ import { makeLocale } from '../core/i18n.ts'
 import { monthOf } from '../core/month.ts'
 import { makeLlm } from '../llm.ts'
 import { pdfToPng } from '../pdf.ts'
-import { cachedGroups, makeShell, type Wa } from './run.ts'
+import { cachedGroups, makeShell, ticker, type Wa } from './run.ts'
+
+process.umask(0o077)
 
 const env = (name: string, fallback = '') => process.env[name] || fallback
 const log = pino({ level: env('LOG_LEVEL', 'info') })
@@ -20,7 +22,7 @@ const dbPath = env('DB_FILE', 'data/contas.db')
 const v1Path = env('STATE_FILE', 'data/state.json')
 if (existsSync(dbPath) && existsSync(v1Path))
   log.warn({ dbPath, v1Path }, 'both contas.db and state.json exist: contas.db wins, state.json is ignored')
-const { store, imported } = openStore({ dbPath, v1Path, allowEmpty: env('ALLOW_EMPTY_STATE') === '1' })
+const { store, imported } = openStore({ dbPath, v1Path, allowEmpty: env('ALLOW_EMPTY_STATE') === '1', log })
 if (imported !== null) log.info({ groups: imported }, 'imported state.json into contas.db')
 
 const version = env('APP_VERSION', 'dev')
@@ -37,7 +39,7 @@ const gif = () =>
 const llm = makeLlm({
   baseUrl: env('LLM_BASE_URL'),
   apiKey: env('LLM_API_KEY'),
-  visionModel: env('LLM_VISION_MODEL', 'cx/gpt-5.5'),
+  visionModel: env('LLM_VISION_MODEL', 'gpt-4o-mini'),
   currency: locale.currency,
 })
 if (!llm.enabled) log.warn('no LLM_BASE_URL: receipts are only paid when their caption names the bill')
@@ -47,11 +49,10 @@ if (groups.size === 0 && inviteCodes.length === 0)
   log.warn(
     'serving no groups — add the bot to a WhatsApp group and read its jid from the log, then set GROUP_INVITE_LINKS and restart',
   )
-else log.info({ groups: [...groups], inviteCodes }, 'serving groups')
+else log.info({ groups: [...groups], inviteLinks: inviteCodes.length }, 'serving groups')
 const cached = cachedGroups(store, inviteCodes)
 for (const jid of cached.jids) groups.add(jid)
 
-let connected = false
 const port = httpPort(env('HTTP_PORT'), log)
 if (port > 0) {
   startHttp(
@@ -60,8 +61,9 @@ if (port > 0) {
       locale,
       currentMonth: () => monthOf(Date.now(), locale.timeZone),
       served: () => [...groups],
-      connected: () => connected,
+      connected: () => ticks.connected(),
       log,
+      hosts: env('HTTP_HOSTS').split(','),
     },
     port,
   ).then(
@@ -87,6 +89,9 @@ const shell = makeShell({
 })
 
 const failed = (what: string, jid: string) => (err: unknown) => log.error({ err, jid }, what)
+const ticks = ticker(() => {
+  for (const jid of groups) shell.handle(jid, { kind: 'tick', at: Date.now() }).catch(failed('tick failed', jid))
+})
 const join = (jid: string) => {
   shell.join(jid).then(() => log.info({ jid }, 'group joined'), failed('join failed, retrying on next connection', jid))
 }
@@ -102,9 +107,7 @@ wa = await connectWa({
     for (const jid of jids) join(jid)
   },
   onJoined: join,
-  onStatus: c => {
-    connected = c
-  },
+  onStatus: c => ticks.status(c),
   onInput: (jid, input) => {
     shell.handle(jid, input).catch(failed('input handling failed', jid))
   },
@@ -118,7 +121,5 @@ wa = await connectWa({
   },
 })
 
-setInterval(() => {
-  for (const jid of groups) shell.handle(jid, { kind: 'tick', at: Date.now() }).catch(failed('tick failed', jid))
-}, 60_000)
+setInterval(ticks.minute, 60_000)
 log.info('contas-bot ready')

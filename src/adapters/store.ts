@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { AmountStatus, Bill, GroupState, Payment } from '../core/types.ts'
-import { fromV1, type GroupMeta, type ImportedGroup } from './v1.ts'
+import { fromV1, type GroupMeta, type ImportedGroup, type Warn } from './v1.ts'
 
 export type Store = {
   load(jid: string): GroupState | null
@@ -12,7 +12,7 @@ export type Store = {
   groups(): string[]
   close(): void
 }
-export type StoreOptions = { dbPath: string; v1Path: string; allowEmpty: boolean }
+export type StoreOptions = { dbPath: string; v1Path: string; allowEmpty: boolean; log?: Warn }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS groups (
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS payments (
   paid_by TEXT NOT NULL,
   paid_at INTEGER NOT NULL,
   message_id TEXT NOT NULL,
+  paid_by_jid TEXT,
   PRIMARY KEY (group_jid, month, bill_id),
   FOREIGN KEY (group_jid, bill_id) REFERENCES bills(group_jid, id)
 );
@@ -72,15 +73,38 @@ type PaymentRow = {
   paid_by: string
   paid_at: number
   message_id: string
+  paid_by_jid: string | null
 }
 type HandledRow = { message_id: string; changed_state: number; warned: number }
+
+const SCHEMA_VERSION = 2
+
+function migrate(db: DatabaseSync, from: number) {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    if (from === 1) db.exec('ALTER TABLE payments ADD COLUMN paid_by_jid TEXT')
+    db.exec(SCHEMA)
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    db.close()
+    throw e
+  }
+}
 
 function open(path: string) {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA busy_timeout = 5000')
-  db.exec(SCHEMA)
-  db.exec('PRAGMA user_version = 1')
+  const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+  if (version > SCHEMA_VERSION) {
+    db.close()
+    throw new Error(
+      `${path} has schema ${version}, newer than this version of contas-bot understands (${SCHEMA_VERSION})`,
+    )
+  }
+  if (version < SCHEMA_VERSION) migrate(db, version)
   const sql = {
     group: db.prepare('SELECT * FROM groups WHERE jid = ?'),
     groups: db.prepare('SELECT jid FROM groups ORDER BY jid'),
@@ -102,8 +126,8 @@ function open(path: string) {
     clearHandled: db.prepare('DELETE FROM handled WHERE group_jid = ?'),
     bill: db.prepare('INSERT INTO bills (group_jid, id, name, key, paused, removed) VALUES (?, ?, ?, ?, ?, ?)'),
     payment: db.prepare(
-      `INSERT INTO payments (group_jid, month, bill_id, amount, amount_status, paid_by, paid_at, message_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO payments (group_jid, month, bill_id, amount, amount_status, paid_by, paid_at, message_id, paid_by_jid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     handle: db.prepare(
       'INSERT INTO handled (group_jid, seq, message_id, changed_state, warned) VALUES (?, ?, ?, ?, ?)',
@@ -133,7 +157,7 @@ function open(path: string) {
     for (const b of s.bills) sql.bill.run(jid, b.id, b.name, b.key, Number(b.paused), Number(b.removed))
     for (const [month, paid] of Object.entries(s.months))
       for (const [billId, p] of Object.entries(paid))
-        sql.payment.run(jid, month, Number(billId), p.amount, p.status, p.by, p.paidAt, p.messageId)
+        sql.payment.run(jid, month, Number(billId), p.amount, p.status, p.by, p.paidAt, p.messageId, p.byJid)
     s.handled.forEach((h, seq) => {
       sql.handle.run(jid, seq, h.id, Number(h.changed), Number(h.warned))
     })
@@ -155,6 +179,7 @@ function open(path: string) {
         amount: p.amount,
         status: p.amount_status,
         by: p.paid_by,
+        byJid: p.paid_by_jid,
         paidAt: p.paid_at,
         messageId: p.message_id,
       }
@@ -207,7 +232,7 @@ export function openStore(o: StoreOptions): { store: Store; imported: number | n
   const tmp = `${o.dbPath}.tmp`
   if (existsSync(o.dbPath)) return { store: open(o.dbPath), imported: null }
   if (existsSync(o.v1Path)) {
-    const groups = fromV1(JSON.parse(readFileSync(o.v1Path, 'utf8')))
+    const groups = fromV1(JSON.parse(readFileSync(o.v1Path, 'utf8')), o.log)
     for (const f of [tmp, `${tmp}-journal`, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true })
     const db = open(tmp)
     try {

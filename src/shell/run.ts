@@ -26,7 +26,7 @@ export type Wa = {
   unpin(messageId: string): Promise<void>
   getDescription(): Promise<string>
   setDescription(text: string): Promise<void>
-  download(media: MediaRef): Promise<Buffer>
+  download(media: MediaRef, signal?: AbortSignal): Promise<Buffer>
 }
 export type Log = {
   info(o: object, m?: string): void
@@ -38,12 +38,14 @@ export type ShellDeps = {
   wa(jid: string): Wa
   locale: Locale
   llm: Llm
-  pdfToPng(pdf: Buffer): Promise<Buffer>
+  pdfToPng(pdf: Buffer, signal?: AbortSignal): Promise<Buffer>
   log: Log
   now(): number
   version: string
   announce?: { releases: Release[] | null; gif(): Promise<Buffer | null> }
   readTimeoutMs?: number
+  readGraceMs?: number
+  readWaitMs?: number
 }
 export type Shell = {
   handle(jid: string, input: Input): Promise<void>
@@ -55,7 +57,73 @@ export type Shell = {
 
 const NO_META: GroupMeta = { invite: null, announcedVersion: null, descriptionMigrated: false }
 const READ_TIMEOUT_MS = 90_000
-const after = (ms: number) => new Promise<null>(resolve => setTimeout(resolve, ms, null))
+const RECEIPT_LANES = 2
+const LANE_GRACE_MS = 15_000
+const LANE_WAIT_MS = 600_000
+
+export function lanes(n: number, limits = { graceMs: LANE_GRACE_MS, waitMs: LANE_WAIT_MS }) {
+  let free = n
+  const queues = new Map<string, (() => void)[]>()
+  const release = () => {
+    const [group, queue] = queues.entries().next().value ?? []
+    const next = queue?.shift()
+    if (group === undefined || !next) {
+      free++
+      return
+    }
+    queues.delete(group)
+    if (queue?.length) queues.set(group, queue)
+    next()
+  }
+  const leave = (group: string, go: () => void) => {
+    const queue = (queues.get(group) ?? []).filter(x => x !== go)
+    if (queue.length) queues.set(group, queue)
+    else queues.delete(group)
+  }
+  const turn = (group: string) => {
+    if (free > 0) {
+      free--
+      return Promise.resolve(true)
+    }
+    return new Promise<boolean>(resolve => {
+      const go = () => {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      const timer = setTimeout(() => {
+        leave(group, go)
+        resolve(false)
+      }, limits.waitMs)
+      queues.set(group, [...(queues.get(group) ?? []), go])
+    })
+  }
+  return async <T>(
+    group: string,
+    ms: number,
+    work: (signal: AbortSignal) => Promise<T>,
+    stuck?: () => void,
+  ): Promise<T | null> => {
+    if (!(await turn(group))) return null
+    const abort = new AbortController()
+    let held = true
+    const done = () => {
+      if (!held) return
+      held = false
+      clearTimeout(timer)
+      clearTimeout(grace)
+      release()
+    }
+    const timer = setTimeout(() => abort.abort(new Error('receipt read timed out')), ms)
+    const grace = setTimeout(() => {
+      stuck?.()
+      done()
+    }, ms + limits.graceMs)
+    const deadline = new Promise<null>(resolve => abort.signal.addEventListener('abort', () => resolve(null)))
+    const running = work(abort.signal)
+    void running.then(done, done)
+    return Promise.race([running, deadline])
+  }
+}
 
 export function cachedGroups(store: Store, codes: string[]): { jids: string[]; toResolve: string[] } {
   const jids: string[] = []
@@ -70,6 +138,21 @@ export function cachedGroups(store: Store, codes: string[]): { jids: string[]; t
   return { jids, toResolve: [...remaining] }
 }
 
+export function ticker(tick: () => void) {
+  let up = false
+  return {
+    connected: () => up,
+    status(connected: boolean) {
+      const back = connected && !up
+      up = connected
+      if (back) tick()
+    },
+    minute() {
+      if (up) tick()
+    },
+  }
+}
+
 const quotable = (i: Input): MsgKey | null => (i.kind === 'billPicked' ? i.pick.to : 'key' in i ? i.key : null)
 
 export function makeShell(d: ShellDeps): Shell {
@@ -81,6 +164,14 @@ export function makeShell(d: ShellDeps): Shell {
   const asks = new Map<string, GroupState['asks']>()
   const reading = new Set<{ jid: string; id: string }>()
   const unasked = (s: GroupState): GroupState => ({ ...s, asks: [] })
+  const lane = lanes(RECEIPT_LANES, {
+    graceMs: d.readGraceMs ?? LANE_GRACE_MS,
+    waitMs: d.readWaitMs ?? LANE_WAIT_MS,
+  })
+  const bounded = <T>(jid: string, id: string, work: (signal: AbortSignal) => Promise<T>) =>
+    lane(jid, d.readTimeoutMs ?? READ_TIMEOUT_MS, work, () =>
+      d.log.warn({ jid, id }, 'receipt read ignored its abort: lane released'),
+    )
 
   const handle = (jid: string, input: Input) => box(jid, () => step(jid, input))
   const follow = (p: Promise<void>) => {
@@ -90,11 +181,11 @@ export function makeShell(d: ShellDeps): Shell {
     pending.add(tracked)
   }
 
-  async function receiptImage(jid: string, media: MediaRef) {
-    let image = await d.wa(jid).download(media)
+  async function receiptImage(jid: string, media: MediaRef, signal: AbortSignal) {
+    let image = await d.wa(jid).download(media, signal)
     let mime = media.mime
     if (mime === 'application/pdf') {
-      image = await d.pdfToPng(image)
+      image = await d.pdfToPng(image, signal)
       mime = 'image/png'
     }
     return { image, mime }
@@ -102,23 +193,24 @@ export function makeShell(d: ShellDeps): Shell {
 
   const cents = (amount: number | null) => (amount === null ? null : Math.round(amount * 100))
 
-  async function readReceipt(jid: string, media: MediaRef): Promise<number | null> {
+  async function readReceipt(jid: string, media: MediaRef, signal: AbortSignal): Promise<number | null> {
     try {
-      const { image, mime } = await receiptImage(jid, media)
-      return cents(await d.llm.readAmount(image, mime))
+      const { image, mime } = await receiptImage(jid, media, signal)
+      return cents(await d.llm.readAmount(image, mime, signal))
     } catch (err) {
       d.log.warn({ err, jid }, 'receipt unreadable')
       return null
     }
   }
 
-  async function pickReceipt(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>) {
+  async function pickReceipt(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>, signal: AbortSignal) {
     try {
-      const { image, mime } = await receiptImage(jid, fx.media)
+      const { image, mime } = await receiptImage(jid, fx.media, signal)
       const { index, amount } = await d.llm.pickBill(
         image,
         mime,
         fx.bills.map(b => b.name),
+        signal,
       )
       return { billId: (index === null ? undefined : fx.bills[index]?.id) ?? null, amount: cents(amount) }
     } catch (err) {
@@ -128,10 +220,10 @@ export function makeShell(d: ShellDeps): Shell {
   }
 
   async function pickBill(jid: string, fx: Extract<Effect, { kind: 'pickBill' }>) {
-    const { billId, amount } = (await Promise.race([
-      pickReceipt(jid, fx),
-      after(d.readTimeoutMs ?? READ_TIMEOUT_MS),
-    ])) ?? { billId: null, amount: null }
+    const { billId, amount } = (await bounded(jid, fx.to.id, signal => pickReceipt(jid, fx, signal))) ?? {
+      billId: null,
+      amount: null,
+    }
     await handle(jid, { kind: 'billPicked', pick: fx, billId, amount })
   }
 
@@ -139,7 +231,7 @@ export function makeShell(d: ShellDeps): Shell {
     const read = { jid, id: fx.to.id }
     reading.add(read)
     try {
-      const amount = await Promise.race([readReceipt(jid, fx.media), after(d.readTimeoutMs ?? READ_TIMEOUT_MS)])
+      const amount = await bounded(jid, fx.to.id, signal => readReceipt(jid, fx.media, signal))
       await handle(jid, { kind: 'amountRead', key: fx.to, month: fx.month, billId: fx.billId, amount, at: d.now() })
     } finally {
       reading.delete(read)

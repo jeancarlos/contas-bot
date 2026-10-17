@@ -1,11 +1,12 @@
-import { normalize } from './text.ts'
+import { NAME_MAX } from './decide.ts'
+import { clean, normalize } from './text.ts'
 import type { GroupState } from './types.ts'
 
 export type BillLine = { name: string; paused: boolean }
 
 const DIVIDER = /^[-_=—–─━.·*~]{3,}$/
 const HEADER = /^[\s\-–—─━=_*~]*🤖 contas-bot[\s\-–—─━=_*~]*$/
-const PAUSED = /^(.*?)(?:^|[\s\-–—(]+)(?:pausad[oa]|paused)\)?\s*$/i
+const PAUSED = /^(.*?)[\s\-–—(]+(?:pausad[oa]|paused)\)?\s*$/i
 const flat = (s: string) =>
   s
     .replace(/\uFE0F/g, '')
@@ -32,10 +33,11 @@ const PLACEHOLDER = new Set(
 )
 
 function billLine(raw: string): BillLine | null {
-  const line = raw.trim().replace(/^(?:[-*•·]|\d+[.)])\s+/, '')
+  const line = clean(raw.trim().replace(/^(?:[-*•·]|\d+[.)])\s+/, ''))
   if (!line || line.startsWith('#') || line.startsWith('/') || line.endsWith(':')) return null
   const m = PAUSED.exec(line)
-  return { name: (m?.[1] ?? line).trim(), paused: Boolean(m) }
+  const name = (m?.[1] ?? line).trim()
+  return name.length > NAME_MAX ? null : { name, paused: Boolean(m) }
 }
 
 function parseSection(section: string): BillLine[] {

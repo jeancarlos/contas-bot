@@ -3,18 +3,21 @@ import type { Bill, GroupState, Payment } from '../core/types.ts'
 
 export type GroupMeta = { invite: string | null; announcedVersion: string | null; descriptionMigrated: boolean }
 export type ImportedGroup = { jid: string; state: GroupState; meta: GroupMeta }
+export type Warn = { warn(o: object, m?: string): void }
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null)
 
 function payment(p: Obj): Payment {
-  const amount = typeof p.amount === 'number' && Number.isFinite(p.amount) ? Math.round(p.amount * 100) : null
+  const amount =
+    typeof p.amount === 'number' && p.amount > 0 && p.amount < 1e12 ? Math.round(p.amount * 100) || null : null
   const paidAt = Date.parse(str(p.paid_at) ?? '')
   return {
     amount,
     status: amount === null ? 'none' : 'typed',
     by: str(p.by) ?? '',
+    byJid: null,
     paidAt: Number.isNaN(paidAt) ? 0 : paidAt,
     messageId: str(p.message_id) ?? '',
   }
@@ -34,10 +37,13 @@ function billsFrom(lines: string[]): Bill[] {
   return bills
 }
 
-function monthsFrom(raw: unknown, billFor: (key: string, name: string) => Bill): GroupState['months'] {
+function monthsFrom(raw: unknown, billFor: (key: string, name: string) => Bill, drop: (month: string) => void) {
   const months: GroupState['months'] = {}
   for (const [month, rows] of Object.entries(isObj(raw) ? raw : {})) {
-    if (!/^\d{4}-\d{2}$/.test(month) || !isObj(rows)) continue
+    if (!/^\d{4}-\d{2}$/.test(month) || !isObj(rows)) {
+      drop(month)
+      continue
+    }
     const paid: Record<number, Payment> = {}
     for (const [key, p] of Object.entries(rows)) {
       if (isObj(p)) paid[billFor(normalize(key), str(p.name) ?? key).id] = payment(p)
@@ -47,7 +53,7 @@ function monthsFrom(raw: unknown, billFor: (key: string, name: string) => Bill):
   return months
 }
 
-function group(jid: string, g: Obj): ImportedGroup {
+function group(jid: string, g: Obj, log?: Warn): ImportedGroup {
   const meta = isObj(g._meta) ? g._meta : {}
   const lines = Array.isArray(meta.bills) ? meta.bills.filter(b => typeof b === 'string') : null
   const bills = billsFrom(lines ?? [])
@@ -58,7 +64,7 @@ function group(jid: string, g: Obj): ImportedGroup {
     bills.push(orphan)
     return orphan
   }
-  const months = monthsFrom(g.months, billFor)
+  const months = monthsFrom(g.months, billFor, month => log?.warn({ jid, month }, 'dropping corrupt month'))
   const handled = Array.isArray(meta.handled) ? meta.handled.filter(h => typeof h === 'string') : []
   return {
     jid,
@@ -75,7 +81,7 @@ function group(jid: string, g: Obj): ImportedGroup {
   }
 }
 
-export function fromV1(raw: unknown): ImportedGroup[] {
+export function fromV1(raw: unknown, log?: Warn): ImportedGroup[] {
   if (!isObj(raw) || !isObj(raw.groups)) throw new Error('state.json has no "groups" object')
-  return Object.entries(raw.groups).flatMap(([jid, g]) => (isObj(g) ? [group(jid, g)] : []))
+  return Object.entries(raw.groups).flatMap(([jid, g]) => (isObj(g) ? [group(jid, g, log)] : []))
 }

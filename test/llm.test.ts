@@ -111,3 +111,25 @@ test('pickBill nulls what is unparseable, out of range or insane, and a disabled
   const off = makeLlm({ baseUrl: '', apiKey: '', visionModel: 'v' })
   assert.deepEqual(await off.pickBill(Buffer.from('x'), 'image/png', ['a']), none)
 })
+
+test('the caller abort signal cuts the request short, for reads and picks', async () => {
+  const fn = (async (_url: unknown, init?: RequestInit) =>
+    new Promise((_, reject) => {
+      const signal = init?.signal
+      if (!signal) return reject(new Error('no signal'))
+      signal.addEventListener('abort', () => reject(signal.reason))
+    })) as typeof fetch
+  const cut = async <T>(call: (s: AbortSignal) => Promise<T>) => {
+    const abort = new AbortController()
+    setTimeout(() => abort.abort(new Error('receipt read timed out')), 5)
+    const started = Date.now()
+    const out = await call(abort.signal)
+    assert.ok(Date.now() - started < 1000)
+    return out
+  }
+  assert.equal(await cut(s => llmWith(fn).readAmount(Buffer.from('x'), 'image/png', s)), null)
+  assert.deepEqual(await cut(s => llmWith(fn).pickBill(Buffer.from('x'), 'image/png', ['Luz'], s)), {
+    index: null,
+    amount: null,
+  })
+})

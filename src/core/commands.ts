@@ -20,26 +20,26 @@ export const SUBCOMMANDS = {
 } as const
 export type SubName = keyof typeof SUBCOMMANDS
 
-export type Command = { cmd: CommandName; arg: string } | { cmd: 'unknown'; typed: string; suggestion: string | null }
+export type Command =
+  | { cmd: CommandName; arg: string }
+  | { cmd: 'unknown'; typed: string; suggestion: CommandName | null }
 export type Conta =
   | { sub: 'list' }
   | { sub: 'help' }
   | { sub: 'add' | 'remove' | 'pause' | 'resume'; name: string }
   | { sub: 'rename'; from: string; to: string }
-  | { sub: 'unknown'; typed: string; suggestion: string | null }
+  | { sub: 'unknown'; typed: string; suggestion: SubName | null }
 
 function lookup<K extends string>(table: Record<K, readonly string[]>, word: string): K | undefined {
   return (Object.keys(table) as K[]).find(k => table[k].includes(word))
 }
 
-function suggest<K extends string>(table: Record<K, readonly string[]>, word: string): string | null {
-  const scored = (Object.keys(table) as K[]).flatMap(k =>
-    table[k].map(alias => ({ k, alias, d: levenshtein(word, alias) })),
-  )
-  const near = scored.filter(x => x.d <= Math.max(1, Math.floor(x.alias.length / 3)))
-  const best = Math.min(...near.map(x => x.d))
-  const top = near.filter(x => x.d === best)
-  return new Set(top.map(x => x.k)).size === 1 ? (top[0]?.alias ?? null) : null
+function suggest<K extends string>(table: Record<K, readonly string[]>, word: string): K | null {
+  if (!word) return null
+  const scored = (Object.keys(table) as K[]).flatMap(k => table[k].map(alias => ({ k, d: levenshtein(word, alias) })))
+  const best = Math.min(...scored.map(x => x.d))
+  const top = new Set(scored.filter(x => x.d === best).map(x => x.k))
+  return best <= 2 && top.size === 1 ? ([...top][0] ?? null) : null
 }
 
 export function parseCommand(text: string): Command | null {
@@ -47,7 +47,6 @@ export function parseCommand(text: string): Command | null {
   if (!t.startsWith('/')) return null
   const [head = '', ...rest] = t.slice(1).split(' ')
   const word = normalize(head)
-  if (!word) return null
   const cmd = lookup(COMMANDS, word)
   if (cmd) return { cmd, arg: rest.join(' ') }
   return { cmd: 'unknown', typed: head, suggestion: suggest(COMMANDS, word) }

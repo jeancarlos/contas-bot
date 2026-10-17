@@ -94,7 +94,7 @@ function imported(): GroupState {
   ]
   s.nextBillId = 4
   s.lastReset = '2026-10'
-  s.months = { '2026-09': { 2: { amount: 5000, status: 'typed', by: 'Gabi', paidAt: 1, messageId: 'x' } } }
+  s.months = { '2026-09': { 2: { amount: 5000, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'x', byJid: null } } }
   return s
 }
 
@@ -120,4 +120,36 @@ test('reconcile keeps ids, revives, relabels, removes what the description dropp
 test('an empty description list keeps the imported bills untouched', () => {
   const s = imported()
   assert.equal(reconcileBills(s, []), s)
+})
+
+test('bill names lose WhatsApp formatting, a name over 40 characters is skipped, and Pausado alone is a name', () => {
+  const zwsp = String.fromCodePoint(0x200b)
+  const m = migrateDescription(
+    section(
+      '*Luz*',
+      '_Água_ (pausado)',
+      '~Gás~',
+      '`Net`',
+      'x'.repeat(41),
+      'Pausada',
+      'Pausado',
+      'Academia pausado',
+      `Lu${zwsp}z`,
+      'Aluguel',
+    ),
+    LINE,
+  )
+  assert.deepEqual(
+    m.bills.map(b => [b.name, b.paused]),
+    [
+      ['Luz', false],
+      ['Água', true],
+      ['Gás', false],
+      ['Net', false],
+      ['Pausada', false],
+      ['Pausado', false],
+      ['Academia', true],
+      ['Aluguel', false],
+    ],
+  )
 })

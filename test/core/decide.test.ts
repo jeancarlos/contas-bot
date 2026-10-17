@@ -1131,3 +1131,25 @@ test('money edge cases pay the right amount or no amount, never a wrong one', ()
     assert.equal(paidAmount(yes) ?? null, null, text)
   }
 })
+
+test('a huge command is cut to the first 2000 characters before parsing, so it stays fast', () => {
+  const s = state(
+    'Luz',
+    'Água',
+    'Internet',
+    'Aluguel',
+    'Gás',
+    'Cartão Nu',
+    'Cartão C6',
+    'Condomínio',
+    'Netflix',
+    'IPTU',
+  )
+  const t0 = performance.now()
+  const huge = decide(s, msg(`/pago ${'1 '.repeat(32_760)}`), ctx)
+  assert.ok(performance.now() - t0 < 100, `took ${Math.round(performance.now() - t0)} ms`)
+  const cut = decide(s, msg(`/pago ${'1 '.repeat(32_760)}`.slice(0, 2000)), ctx)
+  assert.deepEqual(replies(huge.effects), replies(cut.effects))
+  const late = decide(state('Luz'), msg(`/pago luz${' '.repeat(2000)}80`), ctx)
+  assert.equal(late.state.months['2026-10']?.[1]?.amount, null)
+})

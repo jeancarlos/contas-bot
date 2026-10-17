@@ -18,7 +18,7 @@ import makeWASocket, {
   type WAVersion,
 } from '@whiskeysockets/baileys'
 import type { Logger } from 'pino'
-import { THUMBS } from '../core/decide.ts'
+import { TEXT_MAX, THUMBS } from '../core/decide.ts'
 import type { EditInput, MediaRef, MessageInput, MsgKey } from '../core/types.ts'
 import type { Wa } from '../shell/run.ts'
 import { waVersionOnce } from '../waVersion.ts'
@@ -48,7 +48,6 @@ type Num = Parameters<typeof toNumber>[0]
 const PAIRING_CODE_TTL_MS = 180_000
 const MAX_RECEIPT = 16 * 1024 * 1024
 const RECENT_MAX = 500
-const MAX_TEXT = 2000
 
 export function pairingAction(phone: string): 'code' | 'unpaired' {
   return phone ? 'code' : 'unpaired'
@@ -173,7 +172,7 @@ function textOf(c: Content): string {
     c.documentMessage?.caption ??
     thumbsUp(c.reactionMessage) ??
     ''
-  return raw.slice(0, MAX_TEXT).replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
+  return raw.slice(0, TEXT_MAX).replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function mediaOf(c: Content, id: string, msg: WAMessage, msgs: Messages): MediaRef | undefined {

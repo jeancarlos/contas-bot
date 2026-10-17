@@ -2,6 +2,7 @@
   "name": "contas-bot",
   "version": "0.1.0",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=22.18"
@@ -26,6 +27,7 @@
     "@biomejs/biome": "2.5.15",
     "@types/node": "^22.15.0",
     "@types/qrcode": "^1.5.6",
+    "fast-check": "^4.10.2",
     "typescript": "^5.8.0"
   }
 }

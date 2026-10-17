@@ -22,7 +22,7 @@ const dbPath = env('DB_FILE', 'data/contas.db')
 const v1Path = env('STATE_FILE', 'data/state.json')
 if (existsSync(dbPath) && existsSync(v1Path))
   log.warn({ dbPath, v1Path }, 'both contas.db and state.json exist: contas.db wins, state.json is ignored')
-const { store, imported } = openStore({ dbPath, v1Path, allowEmpty: env('ALLOW_EMPTY_STATE') === '1' })
+const { store, imported } = openStore({ dbPath, v1Path, allowEmpty: env('ALLOW_EMPTY_STATE') === '1', log })
 if (imported !== null) log.info({ groups: imported }, 'imported state.json into contas.db')
 
 const version = env('APP_VERSION', 'dev')

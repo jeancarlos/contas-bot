@@ -222,3 +222,15 @@ test('a v1 amount too large to keep in cents imports as no amount and the group 
   assert.equal(imported, 1)
   assert.equal(store.load(JID)?.months['2026-10']?.[1]?.amount, null)
 })
+
+test('the import warns through the store log about corrupt months it drops', () => {
+  const p = dir()
+  writeFileSync(
+    p.v1Path,
+    JSON.stringify({ groups: { [JID]: { _meta: { bills: ['Luz'] }, months: { '2026-09': 1 } } } }),
+  )
+  const warnings: object[] = []
+  const { imported } = openStore({ ...p, allowEmpty: false, log: { warn: o => warnings.push(o) } })
+  assert.equal(imported, 1)
+  assert.deepEqual(warnings, [{ jid: JID, month: '2026-09' }])
+})

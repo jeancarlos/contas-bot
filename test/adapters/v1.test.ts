@@ -148,3 +148,21 @@ test('fromV1 keeps only amounts above zero and below 1e12, anything else is no a
     [null, null, null, null, null, null, null, null, 25959, 99999999999999],
   )
 })
+
+test('a corrupt month is dropped with one warning naming the group and the month', () => {
+  const warnings: [object, string | undefined][] = []
+  const log = { warn: (o: object, m?: string) => warnings.push([o, m]) }
+  const months = { '2026-09': [], '2026-10': { luz: { amount: 80 } }, nope: {}, '2026-11': 'x' }
+  const [g] = fromV1({ groups: { j: { _meta: { bills: ['Luz'] }, months } } }, log)
+  assert.deepEqual(Object.keys(g?.state.months ?? {}), ['2026-10'])
+  assert.deepEqual(
+    warnings.map(([o]) => o),
+    [
+      { jid: 'j', month: '2026-09' },
+      { jid: 'j', month: 'nope' },
+      { jid: 'j', month: '2026-11' },
+    ],
+  )
+  assert.ok(warnings.every(([, m]) => m === 'dropping corrupt month'))
+  assert.doesNotThrow(() => fromV1({ groups: { j: { months } } }))
+})

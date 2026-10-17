@@ -1,5 +1,14 @@
 # contas-bot 🤖💸
 
+[![CI](https://github.com/jeancarlos/contas-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/jeancarlos/contas-bot/actions/workflows/ci.yml)
+[![security](https://github.com/jeancarlos/contas-bot/actions/workflows/security.yml/badge.svg)](https://github.com/jeancarlos/contas-bot/actions/workflows/security.yml)
+[![CodeQL](https://github.com/jeancarlos/contas-bot/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeancarlos/contas-bot/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jeancarlos/contas-bot/badge)](https://scorecard.dev/viewer/?uri=github.com/jeancarlos/contas-bot)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/jeancarlos/contas-bot/badges/coverage.json)](https://github.com/jeancarlos/contas-bot/actions/workflows/quality.yml)
+[![release](https://img.shields.io/github/v/release/jeancarlos/contas-bot)](https://github.com/jeancarlos/contas-bot/releases/latest)
+[![license](https://img.shields.io/github/license/jeancarlos/contas-bot)](LICENSE)
+![Node 22+](https://img.shields.io/badge/node-22%2B-blue)
+
 **Your household bills, handled in the WhatsApp group you already use.**
 
 Everyone has that group: someone pays the electricity, drops the receipt in the chat, and then someone else scrolls up and retypes the whole checklist ("Luz ✅, Água ⬜, Aluguel ⬜…") so nobody loses track. Every month. By hand.

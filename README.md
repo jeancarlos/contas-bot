@@ -13,14 +13,14 @@
 
 Everyone has that group: someone pays the electricity, drops the receipt in the chat, and then someone else scrolls up and retypes the whole checklist ("Luz ✅, Água ⬜, Aluguel ⬜…") so nobody loses track. Every month. By hand.
 
-contas-bot takes that job. Add it to the group and it keeps the list for you: it reads every receipt, ticks the bill off, pulls the amount off the image, adds up the month, and keeps the latest list pinned at the top of the chat. Nobody installs an app, nobody learns a new tool. You keep chatting the way you already do.
+contas-bot takes that job. Add it to the group and it keeps the list for you: send a receipt with `/pago luz`, and it ticks the bill off, reads the amount from the image, adds up the month, and keeps the latest list pinned at the top of the chat. Nobody installs an app, nobody learns a new tool.
 
 > 🇧🇷 Feito para grupos brasileiros: o bot fala português, entende `R$ 6.237,60` e lê comprovantes de Pix, boleto e cartão.
 
 ## What it feels like
 
 ```
-Gabi:  [photo of the Pix receipt] luz
+Ana:   [photo of the Pix receipt] /pago luz
 Bot:   ✅
 Bot:   📋 *Contas - Setembro/2026*
 
@@ -34,52 +34,63 @@ Bot:   📋 *Contas - Setembro/2026*
        📌 (pinned)
 ```
 
-No caption? No problem. The bot looks at the receipt and works out which bill it was. If it isn't sure, it asks instead of guessing.
+When something is missing, it asks instead of guessing:
+
+```
+Ana:   /pago cartão 120
+Bot:   qual conta? Responda o nome: Cartão Nu, Cartão Itaú
+Ana:   nu
+Bot:   ✅
+```
 
 ## Features
 
-- 📎 **Receipts in, checkmarks out.** Photos and PDFs. A caption with the bill name marks it paid on the spot, and the amount is read from the receipt.
-- 🧠 **AI only where it earns its keep.** Commands, captions and names are matched mechanically: instant, free, predictable. The vision model is only called to read amounts and to identify receipts nobody labeled, and it can only answer with a bill that exists.
+- 📎 **Receipts in, checkmarks out.** Photos and PDFs captioned `/pago <bill>`. The amount is read from the receipt, or typed: `/pago luz 80,00`.
+- 💬 **It asks back.** A typo gets "você quis dizer `/pago luz 80,00`? Responda *sim*". An ambiguous name gets "qual conta?". A receipt it can't read gets "qual foi o valor?". Only the person who was asked can answer, with their next message, within 10 minutes. A 👍 counts as yes.
+- 🧾 **One-off expenses.** `/pago avulsa farmácia 45,90` puts an extra expense on this month's list without adding a bill. An unknown name with an amount gets the offer too.
+- 🧠 **AI only where it earns its keep.** Commands and names are matched mechanically: instant, free, predictable. The vision model only reads amounts, and, when a name matches several bills, picks among those bills only.
 - 📌 **Always pinned.** Every change posts a fresh list with the month total and pins it. The old one is unpinned, so the top of the chat is always the truth.
 - 🗓️ **Monthly reset.** On the 1st, a clean list goes up by itself.
-- 👋 **Onboards itself.** Add the bot to a group that's already on `GROUP_INVITE_LINKS` and it introduces itself, sets up a demo list, and writes its own section into the group description.
-- 📝 **The group description is the settings screen.** Bills live in the bot's section of the description. Edit them in WhatsApp and the list follows. Add `(pausado)` to skip a bill this month without deleting it.
-- 🔒 **Private by default.** It only serves the groups you list. Anywhere else it's completely inert: no answering, no writing, never leaves.
+- ✏️ **Edits work.** Fix a typo by editing the message. An edit never changes a payment that already happened: use `/despago` for that.
+- 🔒 **Private by default.** It only serves the groups you list, and only answers slash commands. Anywhere else it's completely inert.
 - 🌎 **Speaks your language and your money.** Portuguese, English or Spanish, with any currency (`R$ 6.237,60`, `$6,237.60`, `6237,60 €`). It understands commands in all three languages no matter which one it writes in.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `/pago <bill> [amount]` | mark paid: `/pago luz`, `/pago cartão nu 6.237,60` |
-| `/despago <bill>` | unmark (also `/reverter`, `/revert`) |
+| `/pago <bill> [amount] [month/year]` | mark paid: `/pago luz`, `/pago cartão nu 6.237,60`, `/pago luz 80 09/2026` (also `/paguei`, `/pagar`) |
+| `/pago avulsa <name> <amount>` | a one-off expense on this month's list |
+| `/despago <bill> [month/year]` | unmark |
 | `/lista` | repost and repin the list |
-| `/help` | every command, with examples |
+| `/conta` | list the bills; `/conta adiciona <name>`, `remove`, `pausa`, `continua`, `renomeia <name> = <new>` |
+| `/ajuda` | every command, with examples |
 
-Bill names ignore accents and case, and a unique prefix is enough (`/pago cond`). A message that is just a bill name, or `pago luz`, counts too. Say `oi bot`, @mention it, or reply to one of its messages and it introduces itself. Everything else in the chat is left alone.
+Bill names ignore accents and case, and a unique prefix is enough (`/pago cond`). Everything that isn't a slash command is left alone, except a direct answer to a question the bot just asked you.
 
 ## How it's built
 
-One small Node 22 process speaking WhatsApp through [Baileys](https://github.com/WhiskeySockets/Baileys). No web server, no database, no build step: TypeScript runs directly on Node, state is a single JSON file written atomically, and the whole thing ships as one Docker container with no open ports.
+One small Node 22 process speaking WhatsApp through [Baileys](https://github.com/WhiskeySockets/Baileys). TypeScript runs directly on Node, state lives in SQLite (`node:sqlite`, one transaction per change), and the whole thing ships as one Docker container.
 
 ```
 src/
-  wa.ts      WhatsApp socket: pairing, reconnect, events, pin/unpin, description
-  bot.ts     the handler: commands, receipts, onboarding, greetings, monthly reset
-  bills.ts   pure logic: parsing, name matching, amounts, list and section rendering
-  llm.ts     OpenAI-compatible client with strict JSON validation
-  state.ts   atomic per-group state file
-  pdf.ts     first page of a PDF receipt to PNG (poppler)
+  core/       pure logic: commands, matching, amounts, months, questions, the list, i18n
+  shell/      one queue per group: load, decide, save, then talk to WhatsApp
+  adapters/   WhatsApp socket, SQLite store and 1.x import, optional read-only HTTP
+  llm.ts      OpenAI-compatible client with strict JSON validation
+  pdf.ts      first page of a PDF receipt to PNG (poppler)
 ```
 
 Design choices worth a look:
 
-- **Mechanical first, LLM second.** The model is a fallback, and its output is validated against the bill list before anything is stored. If the endpoint is down, a known bill is still marked paid, just without an amount.
-- **Serialized handlers.** Messages, description edits and the monthly tick run one at a time, so pins and saves never interleave.
-- **Idempotent description sync.** The bot rewrites its section only when the text actually differs, so its own edit never triggers another one.
+- **A pure core.** Every message goes through one function, `decide(state, input) → { state, effects }`, that does no I/O. Tests are tables of inputs and expected results.
+- **Save before you speak.** A change is committed to SQLite before any ✅ or list is sent. If the save fails, the bot says so and nothing else.
+- **Mechanical first, LLM second.** The model is a fallback, and its output is validated against the bill list before anything is stored. If the endpoint is down, the bill is still marked paid and the bot asks for the amount.
 - **Receipts are never stored.** The image is used for one model call and dropped. Only the amount is kept.
 
-The logic is covered by the built-in `node:test` runner against fake WhatsApp and LLM doubles: parsing, matching, rendering, the state file, and the full handler flow.
+## Add-ons
+
+The bot can serve read-only data over HTTP (off unless you set `HTTP_PORT`): Prometheus metrics, CSV/JSON exports, a summary for Home Assistant and a small dashboard. See [addons/](addons/README.md). Nothing there can change a bill: every change happens in the group.
 
 ## Install
 
@@ -106,9 +117,13 @@ On the bot's phone, open WhatsApp → Linked devices → Link a device and point
 
 Everything lives in `~/contas-bot` (set `CONTAS_BOT_DIR` before the command to use another folder). Nothing needs root.
 
+### Coming from 1.x
+
+Update as usual. On first start, 2.0 imports `data/state.json` into `data/contas.db` (the old file is kept as `state.v1.json`), takes the bill list from the bot's section of the group description once, and from then on bills are managed with `/conta`.
+
 ### Without AI
 
-Pick "No AI" in the installer. Receipts are then paid only when their caption names the bill (`luz`, `/pago luz 80,00`); a receipt without a caption gets a reply asking to send it again with one. Text commands work the same.
+Pick "No AI" in the installer. Receipts are then paid when their caption names the bill (`/pago luz`), and the bot asks for the amount. Text commands work the same.
 
 ### Day to day
 
@@ -122,7 +137,7 @@ The installer adds a `contas-bot` command (in `~/.local/bin`):
 | `contas-bot pair` | reconnects WhatsApp when the session was lost |
 | `contas-bot restart` | restarts the bot |
 
-Updating is the same one-line command, or `contas-bot update`; your settings and the WhatsApp session are kept.
+Updating is the same one-line command, or `contas-bot update`; your settings, history and WhatsApp session are kept.
 
 To move the bot to a different WhatsApp number, stop it, delete `~/contas-bot/auth`, and run `contas-bot pair`.
 
@@ -138,7 +153,7 @@ Every question can come from an environment variable, which skips the prompts: `
 
 ## Run your own
 
-You need a spare WhatsApp number for the bot (a cheap prepaid SIM works) and any OpenAI-compatible endpoint with a vision model.
+You need a spare WhatsApp number for the bot (a cheap prepaid SIM works). An OpenAI-compatible endpoint with a vision model is optional.
 
 ```bash
 git clone https://github.com/jeancarlos/contas-bot
@@ -150,31 +165,26 @@ docker compose logs -f
 
 | Variable | Meaning |
 |---|---|
-| `BOT_PHONE` | the bot's number, digits with country code; used once to pair |
-| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves - a `chat.whatsapp.com` invite link or a jid, mixed freely; a link is resolved to its jid at boot (no need to join first) and the jid is remembered, so a later revoked or failing link only logs a warning and the group keeps working off the cached jid; removing the link from this variable is still what turns a group off; being removed from the group itself turns it off immediately too, and the only way back is this variable still naming the group at a later start; optional, empty serves no group; anywhere else it's completely inert |
+| `BOT_PHONE` | the bot's number, digits with country code; only needed to pair with an 8-character code |
+| `GROUP_INVITE_LINKS` | comma-separated groups the bot serves - a `chat.whatsapp.com` invite link or a jid; a link is resolved at boot and the jid is remembered; removing it from this variable turns the group off; empty serves no group |
 | `BOT_LANG` | language the bot writes in: `pt-BR` (default), `en` or `es` |
 | `BOT_CURRENCY` | currency for amounts and totals, an ISO 4217 code: `BRL` (default), `USD`, `EUR`, `MXN`… |
-| `LLM_BASE_URL` | OpenAI-compatible endpoint |
+| `LLM_BASE_URL` | OpenAI-compatible endpoint; empty runs without AI |
 | `LLM_API_KEY` | key for that endpoint |
-| `LLM_TEXT_MODEL` | model for free-text captions |
 | `LLM_VISION_MODEL` | model for receipts (must accept images) |
+| `TZ` | time zone for the monthly reset (default `America/Sao_Paulo`) |
+| `ALLOW_EMPTY_STATE` | `1` lets a brand-new install start with no history; without it the bot refuses to start empty, so a move that forgot to copy `data/` fails loudly |
+| `HTTP_PORT` | optional: serve the read-only add-on endpoints on this port |
+| `HTTP_HOSTS` | optional: extra host names allowed to reach `HTTP_PORT` (for a reverse proxy) |
+| `HTTP_TOKEN` | optional: every HTTP request must send `Authorization: Bearer <token>` |
 
-You can set up a group before the bot ever joins it, using its invite link:
-1. Create the group and copy its invite link (Group info → Invite via link).
-2. Put that link in `GROUP_INVITE_LINKS` in `.env`.
-3. Start the bot (`docker compose up -d`). On first start the log prints `PAIRING CODE` with 8 characters - on the bot's phone, go to WhatsApp → Linked devices → Link a device → Link with phone number instead, and type it. Once it connects, the log resolves the link and prints the group's real `jid`. That jid is remembered on disk, so the group keeps being served across restarts even if the link is later revoked or fails to resolve - a failure there only logs a warning, it never deauthorizes the group. Swapping the resolved jid into `GROUP_INVITE_LINKS` is still fine and stops the boot-time resolution attempt, but it's no longer required for the group to keep working. Removing the link (or jid) from `GROUP_INVITE_LINKS` is what actually turns the group off.
-4. Add the bot to the group. It's already allowed in, so it onboards itself right away.
-
-No link handy? Fall back to the old dance: start the bot with `GROUP_INVITE_LINKS` empty - it boots and serves no group, that's expected - then add the bot to the group. The moment it's added, the log prints a line carrying the real `jid`. Copy that into `GROUP_INVITE_LINKS` in `.env` and restart (`docker compose up -d`). Only then does the bot actually answer in it.
-
-Being removed from a group turns the bot off for that group immediately, on the spot - no restart needed. That revocation only drops the cached invite pairing; the group's bill history is untouched. The only way back in is `GROUP_INVITE_LINKS` still naming the group (jid or link) at the next start - being re-added to the group on its own does not restore it.
+To set up a group before the bot joins it, put its invite link in `GROUP_INVITE_LINKS`, start the bot, then add the bot to the group: it's already allowed in, so it introduces itself right away. Being removed from a group turns the bot off for that group immediately; the group's history is kept.
 
 For development:
 
 ```bash
 npm install
-npm test        # node --test
-npm run check   # tsc --noEmit
+npm run check   # lint, typecheck and tests
 ```
 
 ## Fine print
@@ -196,7 +206,7 @@ And the original contas-bot: a hand-written checklist, reposted in the group eve
 
 ## Made by Jean Souza
 
-Hi, I'm **Jean**, a senior full-stack developer and ops/sysadmin from Brazil. I built contas-bot because my partner and I were tired of retyping the same checklist every month. It turned into a nice exercise in doing a lot with very little: one process, one file, no database, and an LLM used only where rules can't do the job.
+Hi, I'm **Jean**, a senior full-stack developer and ops/sysadmin from Brazil. I built contas-bot because my partner and I were tired of retyping the same checklist every month. It turned into a nice exercise in doing a lot with very little, and an LLM used only where rules can't do the job.
 
 I like building things that quietly remove chores from people's lives, from bots like this one to self-hosted infrastructure that just keeps running.
 

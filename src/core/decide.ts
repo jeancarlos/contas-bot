@@ -28,6 +28,7 @@ type Picking = Extract<Ask, { q: 'pick' }>
 
 const HANDLED_MAX = 500
 export const NAME_MAX = 40
+export const TEXT_MAX = 2000
 const ASK_TTL = 10 * 60_000
 const YEAR_3000 = 32_503_680_000_000
 const YES = new Set(['sim', 's', 'yes', 'y', 'si', 'ok', 'isso'])
@@ -567,9 +568,12 @@ function onJoin(d: Draft, j: Extract<Input, { kind: 'join' }>) {
   }
 }
 
+const cut = (i: Input): Input =>
+  'text' in i && i.text.length > TEXT_MAX ? { ...i, text: i.text.slice(0, TEXT_MAX) } : i
 const timeOf = (i: Input) => (i.kind === 'billPicked' ? i.pick.at : 'at' in i ? i.at : 0)
 
-export function decide(state: GroupState, input: Input, ctx: Ctx): Result {
+export function decide(state: GroupState, raw: Input, ctx: Ctx): Result {
+  const input = cut(raw)
   const at = timeOf(input)
   if (!(at >= 0 && at < YEAR_3000)) return { state, effects: [] }
   const d: Draft = { s: structuredClone(state), fx: [], ctx }

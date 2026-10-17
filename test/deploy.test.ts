@@ -155,3 +155,18 @@ test('security runs gitleaks over full history and a dynamic workflow fuzzes on 
   assert.match(dyn, /tags: \['v\*'\]/)
   assert.match(dyn, /test\/core\/fuzz\.test\.ts/)
 })
+
+test('every pull request is checked for a test on each feat and fix, in CI and in the commit hook', () => {
+  const ci = read('.github/workflows/ci.yml')
+  assert.match(ci, /fixes-have-tests:/)
+  assert.match(ci, /node scripts\/test-policy\.ts "\$BASE\.\.\$HEAD"/)
+  assert.match(read('.githooks/commit-msg'), /test-policy\.ts --staged/)
+})
+
+test('a weekly policy run re-verifies the latest release attestations and the 14-day issue reply promise', () => {
+  const wf = read('.github/workflows/policy.yml')
+  assert.match(wf, /cron:/)
+  assert.match(wf, /gh attestation verify install\.sh --repo "\$REPO"/)
+  assert.match(wf, /gh attestation verify "oci:\/\/ghcr\.io\/\$REPO:/)
+  assert.match(wf, /14 days ago/)
+})

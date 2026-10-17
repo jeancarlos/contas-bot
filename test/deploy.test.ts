@@ -146,3 +146,12 @@ test('dependabot auto-merge runs on pull_request, pins its action and never merg
   assert.match(wf, /gh pr merge --auto --merge/)
   assert.match(wf, /^permissions:\n {2}contents: read$/m)
 })
+
+test('security runs gitleaks over full history and a dynamic workflow fuzzes on every tag', () => {
+  const sec = read('.github/workflows/security.yml')
+  assert.match(sec, /gitleaks\/gitleaks-action@[0-9a-f]{40}/)
+  assert.match(sec, /fetch-depth: 0/)
+  const dyn = read('.github/workflows/dynamic.yml')
+  assert.match(dyn, /tags: \['v\*'\]/)
+  assert.match(dyn, /test\/core\/fuzz\.test\.ts/)
+})

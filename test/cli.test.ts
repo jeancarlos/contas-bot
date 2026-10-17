@@ -148,7 +148,7 @@ async function updateWithGh(gh: string | null) {
 }
 
 test('update refuses an installer whose attestation does not verify', async () => {
-  const { r, ran } = await updateWithGh('#!/bin/sh\n[ "$1" = auth ] && exit 0\nexit 1\n')
+  const { r, ran } = await updateWithGh('#!/bin/sh\ncase "$*" in auth*|*--help*) exit 0 ;; esac\nexit 1\n')
   assert.equal(r.status, 1)
   assert.match(r.stderr, /does not verify/)
   assert.equal(ran, false)
@@ -162,6 +162,13 @@ test('update runs an installer whose attestation verifies', async () => {
 
 test('update warns and still runs when gh is not authenticated', async () => {
   const { r, ran } = await updateWithGh('#!/bin/sh\n[ "$1" = auth ] && exit 1\nexit 1\n')
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr, /not verified/)
+  assert.equal(ran, true)
+})
+
+test('update warns and still runs when gh predates attestation', async () => {
+  const { r, ran } = await updateWithGh('#!/bin/sh\n[ "$1" = auth ] && exit 0\nexit 1\n')
   assert.equal(r.status, 0, r.stderr)
   assert.match(r.stderr, /not verified/)
   assert.equal(ran, true)

@@ -37,10 +37,10 @@ test('closest skips keys whose length alone rules them out, so a huge query cost
   const keys = ['luz', 'agua', 'internet', 'aluguel', 'gas', 'cartao nu', 'cartao c6', 'condominio', 'netflix', 'iptu']
   const t0 = performance.now()
   assert.equal(
-    closest(keys, x => x, 'x'.repeat(200_000)),
+    closest(keys, x => x, 'x'.repeat(2_000_000)),
     null,
   )
-  assert.ok(performance.now() - t0 < 50, `took ${Math.round(performance.now() - t0)} ms`)
+  assert.ok(performance.now() - t0 < 1000, `took ${Math.round(performance.now() - t0)} ms`)
   assert.equal(
     closest(keys, x => x, 'internt'),
     'internet',

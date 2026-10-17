@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { type Command, type Conta, ONE_OFF, parseCommand, parseConta } from './commands.ts'
 import { findMoney, isCurrency, type MoneyHit } from './money.ts'
 import { monthOf, parseMonthToken } from './month.ts'

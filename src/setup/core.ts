@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { parseGroupJids } from '../adapters/wa.ts'
 import type { Lang } from '../core/types.ts'
 

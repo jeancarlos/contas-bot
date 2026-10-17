@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import { isDeepStrictEqual } from 'node:util'
 import type { Store } from '../adapters/store.ts'
 import type { GroupMeta } from '../adapters/v1.ts'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 export type Llm = {
   enabled: boolean
   readAmount(image: Buffer, mime: string, signal?: AbortSignal): Promise<number | null>

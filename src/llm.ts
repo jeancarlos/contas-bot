@@ -12,29 +12,29 @@ type Pick = { index: number | null; amount: number | null }
 const NO_PICK: Pick = { index: null, amount: null }
 type Cfg = { baseUrl: string; apiKey: string; visionModel: string; currency?: string; fetchFn?: typeof fetch }
 
-function parseAmountReply(raw: string): number | null {
+const validAmount = (v: unknown): number | null =>
+  typeof v === 'number' && v > 0 && v < 1e12 ? Math.round(v * 100) / 100 || null : null
+
+function replyJson(raw: string): { index?: unknown; amount?: unknown } | null {
   const m = /\{[\s\S]*\}/.exec(raw)
   if (!m) return null
   try {
-    const { amount } = JSON.parse(m[0])
-    return typeof amount === 'number' && amount > 0 && amount < 1e12 ? Math.round(amount * 100) / 100 || null : null
+    return JSON.parse(m[0])
   } catch {
     return null
   }
 }
 
+function parseAmountReply(raw: string): number | null {
+  return validAmount(replyJson(raw)?.amount)
+}
+
+const validIndex = (v: unknown, count: number): number | null =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < count ? v : null
+
 function parsePickReply(raw: string, count: number): Pick {
-  const m = /\{[\s\S]*\}/.exec(raw)
-  if (!m) return NO_PICK
-  try {
-    const { index, amount } = JSON.parse(m[0])
-    return {
-      index: Number.isInteger(index) && index >= 0 && index < count ? index : null,
-      amount: typeof amount === 'number' && amount > 0 && amount < 1e12 ? Math.round(amount * 100) / 100 || null : null,
-    }
-  } catch {
-    return NO_PICK
-  }
+  const r = replyJson(raw)
+  return r ? { index: validIndex(r.index, count), amount: validAmount(r.amount) } : NO_PICK
 }
 
 export function makeLlm(cfg: Cfg): Llm {

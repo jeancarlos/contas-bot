@@ -1,5 +1,5 @@
 import { type Command, type Conta, ONE_OFF, parseCommand, parseConta } from './commands.ts'
-import { findMoney, isCurrency } from './money.ts'
+import { findMoney, isCurrency, type MoneyHit } from './money.ts'
 import { monthOf, parseMonthToken } from './month.ts'
 import { oldest, type Resolution, resolve } from './resolve.ts'
 import { clean, normalize } from './text.ts'
@@ -187,24 +187,33 @@ function pago(d: Draft, arg: string, m: Cmd): boolean {
 
 type OneOff = { name: string; key: string; amount: number | null; month: string | null }
 
-function parseOneOff(tokens: readonly string[], now: string, decimal: ',' | '.', reading: boolean): OneOff | Msg {
+function pickMonth(tokens: readonly string[], now: string): { month: string | null; rest: readonly string[] } | Msg {
   const months = tokens.map(t => (t.includes('/') ? parseMonthToken(t, now) : null))
   const dated = months.filter((x): x is string => x !== null && x >= oldest(now))
   const month = dated[0] ?? null
   if (dated.length > 1) return { k: 'oneOffSyntax' }
   if (month && month > now) return { k: 'futureMonth' }
-  const rest = month ? tokens.filter((_, i) => months[i] !== month) : tokens
+  return { month, rest: month ? tokens.filter((_, i) => months[i] !== month) : tokens }
+}
+
+function wellFormed(money: MoneyHit | undefined, nameToks: readonly string[], restLen: number, reading: boolean) {
+  const atEnd = !money || money.start === 0 || money.end === restLen
+  const plain = normalize(nameToks.join(' ')) !== '' && nameToks.every(t => !/\d/.test(t) && !isCurrency(t))
+  return atEnd && plain && Boolean(money || reading)
+}
+
+function parseOneOff(tokens: readonly string[], now: string, decimal: ',' | '.', reading: boolean): OneOff | Msg {
+  const picked = pickMonth(tokens, now)
+  if ('k' in picked) return picked
+  const { month, rest } = picked
   const { marked, bare } = findMoney(rest, decimal)
   const hits = [...marked, ...bare]
   const money = hits.length === 1 ? hits[0] : undefined
   const nameToks = money ? [...rest.slice(0, money.start), ...rest.slice(money.end)] : rest
   const name = nameToks.join(' ')
-  const key = normalize(name)
-  const atEnd = !money || money.start === 0 || money.end === rest.length
-  const plain = key !== '' && nameToks.every(t => !/\d/.test(t) && !isCurrency(t))
-  if (hits.length > 1 || !atEnd || !plain || !(money || reading)) return { k: 'oneOffSyntax' }
+  if (hits.length > 1 || !wellFormed(money, nameToks, rest.length, reading)) return { k: 'oneOffSyntax' }
   if (name.length > NAME_MAX) return { k: 'nameInvalid' }
-  return { name, key, amount: money?.cents ?? null, month }
+  return { name, key: normalize(name), amount: money?.cents ?? null, month }
 }
 
 function clash(d: Draft, o: OneOff, now: string, m: Cmd): boolean {
@@ -440,11 +449,24 @@ function answer(d: Draft, a: Question, m: MessageInput): boolean {
   const yes = YES.has(normalize(text)) || THUMBS.test(m.text.trim())
   if (a.q === 'amount') return fillAmount(d, a, text, m)
   if (NO.has(normalize(text))) return false
-  const asker: Cmd = { key: m.key, sender: m.sender, at: m.at, ...(a.media ? { media: a.media } : {}) }
+  const asker = askerOf(a, m)
   const month = a.month ?? current(d, a.at)
   if (a.q === 'confirm') return yes && confirmed(d, a, month, asker)
   if (a.q === 'oneOff' && yes) return payOneOff(d, a, month, asker)
-  const bill = (a.q === 'bill' ? chosen(d, text, a.choices) : undefined) ?? named(d, text, m.at)
+  return payChosen(d, a, text, m.at, month, asker)
+}
+
+type Answerable = Exclude<Question, { q: 'amount' }>
+
+const askerOf = (a: Answerable, m: MessageInput): Cmd => ({
+  key: m.key,
+  sender: m.sender,
+  at: m.at,
+  ...(a.media ? { media: a.media } : {}),
+})
+
+function payChosen(d: Draft, a: Answerable, text: string, at: number, month: string, asker: Cmd): boolean {
+  const bill = (a.q === 'bill' ? chosen(d, text, a.choices) : undefined) ?? named(d, text, at)
   if (bill) pay(d, bill.bill, bill.amount ?? a.amount, bill.month ?? month, asker)
   return Boolean(bill)
 }
@@ -533,8 +555,7 @@ function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
   d.s.asks = d.s.asks.filter(x => x !== open)
   if (!open) return
   const m: Cmd = { key: p.to, sender: p.sender, at: p.at }
-  const touched = p.bills.some(b => open.touched.includes(b.id))
-  const bill = !touched && p.bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
+  const bill = pickedBill(d, open, i)
   if (!bill) {
     askWhich(d, p.bills, p.amount, p.month, { ...m, media: p.media })
     return
@@ -544,6 +565,17 @@ function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
   pay(d, bill, p.amount ?? i.amount, month, m, 'picked')
   const h = d.s.handled.find(x => x.id === p.to.id)
   if (h) h.changed = true
+  settlePick(d, i, bill, month)
+}
+
+function pickedBill(d: Draft, open: Picking, i: Extract<Input, { kind: 'billPicked' }>): Bill | undefined {
+  const { bills } = i.pick
+  const touched = bills.some(b => open.touched.includes(b.id))
+  return !touched && bills.some(b => b.id === i.billId) ? d.s.bills.find(b => b.id === i.billId) : undefined
+}
+
+function settlePick(d: Draft, i: Extract<Input, { kind: 'billPicked' }>, bill: Bill, month: string) {
+  const p = i.pick
   const paid = d.s.months[month]?.[bill.id]
   if (paid && p.amount === null && i.amount !== null) paid.status = 'read'
   if (paid?.amount === null) askAmount(d, bill.id, month, p.to, paid, p.at)

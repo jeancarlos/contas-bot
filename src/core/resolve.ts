@@ -74,6 +74,21 @@ function paddedKey(raw: string, bills: readonly Bill[]): Bill | undefined {
           .every(w => !w || FILLER.has(w)),
     )
 }
+function exactBill(q: string, bills: readonly Bill[]): Bill | undefined {
+  return bills.find(b => b.key === q) ?? bills.find(b => core(b) === q)
+}
+function prefixed(q: string, bills: readonly Bill[]): Bill[] {
+  const byKey = bills.filter(b => b.key.startsWith(q))
+  return byKey.length > 0 ? byKey : bills.filter(b => core(b).startsWith(q))
+}
+function byQuery(q: string, bills: readonly Bill[]): Match | null {
+  const exact = exactBill(q, bills)
+  if (exact) return { kind: 'bill', bill: exact }
+  const hits = prefixed(q, bills)
+  if (hits.length > 1) return { kind: 'many', bills: hits }
+  const only = hits[0]
+  return only ? { kind: 'bill', bill: only } : null
+}
 function match(toks: readonly Tok[], bills: readonly Bill[]): Match {
   const raw = normalize(toks.map(t => t.text).join(' '))
   const named = bills.find(b => b.key === raw) ?? paddedKey(raw, bills)
@@ -81,14 +96,8 @@ function match(toks: readonly Tok[], bills: readonly Bill[]): Match {
   const kept = raw.split(' ').filter(w => w && !FILLER.has(w))
   if (kept.length === 0) return { kind: 'empty' }
   const q = kept.join(' ')
-  const exact = bills.find(b => b.key === q) ?? bills.find(b => core(b) === q)
-  if (exact) return { kind: 'bill', bill: exact }
-  const byKey = bills.filter(b => b.key.startsWith(q))
-  const prefixed = byKey.length > 0 ? byKey : bills.filter(b => core(b).startsWith(q))
-  if (prefixed.length === 1 && prefixed[0]) return { kind: 'bill', bill: prefixed[0] }
-  if (prefixed.length > 1) return { kind: 'many', bills: prefixed }
-  const fromBills = fromCovered(kept, bills)
-  if (fromBills) return fromBills
+  const found = byQuery(q, bills) ?? fromCovered(kept, bills)
+  if (found) return found
   const near = closest(bills, b => b.key, q)
   return near ? { kind: 'typo', bill: near } : { kind: 'none', q }
 }
@@ -153,6 +162,32 @@ export function oldest(current: string): string {
   return `${y - 2}-${String(m).padStart(2, '0')}`
 }
 
+type MonthHit = { i: number; m: string }
+
+function monthHits(tokens: readonly string[], billWords: ReadonlySet<string>, current: string): MonthHit[] {
+  return tokens
+    .map((text, i) => ({ i, m: billWords.has(normalize(text)) ? null : parseMonthToken(text, current) }))
+    .filter((x): x is MonthHit => x.m !== null && x.m >= oldest(current))
+}
+
+function leftover(tokens: readonly string[], months: readonly MonthHit[], money: MoneyHit | undefined): Tok[] {
+  const taken = new Set(months.map(x => x.i))
+  if (money) for (let i = money.start; i < money.end; i++) taken.add(i)
+  return tokens.map((text, i) => ({ i, text })).filter(t => !taken.has(t.i))
+}
+
+function syntaxError(
+  moneyCount: number,
+  monthCount: number,
+  money: MoneyHit | undefined,
+  month: string | null,
+  current: string,
+): Resolution | null {
+  if (moneyCount > 1) return { ok: false, why: 'pagoSyntax', amount: null }
+  if (monthCount > 1) return { ok: false, why: 'pagoSyntax', amount: money?.cents ?? null }
+  return month && month > current ? { ok: false, why: 'futureMonth', amount: null } : null
+}
+
 export function resolve(arg: string, all: readonly Bill[], current: string, decimal: ',' | '.'): Resolution {
   const bills = all.filter(b => !b.removed)
   const whole = bills.find(b => b.key === normalize(arg))
@@ -161,16 +196,11 @@ export function resolve(arg: string, all: readonly Bill[], current: string, deci
   const tokens = joinYears(arg.split(' ').filter(Boolean), billWords, current)
   const { marked } = findMoney(tokens, decimal, billWords)
   const money: MoneyHit | undefined = marked[0]
-  if (marked.length > 1) return { ok: false, why: 'pagoSyntax', amount: null }
-  const months = tokens
-    .map((text, i) => ({ i, m: billWords.has(normalize(text)) ? null : parseMonthToken(text, current) }))
-    .filter((x): x is { i: number; m: string } => x.m !== null && x.m >= oldest(current))
-  if (months.length > 1) return { ok: false, why: 'pagoSyntax', amount: money?.cents ?? null }
+  const months = monthHits(tokens, billWords, current)
   const month = months[0]?.m ?? null
-  if (month && month > current) return { ok: false, why: 'futureMonth', amount: null }
-  const taken = new Set(months.map(x => x.i))
-  if (money) for (let i = money.start; i < money.end; i++) taken.add(i)
-  const rest = tokens.map((text, i) => ({ i, text })).filter(t => !taken.has(t.i))
+  const bad = syntaxError(marked.length, months.length, money, month, current)
+  if (bad) return bad
+  const rest = leftover(tokens, months, money)
   const run = (toks: readonly Tok[]) => match(toks, bills)
   return money ? finish(run(rest), money.cents, month) : withBare(rest, decimal, run, month)
 }

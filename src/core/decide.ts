@@ -49,9 +49,10 @@ function ask(d: Draft, a: Question, to: MsgKey, msg: Msg) {
   reply(d, to, msg)
 }
 
-function askAmount(d: Draft, billId: number, month: string, key: MsgKey, by: string, at: number, read = true) {
+function askAmount(d: Draft, billId: number, month: string, key: MsgKey, p: Payment, at: number, read = true) {
   const bill = d.s.bills.find(b => b.id === billId)?.name ?? ''
-  ask(d, { who: who(key, by), at, q: 'amount', month, billId, messageId: key.id }, key, { k: 'askAmount', bill, read })
+  const who = p.byJid ?? p.by
+  ask(d, { who, at, q: 'amount', month, billId, messageId: key.id }, key, { k: 'askAmount', bill, read })
 }
 
 function confirm(d: Draft, cmd: 'pago' | 'despago', bill: Bill, amount: number | null, month: string | null, m: Cmd) {
@@ -143,7 +144,7 @@ function refuse(d: Draft, r: Failure, cmd: 'pago' | 'despago', m: Cmd, arg: stri
 }
 
 function payment(prev: Payment | undefined, amount: number | null, reading: boolean, m: Cmd): Payment {
-  const base = { by: m.sender, paidAt: m.at, messageId: m.key.id }
+  const base = { by: m.sender, byJid: m.key.participant ?? null, paidAt: m.at, messageId: m.key.id }
   if (amount !== null) return { ...base, amount, status: 'typed' }
   const keep = prev && prev.status !== 'pending' && (prev.amount !== null || !reading)
   if (keep) return { ...base, amount: prev.amount, status: prev.status }
@@ -164,7 +165,7 @@ function pay(d: Draft, bill: Bill, amount: number | null, month: string, m: Cmd,
   if (prev) reply(d, m.key, { k: 'updated' })
   if (reading && media) d.fx.push({ kind: 'readAmount', to: m.key, media, month, billId: bill.id })
   else showList(d, month, pinnedMonth(d, m.at), m.key)
-  if (media && !reading && p.amount === null) askAmount(d, bill.id, month, m.key, m.sender, m.at, false)
+  if (media && !reading && p.amount === null) askAmount(d, bill.id, month, m.key, p, m.at, false)
 }
 
 function pago(d: Draft, arg: string, m: Cmd): boolean {
@@ -232,7 +233,7 @@ function payOneOff(d: Draft, o: OneOff, month: string, m: Cmd) {
   }
   if (o.amount !== null) {
     const amount = (prev.amount ?? 0) + o.amount
-    paid[bill.id] = { by: m.sender, paidAt: m.at, messageId: m.key.id, amount, status: 'typed' }
+    paid[bill.id] = payment(prev, amount, false, m)
   }
   touch(d, bill.id)
   d.fx.push({ kind: 'react', to: m.key })
@@ -511,7 +512,7 @@ function onAmountRead(d: Draft, a: Extract<Input, { kind: 'amountRead' }>) {
     p.status = 'read'
   } else if (p.status === 'pending') p.status = 'none'
   showList(d, a.month, pinnedMonth(d, a.at), a.key)
-  if (p.amount === null) askAmount(d, a.billId, a.month, a.key, p.by, a.at)
+  if (p.amount === null) askAmount(d, a.billId, a.month, a.key, p, a.at)
 }
 
 function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
@@ -532,7 +533,7 @@ function onBillPicked(d: Draft, i: Extract<Input, { kind: 'billPicked' }>) {
   if (h) h.changed = true
   const paid = d.s.months[month]?.[bill.id]
   if (paid && p.amount === null && i.amount !== null) paid.status = 'read'
-  if (paid?.amount === null) askAmount(d, bill.id, month, p.to, p.sender, p.at)
+  if (paid?.amount === null) askAmount(d, bill.id, month, p.to, paid, p.at)
 }
 
 function onListPosted(d: Draft, messageId: string) {
@@ -557,11 +558,11 @@ function onJoin(d: Draft, j: Extract<Input, { kind: 'join' }>) {
     d.fx.push({ kind: 'postList', msg: listMsg(d.s, month) })
   }
   if (!j.startup) return
-  for (const month of Object.values(d.s.months)) {
-    for (const p of Object.values(month)) {
+  for (const [month, paid] of Object.entries(d.s.months)) {
+    for (const [billId, p] of Object.entries(paid)) {
       if (p.status !== 'pending' || j.reading.includes(p.messageId)) continue
       p.status = 'none'
-      reply(d, { id: p.messageId, fromMe: false, remoteJid: j.jid }, { k: 'noAmount' })
+      askAmount(d, Number(billId), month, { id: p.messageId, fromMe: false, remoteJid: j.jid }, p, j.at)
     }
   }
 }

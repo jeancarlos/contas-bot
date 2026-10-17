@@ -17,6 +17,7 @@ function payment(p: Obj): Payment {
     amount,
     status: amount === null ? 'none' : 'typed',
     by: str(p.by) ?? '',
+    byJid: null,
     paidAt: Number.isNaN(paidAt) ? 0 : paidAt,
     messageId: str(p.message_id) ?? '',
   }

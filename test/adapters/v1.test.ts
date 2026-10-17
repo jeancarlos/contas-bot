@@ -83,6 +83,7 @@ test('fromV1 keeps every v1 payment, in cents rounded from the float, under the 
           by: p.by,
           paidAt: Date.parse(p.paid_at),
           messageId: p.message_id,
+          byJid: null,
         },
         `${month} ${key}`,
       )
@@ -114,7 +115,7 @@ test('fromV1 off path: missing amount, no bill list, junk entries, no groups', (
   assert.ok(g)
   assert.deepEqual(g.state.bills, [{ id: 1, name: 'Luz', key: 'luz', paused: false, removed: false }])
   assert.deepEqual(g.state.months, {
-    '2026-09': { 1: { amount: null, status: 'none', by: 'Ana', paidAt: 0, messageId: 'M1' } },
+    '2026-09': { 1: { amount: null, status: 'none', by: 'Ana', paidAt: 0, messageId: 'M1', byJid: null } },
   })
   assert.equal(g.state.pinnedId, null)
   assert.deepEqual(

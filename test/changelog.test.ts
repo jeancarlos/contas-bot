@@ -56,8 +56,10 @@ test('builds releases newest first from feat/fix commits', () => {
     },
     { version: '1.0.0', entries: [{ en: 'a', 'pt-BR': 'feat: a pt', es: 'feat: a es' }] },
   ])
-  assert.equal(releaseNotes(got[1]), '- side\n  feat: side pt\n- b\n  fix: b pt')
-  assert.equal(releaseNotes(got[0]), '- old style')
+  const [first, second] = got
+  assert.ok(first && second)
+  assert.equal(releaseNotes(second), '- side\n  feat: side pt\n- b\n  fix: b pt')
+  assert.equal(releaseNotes(first), '- old style')
   assert.equal(releaseNotes({ version: '9', entries: [] }), 'Maintenance release.')
 })
 
@@ -110,4 +112,23 @@ test('CLI ignores a polluted GIT_DIR and writes only versions up to the requeste
   assert.equal(readFileSync(notes, 'utf8'), '- two')
   assert.equal(run('1.2.0').status, 0)
   assert.equal(readFileSync(notes, 'utf8'), 'Maintenance release.')
+})
+
+test('a changelog note on a commit supplies or overrides its translations', () => {
+  const git = repo()
+  git('commit', '--allow-empty', '-m', 'feat: no trailers')
+  git('notes', '--ref=changelog', 'add', '-m', 'Changelog-pt-BR: sem trailers\nChangelog-es: sin trailers', 'HEAD')
+  git('commit', '--allow-empty', '-m', tr('fix: with trailers'))
+  git('notes', '--ref=changelog', 'add', '-m', 'Changelog-es: corregido', 'HEAD')
+  git('tag', 'v2.0.0')
+  const dir = git('rev-parse', '--show-toplevel').trim()
+  assert.deepEqual(buildChangelog(dir), [
+    {
+      version: '2.0.0',
+      entries: [
+        { en: 'with trailers', 'pt-BR': 'fix: with trailers pt', es: 'corregido' },
+        { en: 'no trailers', 'pt-BR': 'sem trailers', es: 'sin trailers' },
+      ],
+    },
+  ])
 })

@@ -1,6 +1,6 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative } from 'node:path'
-import type { Lang } from './i18n.ts'
+import type { Lang } from './core/types.ts'
 export type Entry = { en: string; 'pt-BR'?: string; es?: string }
 export type Release = { version: string; entries: Entry[] }
 const SEMVER = /^\d+\.\d+\.\d+$/

@@ -1,4 +1,5 @@
 export function normalize(s: string): string {
+  if (/^[a-z0-9]*$/.test(s)) return s
   return s
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -10,8 +11,9 @@ export function normalize(s: string): string {
 
 export function clean(text: string): string {
   return text
+    .replace(/\p{Cf}/gu, '')
     .replace(/[*_~`]/g, ' ')
-    .replace(/\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u{FE0F}|\u{200D}/gu, ' ')
+    .replace(/\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u{FE0F}/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\/\s+/, '/')
@@ -32,8 +34,11 @@ export function levenshtein(a: string, b: string): number {
 
 export function closest<T>(items: readonly T[], keyOf: (t: T) => string, q: string): T | null {
   const near = items
-    .map(t => ({ t, key: keyOf(t), d: levenshtein(q, keyOf(t)) }))
-    .filter(x => x.d <= Math.max(1, Math.floor(x.key.length / 3)))
+    .map(t => ({ t, key: keyOf(t) }))
+    .map(x => ({ ...x, max: Math.max(1, Math.floor(x.key.length / 3)) }))
+    .filter(x => Math.abs(x.key.length - q.length) <= x.max)
+    .map(x => ({ ...x, d: levenshtein(q, x.key) }))
+    .filter(x => x.d <= x.max)
   const best = Math.min(...near.map(x => x.d))
   const top = near.filter(x => x.d === best)
   return top.length === 1 ? (top[0]?.t ?? null) : null

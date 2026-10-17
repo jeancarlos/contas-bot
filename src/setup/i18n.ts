@@ -1,4 +1,4 @@
-import type { Lang } from '../i18n.ts'
+import type { Lang } from '../core/types.ts'
 
 export type SetupText = {
   title: (v: string) => string
@@ -46,6 +46,9 @@ export type SetupText = {
   updated: (from: string, to: string) => string
   cancelled: string
   missing: (keys: string) => string
+  noQuotes: string
+  emptyAsk: string
+  emptyRefused: string
 }
 
 const pt: SetupText = {
@@ -56,7 +59,7 @@ const pt: SetupText = {
   pairingQr: 'QR na tela (recomendado)',
   pairingCode: 'Código de 8 letras',
   phone: 'Número do WhatsApp do bot, com DDI e DDD',
-  phoneInvalid: 'número com 10 a 15 dígitos, ex: +55 49 92005-5837',
+  phoneInvalid: 'número com 10 a 15 dígitos, ex: +55 11 90000-0000',
   ai: 'Qual IA lê os comprovantes?',
   aiGemini: 'Google Gemini',
   aiGeminiHint: 'grátis',
@@ -95,6 +98,11 @@ const pt: SetupText = {
   updated: (from, to) => `✅ Atualizado: v${from} → v${to}`,
   cancelled: 'Cancelado, nada foi gravado.',
   missing: keys => `faltam respostas e não há terminal para perguntar: ${keys}`,
+  noQuotes: "sem aspas simples (') nem quebras de linha",
+  emptyAsk:
+    'Não achei histórico (data/contas.db ou data/state.json). Se o bot nunca foi usado num grupo, tudo bem: começar com o histórico vazio?',
+  emptyRefused:
+    'sem histórico (data/contas.db ou data/state.json) e sem ALLOW_EMPTY_STATE=1 no .env, o bot não subiria: nada foi alterado. Se o histórico vazio é esperado, rode de novo num terminal e confirme, ou adicione ALLOW_EMPTY_STATE=1 ao .env',
 }
 
 const en: SetupText = {
@@ -143,6 +151,11 @@ const en: SetupText = {
   updated: (from, to) => `✅ Updated: v${from} → v${to}`,
   cancelled: 'Cancelled, nothing was saved.',
   missing: keys => `answers are missing and there is no terminal to ask: ${keys}`,
+  noQuotes: "no single quotes (') or line breaks",
+  emptyAsk:
+    'No history found (data/contas.db or data/state.json). That is fine if the bot was never used in a group: start with an empty history?',
+  emptyRefused:
+    'no history (data/contas.db or data/state.json) and no ALLOW_EMPTY_STATE=1 in .env, so the bot would not start: nothing was changed. If an empty history is expected, run this again in a terminal and confirm, or add ALLOW_EMPTY_STATE=1 to .env',
 }
 
 const es: SetupText = {
@@ -193,6 +206,11 @@ const es: SetupText = {
   updated: (from, to) => `✅ Actualizado: v${from} → v${to}`,
   cancelled: 'Cancelado, no se guardó nada.',
   missing: keys => `faltan respuestas y no hay terminal para preguntar: ${keys}`,
+  noQuotes: "sin comillas simples (') ni saltos de línea",
+  emptyAsk:
+    'No encontré historial (data/contas.db o data/state.json). Si el bot nunca se usó en un grupo, está bien: ¿empezar con el historial vacío?',
+  emptyRefused:
+    'sin historial (data/contas.db o data/state.json) y sin ALLOW_EMPTY_STATE=1 en .env, el bot no arrancaría: no se cambió nada. Si el historial vacío es esperado, ejecuta esto de nuevo en un terminal y confirma, o agrega ALLOW_EMPTY_STATE=1 a .env',
 }
 
 export const SETUP_TEXT: Record<Lang, SetupText> = { 'pt-BR': pt, en, es }

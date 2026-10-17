@@ -23,3 +23,30 @@ test('closest returns the single nearest key within a third of its length, else 
     null,
   )
 })
+
+test('clean drops invisible format characters, so a zero-width space cannot fake a new name', () => {
+  const [zwsp, shy, lrm, wj, bom, zwj] = [0x200b, 0xad, 0x200e, 0x2060, 0xfeff, 0x200d].map(c =>
+    String.fromCodePoint(c),
+  )
+  assert.equal(clean(`Lu${zwsp}z`), 'Luz')
+  assert.equal(clean(`a${shy}b${lrm}c${wj}d${bom}e`), 'abcde')
+  assert.equal(clean(`👨${zwj}👩${zwj}👧 /pago luz`), '/pago luz')
+})
+
+test('closest skips keys whose length alone rules them out, so a huge query costs nothing', () => {
+  const keys = ['luz', 'agua', 'internet', 'aluguel', 'gas', 'cartao nu', 'cartao c6', 'condominio', 'netflix', 'iptu']
+  const t0 = performance.now()
+  assert.equal(
+    closest(keys, x => x, 'x'.repeat(200_000)),
+    null,
+  )
+  assert.ok(performance.now() - t0 < 50, `took ${Math.round(performance.now() - t0)} ms`)
+  assert.equal(
+    closest(keys, x => x, 'internt'),
+    'internet',
+  )
+  assert.equal(
+    closest(keys, x => x, 'cartao n'),
+    'cartao nu',
+  )
+})

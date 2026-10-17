@@ -1,4 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jean Souza
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { resolve } from 'node:path'
@@ -31,4 +34,16 @@ test('every locked dependency carries an allowed license', () => {
     .filter(([name, p]) => name && !ALLOWED.has(p.license ?? ''))
     .map(([name, p]) => `${name}: ${p.license}`)
   assert.deepEqual(bad, [])
+})
+
+test('every tracked source file carries an SPDX license and a copyright line', () => {
+  const files = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter(f => /^(src|test|scripts)\/.*\.(ts|sh)$/.test(f) || ['bin/contas-bot', 'install.sh'].includes(f))
+  assert.ok(files.length > 50)
+  const bare = files.filter(f => {
+    const head = read(f).split('\n').slice(0, 3).join('\n')
+    return !/SPDX-License-Identifier: GPL-3\.0-or-later/.test(head) || !/Copyright \(C\) \d{4} /.test(head)
+  })
+  assert.deepEqual(bare, [])
 })

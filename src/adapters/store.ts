@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { AmountStatus, Bill, GroupState, Payment } from '../core/types.ts'
-import { fromV1, type GroupMeta, type ImportedGroup } from './v1.ts'
+import { fromV1, type GroupMeta, type ImportedGroup, type Warn } from './v1.ts'
 
 export type Store = {
   load(jid: string): GroupState | null
@@ -12,7 +12,7 @@ export type Store = {
   groups(): string[]
   close(): void
 }
-export type StoreOptions = { dbPath: string; v1Path: string; allowEmpty: boolean }
+export type StoreOptions = { dbPath: string; v1Path: string; allowEmpty: boolean; log?: Warn }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS groups (
@@ -212,7 +212,7 @@ export function openStore(o: StoreOptions): { store: Store; imported: number | n
   const tmp = `${o.dbPath}.tmp`
   if (existsSync(o.dbPath)) return { store: open(o.dbPath), imported: null }
   if (existsSync(o.v1Path)) {
-    const groups = fromV1(JSON.parse(readFileSync(o.v1Path, 'utf8')))
+    const groups = fromV1(JSON.parse(readFileSync(o.v1Path, 'utf8')), o.log)
     for (const f of [tmp, `${tmp}-journal`, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true })
     const db = open(tmp)
     try {

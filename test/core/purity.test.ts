@@ -31,6 +31,12 @@ test('core may not import Node, pino, Baileys or code outside core, nor read the
   assert.equal(out.match(/lint\/style\/noRestrictedGlobals/g)?.length, 2, out)
 })
 
+test('core may not import a bare Node builtin either', () => {
+  const bare = "import { readFile } from 'fs'\nexport const f = readFile\n"
+  assert.match(lintProbe('src/core/probe.ts', bare), /lint\/correctness\/noNodejsModules/)
+  assert.doesNotMatch(lintProbe('src/probe.ts', bare), /noNodejsModules/)
+})
+
 test('the same code outside core is allowed', () => {
   const out = lintProbe('src/probe.ts', PROBE)
   assert.doesNotMatch(out, /noRestricted/)

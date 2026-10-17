@@ -5,10 +5,11 @@ import type { Bill } from './types.ts'
 
 export type Resolution =
   | { ok: true; bill: Bill; amount: number | null; month: string | null }
-  | { ok: false; why: 'missingBill' | 'pagoSyntax' | 'futureMonth'; amount: number | null }
+  | { ok: false; why: 'pagoSyntax' | 'futureMonth'; amount: number | null }
+  | { ok: false; why: 'missingBill'; amount: number | null; month: string | null }
   | { ok: false; why: 'suggest'; bill: Bill; amount: number | null; month: string | null }
   | { ok: false; why: 'notFound'; q: string }
-  | { ok: false; why: 'onePerCommand'; bills: Bill[] }
+  | { ok: false; why: 'onePerCommand'; bills: Bill[]; amount: number | null; month: string | null }
 
 type Match =
   | { kind: 'bill'; bill: Bill }
@@ -97,9 +98,9 @@ function finish(m: Match, amount: number | null, month: string | null): Resoluti
     case 'bill':
       return { ok: true, bill: m.bill, amount, month }
     case 'empty':
-      return { ok: false, why: 'missingBill', amount }
+      return { ok: false, why: 'missingBill', amount, month }
     case 'many':
-      return { ok: false, why: 'onePerCommand', bills: m.bills }
+      return { ok: false, why: 'onePerCommand', bills: m.bills, amount, month }
     case 'typo':
       return { ok: false, why: 'suggest', bill: m.bill, amount, month }
     case 'none':
@@ -158,7 +159,7 @@ export function resolve(arg: string, all: readonly Bill[], current: string, deci
   if (whole) return { ok: true, bill: whole, amount: null, month: null }
   const billWords = new Set(bills.flatMap(words))
   const tokens = joinYears(arg.split(' ').filter(Boolean), billWords, current)
-  const { marked } = findMoney(tokens, decimal)
+  const { marked } = findMoney(tokens, decimal, billWords)
   const money: MoneyHit | undefined = marked[0]
   if (marked.length > 1) return { ok: false, why: 'pagoSyntax', amount: null }
   const months = tokens

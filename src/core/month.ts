@@ -58,8 +58,13 @@ for (const names of Object.values(MONTH_NAMES)) {
 const pad = (m: number) => String(m).padStart(2, '0')
 const fullYear = (y: string) => (y.length === 2 ? 2000 + Number(y) : Number(y))
 
+const FORMATS = new Map<string, Intl.DateTimeFormat>()
+
 export function monthOf(ms: number, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit' }).formatToParts(ms)
+  const format =
+    FORMATS.get(timeZone) ?? new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit' })
+  FORMATS.set(timeZone, format)
+  const parts = format.formatToParts(ms)
   const get = (type: string) => parts.find(p => p.type === type)?.value ?? ''
   return `${get('year')}-${get('month')}`
 }

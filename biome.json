@@ -15,35 +15,20 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
-      "nursery": { "noFloatingPromises": "error" },
-      "suspicious": { "noConsole": "error" }
+      "style": { "noNonNullAssertion": "error" },
+      "suspicious": { "noConsole": "error", "noExplicitAny": "error" },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 15 } }
+      },
+      "nursery": { "noFloatingPromises": "error", "useExhaustiveSwitchCases": "error" }
     }
   },
   "overrides": [
     {
-      "includes": [
-        "src/core/**",
-        "src/shell/**",
-        "src/adapters/**",
-        "test/core/**",
-        "test/shell/**",
-        "test/adapters/**"
-      ],
-      "linter": {
-        "rules": {
-          "style": { "noNonNullAssertion": "error" },
-          "suspicious": { "noExplicitAny": "error" },
-          "complexity": {
-            "noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 15 } }
-          },
-          "nursery": { "useExhaustiveSwitchCases": "error" }
-        }
-      }
-    },
-    {
       "includes": ["src/core/**"],
       "linter": {
         "rules": {
+          "correctness": { "noNodejsModules": "error" },
           "style": {
             "noRestrictedImports": {
               "level": "error",

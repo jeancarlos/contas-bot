@@ -14,8 +14,9 @@ const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'log.showSignature=false', ...args], { cwd, encoding: 'utf8', env: cleanEnv(), maxBuffer: 64 * 1024 * 1024 })
 const key = (t: string) => (/(\d+)\.(\d+)\.(\d+)/.exec(t) as RegExpExecArray).slice(1).map(Number)
 const cmp = (a: string, b: string) => {
-  const [x, y] = [key(a), key(b)]
-  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]
+  const [x0 = 0, x1 = 0, x2 = 0] = key(a)
+  const [y0 = 0, y1 = 0, y2 = 0] = key(b)
+  return x0 - y0 || x1 - y1 || x2 - y2
 }
 
 export function buildChangelog(repoDir: string): Release[] {
@@ -26,13 +27,14 @@ export function buildChangelog(repoDir: string): Release[] {
   const releases = tags.map((tag, i) => {
     const range = i ? `${tags[i - 1]}..${tag}` : tag
     const entries: Entry[] = []
-    for (const raw of git(repoDir, 'log', '--no-merges', '--format=%H%x00%B%x1e', range).split('\x1e')) {
-      const body = raw.split('\x00')[1]
+    const log = git(repoDir, 'log', '--no-merges', '--notes=changelog', '--format=%H%x00%B%x00%N%x1e', range)
+    for (const raw of log.split('\x1e')) {
+      const [, body, note = ''] = raw.split('\x00')
       if (!body) continue
-      const m = LOGGED.exec(body.trim().split(/\r?\n/)[0].trimEnd())
+      const m = LOGGED.exec((body.trim().split(/\r?\n/)[0] ?? '').trimEnd())
       if (!m) continue
-      const t = parseTrailers(body)
-      const entry: Entry = { en: m[3] }
+      const t = { ...parseTrailers(body), ...parseTrailers(note) }
+      const entry: Entry = { en: m[3] ?? '' }
       if (t['Changelog-pt-BR']) entry['pt-BR'] = t['Changelog-pt-BR']
       if (t['Changelog-es']) entry.es = t['Changelog-es']
       entries.push(entry)

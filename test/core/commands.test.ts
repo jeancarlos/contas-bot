@@ -10,7 +10,28 @@ test('parseCommand: slash commands in any language, accents and case ignored, ty
   assert.deepEqual(parseCommand('/conta adiciona Luz'), { cmd: 'conta', arg: 'adiciona Luz' })
   assert.deepEqual(parseCommand('/pagp luz'), { cmd: 'unknown', typed: 'pagp', suggestion: 'pago' })
   assert.equal(parseCommand('paguei a luz'), null)
-  assert.equal(parseCommand('/'), null)
+  assert.deepEqual(parseCommand('/'), { cmd: 'unknown', typed: '', suggestion: null })
+})
+
+test('typos up to two edits from one command suggest that command, ties and far words suggest nothing', () => {
+  const cases: [string, string | null][] = [
+    ['pgao', 'pago'],
+    ['apgo', 'pago'],
+    ['lsita', 'lista'],
+    ['ajdua', 'ajuda'],
+    ['aydua', 'ajuda'],
+    ['hlep', 'ajuda'],
+    ['despaog', 'despago'],
+    ['xyz', null],
+    ['cotna', 'conta'],
+  ]
+  for (const [typed, suggestion] of cases) {
+    assert.deepEqual(parseCommand(`/${typed} luz`), { cmd: 'unknown', typed, suggestion }, typed)
+  }
+  assert.deepEqual(parseCommand('/paist'), { cmd: 'unknown', typed: 'paist', suggestion: null })
+  assert.deepEqual(parseConta('pasua luz'), { sub: 'unknown', typed: 'pasua', suggestion: 'pause' })
+  assert.deepEqual(parseConta('renmoear a = b'), { sub: 'unknown', typed: 'renmoear', suggestion: 'rename' })
+  assert.deepEqual(parseConta('zzz luz'), { sub: 'unknown', typed: 'zzz', suggestion: null })
 })
 
 test('parseConta: subcommands in any language, rename needs exactly one "="', () => {
@@ -24,5 +45,5 @@ test('parseConta: subcommands in any language, rename needs exactly one "="', ()
   assert.deepEqual(parseConta('renomeia Cartão Nu'), { sub: 'help' })
   assert.deepEqual(parseConta('renomeia a = b = c'), { sub: 'help' })
   assert.deepEqual(parseConta('remove'), { sub: 'help' })
-  assert.deepEqual(parseConta('pausaa luz'), { sub: 'unknown', typed: 'pausaa', suggestion: 'pausa' })
+  assert.deepEqual(parseConta('pausaa luz'), { sub: 'unknown', typed: 'pausaa', suggestion: 'pause' })
 })

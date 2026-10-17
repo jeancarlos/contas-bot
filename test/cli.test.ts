@@ -1,7 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, writeFile, copyFile, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, copyFile, symlink } from 'node:fs/promises'
+import { openStore } from '../src/adapters/store.ts'
+import { emptyState } from '../src/core/types.ts'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -95,4 +97,25 @@ test('nonexistent CONTAS_BOT_TTY path shows hint without error leak', async () =
   assert.doesNotMatch(r.stderr, /tty/)
   assert.doesNotMatch(r.stderr, /inexistente/)
   assert.doesNotMatch(r.stderr, /No such file/)
+})
+
+test('status counts the groups in contas.db as well as a leftover state.json', async () => {
+  const dir = await install('2.0.0')
+  await mkdir(join(dir, 'data'))
+  const { store } = openStore({
+    dbPath: join(dir, 'data', 'contas.db'),
+    v1Path: join(dir, 'data', 'state.json'),
+    allowEmpty: true,
+  })
+  store.commit('120363000000000001@g.us', { ...emptyState(), lastReset: '2026-10' })
+  store.commit('120363000000000002-1234@g.us', { ...emptyState(), lastReset: '2026-10' })
+  store.close()
+  await writeFile(join(dir, 'data', 'state.json'), '{"groups":{"120363000000000001@g.us":{},"999@g.us":{}}}')
+  const bin = await mkdtemp(join(tmpdir(), 'bin-'))
+  await writeFile(join(bin, 'docker'), '#!/bin/sh\necho running\n', { mode: 0o755 })
+  const r = spawnSync('sh', [join(dir, 'contas-bot'), 'status'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  assert.match(r.stdout, /groups: 3$/m, r.stdout)
 })

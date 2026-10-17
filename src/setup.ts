@@ -1,9 +1,11 @@
 import * as p from '@clack/prompts'
-import { access, chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Lang } from './core/types.ts'
 import {
   AI_PRESETS,
+  allowEmpty,
+  envSafe,
   LANGS,
   answersFromDotenv,
   answersFromEnv,
@@ -25,6 +27,7 @@ import {
   validUrl,
   withDefaults,
   type Answers,
+  type Mode,
   type Pairing,
 } from './setup/core.ts'
 import { SETUP_TEXT, type SetupText } from './setup/i18n.ts'
@@ -129,14 +132,14 @@ async function askEndpoint(a: Partial<Answers>) {
     await p.text({
       message: tx.aiUrl,
       initialValue: a.llmUrl,
-      validate: v => (validUrl(v ?? '') ? undefined : tx.aiUrlInvalid),
+      validate: v => (!validUrl(v ?? '') ? tx.aiUrlInvalid : envSafe(v ?? '') ? undefined : tx.noQuotes),
     }),
   ).trim()
   a.visionModel = check(
     await p.text({
       message: tx.aiModel,
       initialValue: a.visionModel,
-      validate: v => (v?.trim() ? undefined : tx.required),
+      validate: v => (!v?.trim() ? tx.required : envSafe(v) ? undefined : tx.noQuotes),
     }),
   ).trim()
 }
@@ -146,7 +149,7 @@ async function askKey(ai: Exclude<Answers['ai'], 'none'>, kept: string | undefin
   const typed = check(
     await p.password({
       message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
-      validate: v => (preset && !kept && !v?.trim() ? tx.required : undefined),
+      validate: v => (preset && !kept && !v?.trim() ? tx.required : envSafe(v ?? '') ? undefined : tx.noQuotes),
     }),
   ).trim()
   return typed || kept || ''
@@ -188,7 +191,7 @@ async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<An
     await p.text({
       message: tx.group,
       initialValue: a.group,
-      validate: v => (validGroup(v ?? '') ? undefined : tx.groupInvalid),
+      validate: v => (!validGroup(v ?? '') ? tx.groupInvalid : envSafe(v ?? '') ? undefined : tx.noQuotes),
     }),
   ).trim()
   const full = withDefaults(a) as Answers
@@ -225,8 +228,8 @@ async function install(
   }
   tx = SETUP_TEXT[a.lang]
   if (o.touchAuth !== false) await ensureAuthDir()
-  const empty = o.fresh === true && !(await exists('data/state.json')) && !(await exists('data/contas.db'))
-  await mkdir(join(DIR, 'data'), { recursive: true })
+  const empty = allowEmpty(await noHistory(), o.fresh === true, o.saved ?? {})
+  await ensureDataDir()
   await writeFile(
     join(DIR, '.env'),
     buildEnv(a, ...savedIds(o.saved ?? {}, process.getuid?.() ?? 1000, process.getgid?.() ?? 1000), empty),
@@ -238,9 +241,28 @@ async function install(
   return a
 }
 
-async function ensureAuthDir() {
-  await mkdir(join(DIR, 'auth'), { recursive: true, mode: 0o700 })
-  await chmod(join(DIR, 'auth'), 0o700)
+async function privateDir(name: string) {
+  await mkdir(join(DIR, name), { recursive: true, mode: 0o700 })
+  await chmod(join(DIR, name), 0o700)
+}
+const ensureAuthDir = () => privateDir('auth')
+const ensureDataDir = () => privateDir('data')
+const noHistory = async () => !(await exists('data/state.json')) && !(await exists('data/contas.db'))
+
+async function consentEmpty(mode: Mode, saved: Record<string, string>, rewrites: boolean) {
+  if (mode === 'install' || saved.ALLOW_EMPTY_STATE === '1' || !(await noHistory())) return
+  if (!interactive) {
+    process.stderr.write(`${tx.emptyRefused}\n`)
+    process.exit(1)
+  }
+  if (!check(await p.confirm({ message: tx.emptyAsk, initialValue: false }))) {
+    p.cancel(tx.cancelled)
+    process.exit(1)
+  }
+  saved.ALLOW_EMPTY_STATE = '1'
+  if (rewrites) return
+  const text = (await read('.env')) ?? ''
+  await appendFile(join(DIR, '.env'), `${text === '' || text.endsWith('\n') ? '' : '\n'}ALLOW_EMPTY_STATE=1\n`)
 }
 async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>): Promise<boolean> {
   p.note(describe({ ...d, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }), tx.existingTitle)
@@ -262,7 +284,10 @@ async function update(
 ) {
   const from = imageTag((await read('docker-compose.yml')) ?? '') ?? '?'
   if (review) await install(review.prefill, { touchAuth: false, source: review.source, saved: review.saved })
-  else await writeRuntime()
+  else {
+    await ensureDataDir()
+    await writeRuntime()
+  }
   p.outro(tx.updated(from, VERSION))
 }
 
@@ -283,12 +308,16 @@ async function main() {
   const prefill = interactive
     ? mergeAnswers(answersFromEnv(process.env), { ...fromDotenv, llmKey: undefined })
     : answersFromEnv(process.env)
+  await consentEmpty(mode, saved, Boolean(review))
   if (mode === 'update') {
     await update(review ? { prefill, source: fromDotenv, saved } : null)
     return
   }
   if (mode === 'install' || review) await install(prefill, { source: fromDotenv, saved, fresh: mode === 'install' })
-  else await ensureAuthDir()
+  else {
+    await ensureAuthDir()
+    await ensureDataDir()
+  }
   if (process.env.CONTAS_BOT_NO_PAIR === '1') {
     p.outro(tx.saved)
     return

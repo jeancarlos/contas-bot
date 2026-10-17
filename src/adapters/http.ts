@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http'
+import { isIP } from 'node:net'
 import { listMsg } from '../core/decide.ts'
 import { formatMoney, WORDS } from '../core/i18n.ts'
 import { monthTitle } from '../core/month.ts'
@@ -13,6 +14,7 @@ export type HttpDeps = {
   served(): string[]
   connected(): boolean
   log: { warn(o: object, m?: string): void }
+  hosts?: string[]
 }
 type Reply = { status: number; type: string; body: string }
 
@@ -58,22 +60,27 @@ function paidLines(g: { id: string; state: GroupState }, current: string): strin
   )
 }
 
+const family = (name: string, help: string) => [`# HELP ${name} ${help}`, `# TYPE ${name} gauge`]
+
 export function renderMetrics(d: HttpDeps): string {
   const current = d.currentMonth()
   const months = lastMonths(current, 24)
   const gs = groups(d)
-  const lines = ['# TYPE contas_whatsapp_connected gauge', `contas_whatsapp_connected ${d.connected() ? 1 : 0}`]
-  lines.push('# TYPE contas_bills_unpaid gauge')
+  const lines = [
+    ...family('contas_whatsapp_connected', '1 while the WhatsApp session is open, 0 otherwise'),
+    `contas_whatsapp_connected ${d.connected() ? 1 : 0}`,
+  ]
+  lines.push(...family('contas_bills_unpaid', 'Active bills not yet paid this month, per group'))
   for (const g of gs) {
     const unpaid = monthTotals(g.state, [current])[0]?.unpaid ?? 0
     lines.push(`contas_bills_unpaid{group="${label(g.id)}"} ${unpaid}`)
   }
-  lines.push('# TYPE contas_paid_amount gauge')
+  lines.push(...family('contas_paid_amount', 'Amount paid this month per bill, in the bot currency'))
   for (const g of gs) lines.push(...paidLines(g, current))
-  lines.push('# TYPE contas_month_total gauge')
+  lines.push(...family('contas_month_paid', 'Total paid per group and month over the last 24 months'))
   for (const g of gs)
     for (const t of monthTotals(g.state, months))
-      lines.push(`contas_month_total{group="${label(g.id)}",month="${t.month}"} ${String(t.total / 100)}`)
+      lines.push(`contas_month_paid{group="${label(g.id)}",month="${t.month}"} ${String(t.total / 100)}`)
   return `${lines.join('\n')}\n`
 }
 
@@ -179,7 +186,21 @@ export function handle(d: HttpDeps, url: URL): Reply {
   }
 }
 
-function route(d: HttpDeps, method: string | undefined, raw: string | undefined): Reply {
+const hostName = (h: string) =>
+  h
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, '')
+    .replace(/^\[(.*)\]$/, '$1')
+
+function hostOk(d: HttpDeps, host: string | undefined): boolean {
+  const name = hostName(host ?? '')
+  if (name === '') return false
+  return !name.includes('.') || isIP(name) !== 0 || (d.hosts ?? []).some(h => hostName(h) === name)
+}
+
+function route(d: HttpDeps, method: string | undefined, raw: string | undefined, host: string | undefined): Reply {
+  if (!hostOk(d, host)) return text(421, 'text/plain; charset=utf-8', 'misdirected request\n')
   if (method !== 'GET') return text(405, 'text/plain; charset=utf-8', 'method not allowed\n')
   let url: URL
   try {
@@ -197,7 +218,7 @@ function route(d: HttpDeps, method: string | undefined, raw: string | undefined)
 
 export function startHttp(d: HttpDeps, port: number): Promise<Server> {
   const server = createServer((req, res) => {
-    const r = route(d, req.method, req.url)
+    const r = route(d, req.method, req.url, req.headers.host)
     res.writeHead(r.status, { ...HEADERS, 'content-type': r.type })
     res.end(r.body)
   })

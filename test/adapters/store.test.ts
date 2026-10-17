@@ -25,10 +25,19 @@ const STATE: GroupState = {
   nextBillId: 5,
   months: {
     '2026-09': {
-      1: { amount: 25959, status: 'typed', by: 'Ana', paidAt: 1790000000000, messageId: 'M1' },
-      4: { amount: null, status: 'none', by: 'Beto', paidAt: 1790000000001, messageId: 'M2' },
+      1: {
+        amount: 25959,
+        status: 'typed',
+        by: 'Ana',
+        paidAt: 1790000000000,
+        messageId: 'M1',
+        byJid: 'ana@s.whatsapp.net',
+      },
+      4: { amount: null, status: 'none', by: 'Beto', paidAt: 1790000000001, messageId: 'M2', byJid: null },
     },
-    '2026-10': { 1: { amount: null, status: 'pending', by: 'Ana', paidAt: 1792000000000, messageId: 'M3' } },
+    '2026-10': {
+      1: { amount: null, status: 'pending', by: 'Ana', paidAt: 1792000000000, messageId: 'M3', byJid: null },
+    },
   },
   handled: [
     { id: 'C', changed: true, warned: true },
@@ -73,7 +82,7 @@ test('a failed commit rolls back and leaves the previous state', () => {
   const broken: GroupState = {
     ...STATE,
     bills: [],
-    months: { '2026-10': { 99: { amount: 1, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'X' } } },
+    months: { '2026-10': { 99: { amount: 1, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'X', byJid: null } } },
   }
   assert.throws(() => store.commit(JID, broken))
   assert.deepEqual(store.load(JID), STATE)
@@ -168,8 +177,51 @@ test('the schema is versioned', () => {
   const { store, dbPath } = fresh()
   store.close()
   const db = new DatabaseSync(dbPath)
-  assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1)
+  assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 2)
   db.close()
+})
+
+const version = (db: DatabaseSync) => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+const schema = (db: DatabaseSync) => db.prepare('SELECT type, name, sql FROM sqlite_master ORDER BY name').all()
+
+test('a schema 1 database gains the payer id column once, its rows read as null, and new ids round-trip', () => {
+  const { store, dbPath, ...p } = fresh()
+  store.commit(JID, STATE)
+  store.close()
+  const old = new DatabaseSync(dbPath)
+  old.exec('ALTER TABLE payments DROP COLUMN paid_by_jid')
+  old.exec('PRAGMA user_version = 1')
+  old.close()
+  const migrated = openStore({ ...p, dbPath, allowEmpty: false }).store
+  const legacy = migrated.load(JID)
+  assert.deepEqual(legacy?.months['2026-09']?.[1]?.byJid, null)
+  const withJid = structuredClone(STATE)
+  migrated.commit(JID, withJid)
+  migrated.close()
+  const again = openStore({ ...p, dbPath, allowEmpty: false }).store
+  assert.deepEqual(again.load(JID), withJid)
+  again.close()
+  const db = new DatabaseSync(dbPath)
+  assert.equal(version(db), 2)
+  const cols = (db.prepare('PRAGMA table_info(payments)').all() as { name: string }[]).map(c => c.name)
+  assert.equal(cols.filter(c => c === 'paid_by_jid').length, 1)
+  db.close()
+})
+
+test('a schema 2 database opens untouched', () => {
+  const { store, dbPath, ...p } = fresh()
+  store.commit(JID, STATE)
+  store.close()
+  const before = new DatabaseSync(dbPath)
+  const shape = schema(before)
+  before.close()
+  const reopened = openStore({ ...p, dbPath, allowEmpty: false }).store
+  assert.deepEqual(reopened.load(JID), STATE)
+  reopened.close()
+  const after = new DatabaseSync(dbPath)
+  assert.deepEqual(schema(after), shape)
+  assert.equal(version(after), 2)
+  after.close()
 })
 
 test('a fractional amount is rejected and leaves the previous state', () => {
@@ -177,8 +229,62 @@ test('a fractional amount is rejected and leaves the previous state', () => {
   store.commit(JID, STATE)
   const bad: GroupState = {
     ...STATE,
-    months: { '2026-10': { 1: { amount: 2161.2, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'X' } } },
+    months: {
+      '2026-10': { 1: { amount: 2161.2, status: 'typed', by: 'Ana', paidAt: 1, messageId: 'X', byJid: null } },
+    },
   }
   assert.throws(() => store.commit(JID, bad))
   assert.deepEqual(store.load(JID), STATE)
+})
+
+test('a database from a newer schema is refused and left as it was; an unversioned one is stamped', () => {
+  const p = dir()
+  const db = new DatabaseSync(p.dbPath)
+  db.exec('PRAGMA user_version = 3')
+  db.close()
+  assert.throws(() => openStore({ ...p, allowEmpty: false }), /schema 3/)
+  const after = new DatabaseSync(p.dbPath)
+  assert.equal(version(after), 3)
+  assert.equal(after.prepare("SELECT name FROM sqlite_master WHERE name = 'groups'").get(), undefined)
+  after.close()
+  const q = dir()
+  new DatabaseSync(q.dbPath).close()
+  openStore({ ...q, allowEmpty: false }).store.close()
+  const stamped = new DatabaseSync(q.dbPath)
+  assert.equal(version(stamped), 2)
+  stamped.close()
+})
+
+test('a v1 amount too large to keep in cents imports as no amount and the group stays loadable', () => {
+  const p = dir()
+  const row = (amount: unknown) => ({
+    name: 'Luz',
+    amount,
+    by: 'Ana',
+    paid_at: '2026-10-01T00:00:00Z',
+    message_id: 'M',
+  })
+  writeFileSync(
+    p.v1Path,
+    JSON.stringify({
+      groups: {
+        [JID]: { _meta: { bills: ['Luz'], last_reset: '2026-10' }, months: { '2026-10': { luz: row(1e14) } } },
+      },
+    }),
+  )
+  const { store, imported } = openStore({ ...p, allowEmpty: false })
+  assert.equal(imported, 1)
+  assert.equal(store.load(JID)?.months['2026-10']?.[1]?.amount, null)
+})
+
+test('the import warns through the store log about corrupt months it drops', () => {
+  const p = dir()
+  writeFileSync(
+    p.v1Path,
+    JSON.stringify({ groups: { [JID]: { _meta: { bills: ['Luz'] }, months: { '2026-09': 1 } } } }),
+  )
+  const warnings: object[] = []
+  const { imported } = openStore({ ...p, allowEmpty: false, log: { warn: o => warnings.push(o) } })
+  assert.equal(imported, 1)
+  assert.deepEqual(warnings, [{ jid: JID, month: '2026-09' }])
 })

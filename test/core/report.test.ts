@@ -6,9 +6,10 @@ import { emptyState, type GroupState, type Payment } from '../../src/core/types.
 const pay = (amount: number | null, status: Payment['status'], paidAt: number): Payment => ({
   amount,
   status,
-  by: 'Gabi',
+  by: 'Ana',
   paidAt,
   messageId: `m${paidAt}`,
+  byJid: null,
 })
 
 function sample(): GroupState {
@@ -51,16 +52,16 @@ test('paymentRows: inclusive range ordered by month then bill, current bill name
   const bill = s.bills[0]
   if (bill) bill.name = 'Energia'
   assert.deepEqual(paymentRows(s, '2026-09', '2026-10'), [
-    { month: '2026-09', bill: 'Água', amountCents: null, status: 'none', by: 'Gabi', paidAt: 3 },
-    { month: '2026-09', bill: 'Energia', amountCents: 8000, status: 'typed', by: 'Gabi', paidAt: 1 },
-    { month: '2026-09', bill: 'Farmácia', amountCents: 2550, status: 'read', by: 'Gabi', paidAt: 2 },
-    { month: '2026-10', bill: 'Energia', amountCents: 9000, status: 'typed', by: 'Gabi', paidAt: 4 },
+    { month: '2026-09', bill: 'Água', amountCents: null, status: 'none', by: 'Ana', paidAt: 3 },
+    { month: '2026-09', bill: 'Energia', amountCents: 8000, status: 'typed', by: 'Ana', paidAt: 1 },
+    { month: '2026-09', bill: 'Farmácia', amountCents: 2550, status: 'read', by: 'Ana', paidAt: 2 },
+    { month: '2026-10', bill: 'Energia', amountCents: 9000, status: 'typed', by: 'Ana', paidAt: 4 },
   ])
   assert.equal(paymentRows(s, '2026-10', '2026-10').length, 1)
 })
 
-test('monthTotals: a paused paid bill counts in neither paid nor total', () => {
+test('monthTotals: a paused paid bill counts as paid and in the total', () => {
   const s = sample()
   s.months['2026-09'] = { ...s.months['2026-09'], 3: pay(5000, 'typed', 4) }
-  assert.deepEqual(monthTotals(s, ['2026-09']), [{ month: '2026-09', total: 10550, paid: 3, unpaid: 0 }])
+  assert.deepEqual(monthTotals(s, ['2026-09']), [{ month: '2026-09', total: 15550, paid: 4, unpaid: 0 }])
 })

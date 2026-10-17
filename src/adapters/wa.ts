@@ -1,5 +1,6 @@
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Transform } from 'node:stream'
 import type { Boom } from '@hapi/boom'
 import makeWASocket, {
   type ConnectionState,
@@ -17,6 +18,7 @@ import makeWASocket, {
   type WAVersion,
 } from '@whiskeysockets/baileys'
 import type { Logger } from 'pino'
+import { TEXT_MAX, THUMBS } from '../core/decide.ts'
 import type { EditInput, MediaRef, MessageInput, MsgKey } from '../core/types.ts'
 import type { Wa } from '../shell/run.ts'
 import { waVersionOnce } from '../waVersion.ts'
@@ -94,12 +96,12 @@ export async function resolveInviteCodes(
         cfg.groups.add(id)
         codes.splice(codes.indexOf(code), 1)
         cfg.log.info(
-          { code, jid: id, subject },
+          { jid: id, subject },
           'resolved invite link; put this jid in GROUP_INVITE_LINKS directly to stop depending on the link',
         )
         await cfg.onResolved?.(code, id)
       } catch (err) {
-        cfg.log.warn({ err, code }, 'invite link resolution failed')
+        cfg.log.warn({ err }, 'invite link resolution failed')
       }
     }),
   )
@@ -160,15 +162,22 @@ export function gate(groups: Set<string>, cfg: Handlers): Handlers {
   }
 }
 
+const thumbsUp = (r: Content['reactionMessage']) => (r?.key?.fromMe && THUMBS.test(r.text ?? '') ? r.text : null)
+
 function textOf(c: Content): string {
   const raw =
-    c.conversation ?? c.extendedTextMessage?.text ?? c.imageMessage?.caption ?? c.documentMessage?.caption ?? ''
-  return raw.replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
+    c.conversation ??
+    c.extendedTextMessage?.text ??
+    c.imageMessage?.caption ??
+    c.documentMessage?.caption ??
+    thumbsUp(c.reactionMessage) ??
+    ''
+  return raw.slice(0, TEXT_MAX).replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function mediaOf(c: Content, id: string, msg: WAMessage, msgs: Messages): MediaRef | undefined {
   const ref = (mime: string, size: Num, message: Content): MediaRef => {
-    msgs.set(id, { key: msg.key, message })
+    if (!msgs.has(id)) msgs.set(id, { key: msg.key, message })
     const handle: Handle = { id, size: toNumber(size) }
     return { mime, handle }
   }
@@ -179,12 +188,12 @@ function mediaOf(c: Content, id: string, msg: WAMessage, msgs: Messages): MediaR
   return undefined
 }
 
-function quotedOf(c: Content, remoteJid: string, msgs: Messages): MediaRef | undefined {
+function quotedOf(c: Content, remoteJid: string, id: string, msgs: Messages): MediaRef | undefined {
   const ctx = c.extendedTextMessage?.contextInfo ?? c.imageMessage?.contextInfo ?? c.documentMessage?.contextInfo
   const quoted = normalizeMessageContent(ctx?.quotedMessage)
   if (!ctx?.stanzaId || !quoted) return undefined
   const key = { remoteJid, id: ctx.stanzaId, participant: ctx.participant, fromMe: false }
-  return mediaOf(quoted, `${remoteJid}:${ctx.stanzaId}:quoted`, { key, message: ctx.quotedMessage }, msgs)
+  return mediaOf(quoted, `${remoteJid}:${id}:quoted`, { key, message: ctx.quotedMessage }, msgs)
 }
 
 const keyOf = (k: WAMessageKey, id: string, remoteJid: string): MsgKey => ({
@@ -199,18 +208,22 @@ export function toMessage(msg: WAMessage, msgs: Messages): MessageInput | null {
   const c = normalizeMessageContent(msg.message)
   const { id, remoteJid } = msg.key
   if (!c || c.protocolMessage || !id || !remoteJid) return null
+  const text = textOf(c)
+  const media = mediaOf(c, `${remoteJid}:${id}`, msg, msgs)
+  const quoted = quotedOf(c, remoteJid, id, msgs)
+  if (!text && !media && !quoted) return null
   return {
     kind: 'message',
     key: keyOf(msg.key, id, remoteJid),
     sender: msg.pushName || msg.key.participant || '',
-    text: textOf(c),
+    text,
     at: millis(msg.messageTimestamp),
-    media: mediaOf(c, `${remoteJid}:${id}`, msg, msgs),
-    quoted: quotedOf(c, remoteJid, msgs),
+    media,
+    quoted,
   }
 }
 
-export function toEdit(u: WAMessageUpdate, recent: Recent): EditInput | null {
+export function toEdit(u: WAMessageUpdate, recent: Recent, now = Date.now): EditInput | null {
   const c = normalizeMessageContent(u.update.message?.editedMessage?.message)
   const { id, remoteJid } = u.key
   if (!c || !id || !remoteJid) return null
@@ -220,7 +233,7 @@ export function toEdit(u: WAMessageUpdate, recent: Recent): EditInput | null {
     key: keyOf(u.key, id, remoteJid),
     sender: original?.sender || u.key.participant || '',
     text: textOf(c),
-    at: millis(u.update.messageTimestamp),
+    at: Math.min(millis(u.update.messageTimestamp), now()),
     media: original?.media,
   }
 }
@@ -260,19 +273,53 @@ function trustedHost(msg: WAMessage): boolean {
   return trustedUrl(`https://${given?.host ?? 'mmg.whatsapp.net'}${directPath}`) !== null
 }
 
+function abortable(signal: AbortSignal | undefined) {
+  if (!signal) return <T>(p: Promise<T>) => p
+  const aborted = new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason)
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+  aborted.catch(() => {})
+  return <T>(p: Promise<T>) => Promise.race([p, aborted])
+}
+
 export async function download(
   media: MediaRef,
   msgs: Messages,
   ctx: DownloadCtx,
   dl = downloadMediaMessage,
+  signal?: AbortSignal,
 ): Promise<Buffer> {
+  signal?.throwIfAborted()
   const h = media.handle as Handle
   if (h.size > MAX_RECEIPT) throw new Error('receipt too large')
   const msg = msgs.get(h.id)
   if (!msg) throw new Error('receipt expired')
   if (!msg.key.remoteJid || !h.id.startsWith(`${msg.key.remoteJid}:`)) throw new Error('receipt group mismatch')
   if (!trustedHost(msg)) throw new Error('receipt host refused')
-  const stream = await dl(msg, 'stream', {}, ctx)
+  const raced = abortable(signal)
+  const reuploadRequest = async (m: WAMessage) => {
+    const fresh = await raced(ctx.reuploadRequest(m))
+    if (!trustedHost(fresh)) throw new Error('receipt host refused')
+    return fresh
+  }
+  const opening = dl(msg, 'stream', signal ? { options: { signal } } : {}, { ...ctx, reuploadRequest })
+  void opening.then(
+    late => signal?.aborted && late.destroy(),
+    () => {},
+  )
+  const stream = await raced(opening)
+  const stop = () => stream.destroy(signal?.reason)
+  signal?.addEventListener('abort', stop, { once: true })
+  if (signal?.aborted) stop()
+  try {
+    return await collect(stream)
+  } finally {
+    signal?.removeEventListener('abort', stop)
+  }
+}
+
+async function collect(stream: Transform) {
   const chunks: Buffer[] = []
   let total = 0
   for await (const chunk of stream) {
@@ -500,7 +547,14 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
         async setDescription(text) {
           await sock.groupUpdateDescription(jid, text)
         },
-        download: media => download(media, msgs, { reuploadRequest: m => sock.updateMediaMessage(m), logger: sockLog }),
+        download: (media, signal) =>
+          download(
+            media,
+            msgs,
+            { reuploadRequest: m => sock.updateMediaMessage(m), logger: sockLog },
+            downloadMediaMessage,
+            signal,
+          ),
       }
     },
   }

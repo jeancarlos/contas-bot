@@ -83,6 +83,7 @@ test('fromV1 keeps every v1 payment, in cents rounded from the float, under the 
           by: p.by,
           paidAt: Date.parse(p.paid_at),
           messageId: p.message_id,
+          byJid: null,
         },
         `${month} ${key}`,
       )
@@ -114,7 +115,7 @@ test('fromV1 off path: missing amount, no bill list, junk entries, no groups', (
   assert.ok(g)
   assert.deepEqual(g.state.bills, [{ id: 1, name: 'Luz', key: 'luz', paused: false, removed: false }])
   assert.deepEqual(g.state.months, {
-    '2026-09': { 1: { amount: null, status: 'none', by: 'Ana', paidAt: 0, messageId: 'M1' } },
+    '2026-09': { 1: { amount: null, status: 'none', by: 'Ana', paidAt: 0, messageId: 'M1', byJid: null } },
   })
   assert.equal(g.state.pinnedId, null)
   assert.deepEqual(
@@ -134,4 +135,35 @@ test('fromV1 merges bill lines that normalize to the same key', () => {
       ['Luz', false],
     ],
   )
+})
+
+test('fromV1 keeps only amounts above zero and below 1e12, anything else is no amount', () => {
+  const amounts: unknown[] = [0, -5, 1e12, 1e14, Number.MAX_VALUE, '12', true, 0.004, 259.59, 999_999_999_999.99]
+  const months = Object.fromEntries(
+    amounts.map((amount, i) => [`2026-${String(i + 1).padStart(2, '0')}`, { luz: { name: 'Luz', amount } }]),
+  )
+  const [g] = fromV1({ groups: { 'g@g.us': { _meta: { bills: ['Luz'] }, months } } })
+  assert.ok(g)
+  assert.deepEqual(
+    Object.values(g.state.months).map(m => m[1]?.amount ?? null),
+    [null, null, null, null, null, null, null, null, 25959, 99999999999999],
+  )
+})
+
+test('a corrupt month is dropped with one warning naming the group and the month', () => {
+  const warnings: [object, string | undefined][] = []
+  const log = { warn: (o: object, m?: string) => warnings.push([o, m]) }
+  const months = { '2026-09': [], '2026-10': { luz: { amount: 80 } }, nope: {}, '2026-11': 'x' }
+  const [g] = fromV1({ groups: { j: { _meta: { bills: ['Luz'] }, months } } }, log)
+  assert.deepEqual(Object.keys(g?.state.months ?? {}), ['2026-10'])
+  assert.deepEqual(
+    warnings.map(([o]) => o),
+    [
+      { jid: 'j', month: '2026-09' },
+      { jid: 'j', month: 'nope' },
+      { jid: 'j', month: '2026-11' },
+    ],
+  )
+  assert.ok(warnings.every(([, m]) => m === 'dropping corrupt month'))
+  assert.doesNotThrow(() => fromV1({ groups: { j: { months } } }))
 })

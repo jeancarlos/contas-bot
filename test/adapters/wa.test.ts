@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { test } from 'node:test'
-import type { downloadMediaMessage, proto, WAMessage } from '@whiskeysockets/baileys'
+import type { downloadMediaMessage, proto, WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys'
+import { getUrlFromDirectPath } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import {
   download,
@@ -16,10 +17,13 @@ import {
   resolveInviteCodes,
   reportStatus,
   resolveOpenJids,
+  toEdit,
   toMessage,
   wireGroupEvents,
 } from '../../src/adapters/wa.ts'
-import type { EditInput, MessageInput } from '../../src/core/types.ts'
+import { type Ctx, decide } from '../../src/core/decide.ts'
+import { normalize } from '../../src/core/text.ts'
+import { type EditInput, emptyState, type GroupState, type MessageInput } from '../../src/core/types.ts'
 
 const G = 'grupo@g.us'
 const P = 'membro@s.whatsapp.net'
@@ -31,7 +35,7 @@ const must = <T>(v: T | null | undefined): T => {
 const wam = (id: string, message: proto.IMessage, extra: Partial<WAMessage> = {}): WAMessage => ({
   key: { id, remoteJid: G, fromMe: false, participant: P },
   message,
-  pushName: 'Gabi',
+  pushName: 'Ana',
   messageTimestamp: TS,
   ...extra,
 })
@@ -91,8 +95,8 @@ test('an offline append batch becomes message inputs with the WhatsApp timestamp
   assert.deepEqual(
     seen.map(i => [i.kind, i.key.id, i.text, i.at, i.sender]),
     [
-      ['message', 'a1', '/pago luz', TS * 1000, 'Gabi'],
-      ['message', 'a2', '/pago água 80', (TS + 60) * 1000, 'Gabi'],
+      ['message', 'a1', '/pago luz', TS * 1000, 'Ana'],
+      ['message', 'a2', '/pago água 80', (TS + 60) * 1000, 'Ana'],
     ],
   )
 })
@@ -110,7 +114,7 @@ test('an edit arrives from messages.update with the original id and media; its o
       },
     },
   }
-  ev.fire('messages.upsert', { type: 'notify', messages: [wam('e1', protocol, { pushName: 'Gabi' })] })
+  ev.fire('messages.upsert', { type: 'notify', messages: [wam('e1', protocol, { pushName: 'Ana' })] })
   ev.fire('messages.update', [
     { key: { remoteJid: G, id: 'r1', fromMe: false, participant: P }, update: { status: 4 } },
     {
@@ -130,7 +134,7 @@ test('an edit arrives from messages.update with the original id and media; its o
   )
   const edit = must(seen[1])
   assert.equal(edit.at, (TS + 100) * 1000)
-  assert.equal(edit.sender, 'Gabi')
+  assert.equal(edit.sender, 'Ana')
   assert.equal(edit.media?.mime, 'image/jpeg')
 })
 
@@ -149,14 +153,14 @@ test('a reply quoting an image carries the quoted receipt, downloaded with a re-
   const reuploadRequest = async (x: WAMessage) => x
   const got: { key: unknown; reupload: unknown }[] = []
   const dl = (async (msg: WAMessage, _type: string, _o: unknown, ctx?: { reuploadRequest: unknown }) => {
-    got.push({ key: msg.key, reupload: ctx?.reuploadRequest })
+    got.push({ key: msg.key, reupload: typeof ctx?.reuploadRequest })
     return Readable.from([Buffer.from('img')])
   }) as unknown as typeof downloadMediaMessage
   assert.equal((await download(must(m.quoted), msgs, { reuploadRequest, logger: silent }, dl)).toString(), 'img')
   assert.deepEqual(got, [
     {
       key: { remoteJid: G, id: 'r9', participant: 'outro@s.whatsapp.net', fromMe: false },
-      reupload: reuploadRequest,
+      reupload: 'function',
     },
   ])
 })
@@ -217,7 +221,7 @@ test('edits only remember the media of the newest 500 messages', () => {
     edits.map(e => [e.key.id, e.media?.mime, e.sender]),
     [
       ['m0', undefined, P],
-      ['m500', 'image/jpeg', 'Gabi'],
+      ['m500', 'image/jpeg', 'Ana'],
     ],
   )
 })
@@ -411,7 +415,7 @@ test('participantsIncludeSelf is true when the bot is among the participants, by
 
 test('participantsIncludeSelf is false when the participants are somebody else', () => {
   const me = ['bot@s.whatsapp.net', 'bot@lid']
-  assert.equal(participantsIncludeSelf(me, [{ id: 'gabi@s.whatsapp.net' }]), false)
+  assert.equal(participantsIncludeSelf(me, [{ id: 'ana@s.whatsapp.net' }]), false)
   assert.equal(participantsIncludeSelf(me, []), false)
 })
 
@@ -441,7 +445,7 @@ test('a remove event naming somebody else never reaches onRemoved', async () => 
     },
   })
   const me = ['bot@s.whatsapp.net']
-  if (participantsIncludeSelf(me, [{ id: 'gabi@s.whatsapp.net' }])) await g.onRemoved('mine@g.us')
+  if (participantsIncludeSelf(me, [{ id: 'ana@s.whatsapp.net' }])) await g.onRemoved('mine@g.us')
   assert.deepEqual(seen, [])
 })
 
@@ -483,12 +487,12 @@ test('wireGroupEvents: group-participants.update reaches onJoined on add-self an
   wireGroupEvents(ev, on, () => ['bot@s.whatsapp.net'], cfg)
   ev.fire('group-participants.update', {
     id: 'mine@g.us',
-    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    participants: [{ id: 'ana@s.whatsapp.net' }],
     action: 'add',
   })
   ev.fire('group-participants.update', {
     id: 'mine@g.us',
-    participants: [{ id: 'gabi@s.whatsapp.net' }],
+    participants: [{ id: 'ana@s.whatsapp.net' }],
     action: 'remove',
   })
   for (const action of ['promote', 'demote', 'modify']) {
@@ -618,14 +622,14 @@ test('quoted receipts get their own synthetic id and the message map keeps only 
     extendedTextMessage: { text: 'oi', contextInfo: { stanzaId: 'r9', quotedMessage: quoted } },
   })
   ev.fire('messages.upsert', { type: 'notify', messages: [reply] })
-  assert.ok(msgs.has('grupo@g.us:r9:quoted'))
+  assert.ok(msgs.has('grupo@g.us:q1:quoted'))
   const image = { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 } }
   ev.fire('messages.upsert', {
     type: 'notify',
     messages: Array.from({ length: 500 }, (_, i) => wam(`n${i}`, image)),
   })
   assert.equal(msgs.size, 500)
-  assert.equal(msgs.has('grupo@g.us:r9:quoted'), false)
+  assert.equal(msgs.has('grupo@g.us:q1:quoted'), false)
   assert.equal(msgs.has('grupo@g.us:n499'), true)
 })
 
@@ -796,4 +800,238 @@ test('reportStatus tells onStatus true on open, false on close, and ignores othe
   reportStatus(onStatus, { connection: 'close' })
   reportStatus(undefined, { connection: 'open' })
   assert.deepEqual(seen, [true, false])
+})
+
+const ctxPt: Ctx = {
+  locale: { lang: 'pt-BR', currency: 'BRL', decimal: ',', timeZone: 'America/Sao_Paulo' },
+  llm: true,
+}
+const OCT = Date.UTC(2026, 9, 10, 15)
+const atOct = (id: string, message: proto.IMessage, participant = P) =>
+  wam(id, message, { key: { id, remoteJid: G, fromMe: false, participant }, messageTimestamp: OCT / 1000 })
+function billsState(...names: string[]): GroupState {
+  const s = emptyState()
+  s.bills = names.map((name, i) => ({ id: i + 1, name, key: normalize(name), paused: false, removed: false }))
+  s.nextBillId = names.length + 1
+  s.lastReset = '2026-10'
+  return s
+}
+const step = (s: GroupState, m: WAMessage, msgs: Messages) => {
+  const input = toMessage(m, msgs)
+  return input ? decide(s, input, ctxPt).state : s
+}
+
+test('a reaction, pin, poll vote or keep-in-chat from the asker does not cancel their open question', () => {
+  for (const content of [
+    { reactionMessage: { key: { remoteJid: G, fromMe: false, id: 'OTHER' }, text: '👍', senderTimestampMs: OCT } },
+    { pinInChatMessage: { key: { remoteJid: G, fromMe: true, id: 'LIST' }, type: 1 } },
+    { pollUpdateMessage: { pollCreationMessageKey: { remoteJid: G, id: 'POLL' } } },
+    { keepInChatMessage: { key: { remoteJid: G, fromMe: true, id: 'LIST' }, keepType: 1 } },
+  ] as proto.IMessage[]) {
+    const msgs: Messages = new Map()
+    assert.equal(toMessage(atOct('N1', content), msgs), null, Object.keys(content)[0])
+    let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
+    s = step(s, atOct('N1', content), msgs)
+    s = step(s, atOct('Y1', { conversation: 'sim' }), msgs)
+    assert.equal(s.months['2026-10']?.[1]?.amount, 8000, `lost after ${Object.keys(content)[0]}`)
+  }
+})
+
+test('only a 👍 reaction to a bot message reaches decide; any other reaction neither answers nor cancels', () => {
+  const react = (text: string, fromMe: boolean) =>
+    atOct('R2', { reactionMessage: { key: { remoteJid: G, fromMe, id: 'BOT-ASK' }, text, senderTimestampMs: OCT } })
+  for (const t of ['👍', '👍🏽', '👍🏿']) assert.equal(must(toMessage(react(t, true), new Map())).text, t)
+  for (const [t, fromMe] of [
+    ['❤️', true],
+    ['👎', true],
+    ['😂', true],
+    ['👍👍', true],
+    ['', true],
+    ['👍', false],
+  ] as const) {
+    assert.equal(toMessage(react(t, fromMe), new Map()), null, `${t} ${fromMe}`)
+    const msgs: Messages = new Map()
+    let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
+    s = step(s, react(t, fromMe), msgs)
+    s = step(s, atOct('Y1', { conversation: 'sim' }), msgs)
+    assert.equal(s.months['2026-10']?.[1]?.amount, 8000, `${t} ${fromMe}`)
+  }
+})
+
+test('a 👍 reaction to the bot question answers it', () => {
+  const msgs: Messages = new Map()
+  let s = step(billsState('Luz'), atOct('Q1', { conversation: '/pago lux 80' }), msgs)
+  const reaction = atOct('R1', {
+    reactionMessage: { key: { remoteJid: G, fromMe: true, id: 'BOT-ASK' }, text: '👍', senderTimestampMs: OCT },
+  })
+  assert.equal(must(toMessage(reaction, msgs)).text, '👍')
+  s = step(s, reaction, msgs)
+  assert.equal(s.months['2026-10']?.[1]?.amount, 8000)
+})
+
+test('an edit timestamp in the future is clamped to now', () => {
+  const recent: Recent = new Map()
+  const future = Math.floor(Date.UTC(2031, 0, 15) / 1000)
+  const u: WAMessageUpdate = {
+    key: { remoteJid: G, id: 'E1', fromMe: false, participant: P },
+    update: { message: { editedMessage: { message: { conversation: '/pago luz 80' } } }, messageTimestamp: future },
+  }
+  assert.equal(must(toEdit(u, recent, () => OCT)).at, OCT)
+  const s = decide(billsState('Luz'), must(toEdit(u, recent, () => OCT)), ctxPt).state
+  assert.deepEqual(Object.keys(s.months), ['2026-10'])
+  const past = { ...u, update: { ...u.update, messageTimestamp: OCT / 1000 - 60 } }
+  assert.equal(must(toEdit(past, recent, () => OCT)).at, OCT - 60_000)
+})
+
+test('a reused message id keeps the first stored receipt; replies quoting the same message each keep their own', async () => {
+  const { ev, seen, msgs } = wired()
+  const img = (url: string) => ({ url, directPath: '/v/t62/x', mediaKey: new Uint8Array(32), mimetype: 'image/jpeg' })
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [wam('X', { imageMessage: { ...img('https://mmg.whatsapp.net/victim'), caption: '/pago luz' } })],
+  })
+  const other = { key: { id: 'X', remoteJid: G, fromMe: false, participant: 'outro@s.whatsapp.net' } }
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [wam('X', { imageMessage: img('https://mmg.whatsapp.net/attacker') }, other)],
+  })
+  let got = ''
+  const dl = (async (m: WAMessage) => {
+    got = `${m.key.participant} ${m.message?.imageMessage?.url}`
+    return Readable.from([Buffer.from('jpg')])
+  }) as unknown as typeof downloadMediaMessage
+  await download(must((seen[0] as MessageInput).media), msgs, ctx, dl)
+  assert.equal(got, `${P} https://mmg.whatsapp.net/victim`)
+  const quote = (id: string, url: string) =>
+    wam(id, {
+      extendedTextMessage: {
+        text: '/pago luz',
+        contextInfo: { stanzaId: 'r9', quotedMessage: { imageMessage: img(url) } },
+      },
+    })
+  ev.fire('messages.upsert', {
+    type: 'notify',
+    messages: [quote('q1', 'https://mmg.whatsapp.net/first'), quote('q2', 'https://mmg.whatsapp.net/second')],
+  })
+  await download(must((seen[2] as MessageInput).quoted), msgs, ctx, dl)
+  assert.match(got, /\/first$/)
+  await download(must((seen[3] as MessageInput).quoted), msgs, ctx, dl)
+  assert.match(got, /\/second$/)
+})
+
+test('a media-retry reupload pointing outside whatsapp.net is refused', async () => {
+  const msgs: Messages = new Map()
+  const m = must(
+    toMessage(
+      wam('M1', {
+        imageMessage: {
+          url: 'https://mmg.whatsapp.net/gone',
+          directPath: '/gone',
+          mediaKey: new Uint8Array(32),
+          mimetype: 'image/jpeg',
+        },
+      }),
+      msgs,
+    ),
+  )
+  const fetched: string[] = []
+  const dl = (async (
+    msg: WAMessage,
+    _t: string,
+    _o: unknown,
+    c: { reuploadRequest(x: WAMessage): Promise<WAMessage> },
+  ) => {
+    const fresh = await c.reuploadRequest(msg)
+    fetched.push(new URL(getUrlFromDirectPath(must(fresh.message?.imageMessage?.directPath))).host)
+    return Readable.from([Buffer.from('x')])
+  }) as unknown as typeof downloadMediaMessage
+  const reuploadRequest = async (x: WAMessage) => {
+    const im = must(x.message?.imageMessage)
+    im.directPath = '@192.168.1.10:8123/api/states'
+    im.url = getUrlFromDirectPath(im.directPath)
+    return x
+  }
+  await assert.rejects(download(must(m.media), msgs, { reuploadRequest, logger: silent }, dl), /host refused/)
+  assert.deepEqual(fetched, [])
+})
+
+test('invite codes never reach the logs, resolved or failed', async () => {
+  const lines: string[] = []
+  const log = { info: (o: object) => lines.push(JSON.stringify(o)), warn: (o: object) => lines.push(JSON.stringify(o)) }
+  const s = {
+    groupGetInviteInfo: async (code: string) => {
+      if (code === 'SECRETbadCODE456') throw new Error('revoked')
+      return { id: G, subject: 'Casa' }
+    },
+  }
+  await resolveInviteCodes(s, { groups: new Set(), log }, ['SECRETinviteCODE123', 'SECRETbadCODE456'])
+  assert.equal(lines.length, 2)
+  assert.ok(!lines.some(l => l.includes('SECRET')), lines.join('\n'))
+})
+
+test('message text is capped at 2000 characters', () => {
+  const m = must(toMessage(wam('L1', { conversation: `/pago luz ${'x'.repeat(10_000)}` }), new Map()))
+  assert.equal(m.text.length, 2000)
+})
+
+test('a download takes an abort signal: refused up front, handed to Baileys, and cuts a running stream', async () => {
+  const msgs: Messages = new Map()
+  const m = must(
+    toMessage(
+      wam('A1', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
+  let calls = 0
+  const done = new AbortController()
+  done.abort(new Error('late'))
+  const never = (async () => {
+    calls++
+    return Readable.from([])
+  }) as unknown as typeof downloadMediaMessage
+  await assert.rejects(download(must(m.media), msgs, ctx, never, done.signal), /late/)
+  assert.equal(calls, 0)
+  const abort = new AbortController()
+  let given: unknown
+  const stream = new Readable({ read() {} })
+  const dl = (async (_m: WAMessage, _t: string, o: { options?: { signal?: AbortSignal } }) => {
+    given = o.options?.signal
+    stream.push(Buffer.from('ab'))
+    return stream
+  }) as unknown as typeof downloadMediaMessage
+  const run = download(must(m.media), msgs, ctx, dl, abort.signal)
+  await new Promise(r => setImmediate(r))
+  abort.abort(new Error('receipt read timed out'))
+  await assert.rejects(run, /timed out/)
+  assert.equal(given, abort.signal)
+  assert.equal(stream.destroyed, true)
+})
+
+test('an abort also cuts the steps before the stream: the download call and a media re-upload', async () => {
+  const msgs: Messages = new Map()
+  const m = must(
+    toMessage(
+      wam('A2', { imageMessage: { mimetype: 'image/jpeg', fileLength: 4, url: 'https://mmg.whatsapp.net/x' } }),
+      msgs,
+    ),
+  )
+  const stuckDl = (async () => new Promise(() => {})) as unknown as typeof downloadMediaMessage
+  const viaReupload = (async (
+    msg: WAMessage,
+    _t: string,
+    _o: unknown,
+    c: { reuploadRequest(x: WAMessage): Promise<WAMessage> },
+  ) => {
+    await c.reuploadRequest(msg)
+    return Readable.from([Buffer.from('x')])
+  }) as unknown as typeof downloadMediaMessage
+  const stuckReupload = { reuploadRequest: () => new Promise<WAMessage>(() => {}), logger: silent }
+  for (const [dl, c] of [
+    [stuckDl, ctx],
+    [viaReupload, stuckReupload],
+  ] as const) {
+    const abort = new AbortController()
+    setTimeout(() => abort.abort(new Error('receipt read timed out')), 5)
+    await assert.rejects(download(must(m.media), msgs, c, dl, abort.signal), /timed out/)
+  }
 })

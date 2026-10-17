@@ -56,13 +56,13 @@ test('every message kind renders in every language', () => {
     { k: 'pagoSyntax' },
     { k: 'futureMonth' },
     { k: 'unknownCmd', typed: 'x', suggestion: null },
-    { k: 'unknownSub', typed: 'x', suggestion: 'pausa' },
+    { k: 'unknownSub', typed: 'x', suggestion: 'pause' },
     { k: 'updated' },
-    { k: 'askAmount', bill: 'Luz' },
+    { k: 'askAmount', bill: 'Luz', read: true },
+    { k: 'askAmount', bill: 'Luz', read: false },
     { k: 'askConfirm', cmd: 'pago', bill: 'Luz', amount: 8000, month: null },
     { k: 'askBill', names: ['Luz', 'Água'] },
     { k: 'askOneOff', name: 'Farmácia' },
-    { k: 'noAmount' },
     { k: 'editIgnored', payment: true },
     { k: 'editIgnored', payment: false },
     { k: 'nameTaken', name: 'Luz' },
@@ -115,4 +115,21 @@ test('makeLocale reads language, currency and time zone, falling back to Sao Pau
   assert.equal(makeLocale('es', 'EUR', '').decimal, ',')
   assert.throws(() => makeLocale('fr', 'EUR', ''), /BOT_LANG/)
   assert.throws(() => makeLocale('pt-BR', 'R$', ''), /BOT_CURRENCY/)
+})
+
+test('the amount question claims a failed read only when the AI tried one', () => {
+  assert.equal(
+    render({ k: 'askAmount', bill: 'Luz', read: false }, loc('pt-BR')),
+    'qual foi o valor de Luz? Responda só o valor, ex: 80,00',
+  )
+  assert.match(render({ k: 'askAmount', bill: 'Luz', read: true }, loc('pt-BR')), /não consegui ler/)
+  assert.doesNotMatch(render({ k: 'askAmount', bill: 'Power', read: false }, loc('en', 'USD', '.')), /read/)
+  assert.match(render({ k: 'askAmount', bill: 'Power', read: false }, loc('en', 'USD', '.')), /80\.00/)
+  assert.doesNotMatch(render({ k: 'askAmount', bill: 'Luz', read: false }, loc('es')), /leer/)
+})
+
+test('help names the despago aliases in every language', () => {
+  assert.match(render({ k: 'help' }, loc('pt-BR')), /\/despago .*\/reverter/)
+  assert.match(render({ k: 'help' }, loc('en')), /\/unpaid .*\/revert\b/)
+  assert.match(render({ k: 'help' }, loc('es')), /\/despagado .*\/revertir/)
 })

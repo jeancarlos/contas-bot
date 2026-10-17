@@ -20,7 +20,7 @@
   "dependencies": {
     "@clack/prompts": "^1.8.1",
     "@whiskeysockets/baileys": "7.0.0-rc14",
-    "pino": "^9.6.0",
+    "pino": "^10.4.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

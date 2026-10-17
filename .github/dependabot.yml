@@ -26,6 +26,9 @@ updates:
       default-days: 7
     commit-message:
       prefix: ci
+    groups:
+      codeql-action:
+        patterns: ['github/codeql-action/*']
 
   - package-ecosystem: docker
     directory: /

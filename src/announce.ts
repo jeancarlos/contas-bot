@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { open, readFile, realpath } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative } from 'node:path'
 import type { Lang } from './core/types.ts'
 export type Entry = { en: string; 'pt-BR'?: string; es?: string }
@@ -75,6 +75,11 @@ export async function loadGif(src: string, dataDir: string, fetchFn: typeof fetc
   const target = await realpath(join(root, basename(src)))
   const rel = relative(root, target)
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) throw new Error('gif outside the data dir')
-  if ((await stat(target)).size > MAX_GIF) throw new Error('gif too large')
-  return readFile(target)
+  const file = await open(target, 'r')
+  try {
+    if ((await file.stat()).size > MAX_GIF) throw new Error('gif too large')
+    return await file.readFile()
+  } finally {
+    await file.close()
+  }
 }

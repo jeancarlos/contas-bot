@@ -131,3 +131,16 @@ test('the publish step passes each gh argument as one word, for a release and a 
     '[release][create][v2.0.0-rc1][dist/install.sh][dist/install.sh.intoto.jsonl][--prerelease][--generate-notes][--verify-tag]\n',
   )
 })
+
+test('dependabot auto-merge runs on pull_request, pins its action and never merges a major', () => {
+  const wf = read('.github/workflows/dependabot-automerge.yml')
+  assert.match(wf, /^on: pull_request$/m)
+  assert.doesNotMatch(wf, /pull_request_target/)
+  assert.match(wf, /if: github\.actor == 'dependabot\[bot\]'/)
+  for (const u of wf.match(/uses: .*/g) ?? [])
+    assert.match(u, /^uses: [\w.-]+\/[\w.-]+@[0-9a-f]{40} # v\d+(?:\.\d+\.\d+)?$/, u)
+  assert.match(wf, /semver-patch.*semver-minor.*update-type/)
+  assert.doesNotMatch(wf, /update-type !=/)
+  assert.match(wf, /gh pr merge --auto --merge/)
+  assert.match(wf, /^permissions:\n {2}contents: read$/m)
+})

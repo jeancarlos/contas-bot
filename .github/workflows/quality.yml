@@ -70,5 +70,5 @@ jobs:
           cat metrics.txt
           docker run --rm -i --entrypoint promtool prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 check metrics < metrics.txt
           grep -Eq '^contas_whatsapp_connected [01]$' metrics.txt
-          curl -fsS "http://127.0.0.1:$HTTP_PORT/summary.json" \
-            | node -e 'const s = JSON.parse(require("fs").readFileSync(0, "utf8")); if (!Array.isArray(s.groups)) process.exit(1)'
+          curl -fsS -o summary.json "http://127.0.0.1:$HTTP_PORT/summary.json"
+          node -e 'const s = JSON.parse(require("fs").readFileSync("summary.json", "utf8")); if (!Array.isArray(s.groups)) process.exit(1)'

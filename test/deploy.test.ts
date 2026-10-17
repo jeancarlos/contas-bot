@@ -49,7 +49,8 @@ test('every workflow action is pinned to a commit and only the release job can w
   for (const file of ['ci.yml', 'release.yml']) {
     const uses = read(`.github/workflows/${file}`).match(/uses: .*/g) ?? []
     assert.ok(uses.length > 0, file)
-    for (const u of uses) assert.match(u, /^uses: [\w.-]+\/[\w.-]+@[0-9a-f]{40} # v\d+$/, `${file}: ${u}`)
+    for (const u of uses)
+      assert.match(u, /^uses: [\w.-]+\/[\w.-]+@[0-9a-f]{40} # v\d+(?:\.\d+\.\d+)?$/, `${file}: ${u}`)
   }
   const release = read('.github/workflows/release.yml')
   assert.match(release, /^permissions: \{\}$/m)

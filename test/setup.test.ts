@@ -112,6 +112,9 @@ test('composeFile pins the image and imageTag reads the version back', () => {
   assert.match(c, /user: "\$\{PUID\}:\$\{PGID\}"/)
   assert.equal(imageTag(c), '1.2.3')
   assert.equal(imageTag('services: {}'), null)
+  const digest = `sha256:${'a'.repeat(64)}`
+  assert.equal(imageTag(composeFile(`ghcr.io/jeancarlos/contas-bot:1.2.3@${digest}`)), '1.2.3')
+  assert.equal(imageTag(composeFile(`localhost:5000/contas-bot:1.2.3@${digest}`)), '1.2.3')
 })
 
 test('a QR-paired session counts as paired even though registered is false', () => {

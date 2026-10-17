@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, writeFile, copyFile, symlink } from 'node:fs/promises'
 import { openStore } from '../src/adapters/store.ts'
 import { emptyState } from '../src/core/types.ts'
@@ -118,4 +119,50 @@ test('status counts the groups in contas.db as well as a leftover state.json', a
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
   })
   assert.match(r.stdout, /groups: 3$/m, r.stdout)
+})
+
+async function updateWithGh(gh: string | null) {
+  const dir = await install('1.2.0')
+  const bin = await mkdtemp(join(tmpdir(), 'bin-'))
+  const mark = join(dir, 'ran')
+  const real = spawnSync('sh', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  await writeFile(
+    join(bin, 'curl'),
+    `#!/bin/sh\ncase "$*" in *" -o "*) for a; do o=$a; done; prev=; for a; do [ "$prev" = -o ] && out=$a; prev=$a; done; printf 'touch %s\\n' '${mark}' > "$out" ;; *) exec ${real} "$@" ;; esac\n`,
+    { mode: 0o755 },
+  )
+  if (gh !== null) await writeFile(join(bin, 'gh'), gh, { mode: 0o755 })
+  const tty = join(dir, 'tty')
+  await writeFile(tty, 'y\n')
+  const r = spawnSync('sh', [join(dir, 'contas-bot'), 'update'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      CONTAS_BOT_API: await release('v1.3.0'),
+      CONTAS_BOT_TTY: tty,
+    },
+  })
+  return { r, ran: existsSync(mark) }
+}
+
+test('update refuses an installer whose attestation does not verify', async () => {
+  const { r, ran } = await updateWithGh('#!/bin/sh\n[ "$1" = auth ] && exit 0\nexit 1\n')
+  assert.equal(r.status, 1)
+  assert.match(r.stderr, /does not verify/)
+  assert.equal(ran, false)
+})
+
+test('update runs an installer whose attestation verifies', async () => {
+  const { r, ran } = await updateWithGh('#!/bin/sh\nexit 0\n')
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(ran, true)
+})
+
+test('update warns and still runs when gh is not authenticated', async () => {
+  const { r, ran } = await updateWithGh('#!/bin/sh\n[ "$1" = auth ] && exit 1\nexit 1\n')
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr, /not verified/)
+  assert.equal(ran, true)
 })

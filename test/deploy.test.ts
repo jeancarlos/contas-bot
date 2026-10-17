@@ -16,6 +16,15 @@ test('both compose files drop every capability and forbid privilege escalation',
   }
 })
 
+test('both compose files cap memory and processes and mount a read-only root with a tmpfs', () => {
+  for (const compose of [read('docker-compose.yml'), composeFile('ghcr.io/jeancarlos/contas-bot:2.0.0')]) {
+    assert.match(compose, /^ {4}read_only: true$/m)
+    assert.match(compose, /^ {4}tmpfs:\n {6}- \/tmp$/m)
+    assert.match(compose, /^ {4}mem_limit: 1g$/m)
+    assert.match(compose, /^ {4}pids_limit: 64$/m)
+  }
+})
+
 test('the image runs as the unprivileged node user unless compose says otherwise', () => {
   const lines = read('Dockerfile').trim().split('\n')
   const user = lines.indexOf('USER node')

@@ -112,6 +112,11 @@ export function composeFile(image: string): string {
     '    container_name: contas-bot',
     '    restart: unless-stopped',
     '    init: true',
+    '    read_only: true',
+    '    tmpfs:',
+    '      - /tmp',
+    '    mem_limit: 1g',
+    '    pids_limit: 64',
     `    user: "\${PUID}:\${PGID}"`,
     '    cap_drop:',
     '      - ALL',
@@ -129,7 +134,7 @@ export function composeFile(image: string): string {
 }
 
 export function imageTag(compose: string): string | null {
-  return /^\s*image:\s*\S+:(\S+)\s*$/m.exec(compose)?.[1] ?? null
+  return /^\s*image:\s*[^\s@]+:([^\s:@]+)(?:@\S+)?\s*$/m.exec(compose)?.[1] ?? null
 }
 
 export function paired(creds: string | null): boolean {

@@ -26,7 +26,13 @@ main() {
     "⚠️ Rootless Docker is not supported (bind-mount uid mapping). Use the standard Docker Engine." \
     "⚠️ Docker rootless no está soportado (mapeo de uid en los volúmenes). Usa el Docker Engine estándar." >&2 ;; esac
   mkdir -p "$DIR"
-  [ -n "${CONTAS_BOT_IMAGE:-}" ] || docker pull -q "$IMAGE" >/dev/null
+  if [ -z "${CONTAS_BOT_IMAGE:-}" ]; then
+    docker pull -q "$IMAGE" >/dev/null
+    pinned=$(docker image inspect -f '{{index .RepoDigests 0}}' "$IMAGE" 2>/dev/null | sed -n 's/^[^@]*@\(sha256:[0-9a-f]*\)$/\1/p')
+    [ -z "$pinned" ] || IMAGE="$IMAGE@$pinned"
+    CONTAS_BOT_IMAGE=$IMAGE
+    export CONTAS_BOT_IMAGE
+  fi
   if [ "${CONTAS_BOT_NO_START:-}" != 1 ] && [ -f "$DIR/docker-compose.yml" ]; then
     status=0
     trap 'status=$?; (cd "$DIR" && docker compose up -d) >/dev/null 2>&1 || true; exit "$status"' EXIT

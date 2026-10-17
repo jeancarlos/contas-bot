@@ -137,6 +137,41 @@ function rawGet(server: Server, target: string, host: string | null = 'x'): Prom
   })
 }
 
+test('with a token every route answers 401 unless the bearer header matches', async () => {
+  const server = await startHttp(deps({ token: 's3cret' }), 0, '127.0.0.1')
+  try {
+    const send = (auth: string | null) =>
+      new Promise<string>((resolve, reject) => {
+        const sock = connect((server.address() as AddressInfo).port, '127.0.0.1', () =>
+          sock.write(
+            `GET /export.json HTTP/1.1\r\nhost: x\r\n${auth === null ? '' : `authorization: ${auth}\r\n`}connection: close\r\n\r\n`,
+          ),
+        )
+        let out = ''
+        sock.on('data', c => {
+          out += c
+        })
+        sock.on('end', () => resolve(out.slice(9, 12)))
+        sock.on('error', reject)
+      })
+    assert.equal(await send(null), '401')
+    assert.equal(await send('Bearer nope'), '401')
+    assert.equal(await send('s3cret'), '401')
+    assert.equal(await send('Bearer s3cret'), '200')
+  } finally {
+    server.close()
+  }
+})
+
+test('startHttp listens only on the requested address', async () => {
+  const server = await startHttp(deps(), 0, '127.0.0.1')
+  try {
+    assert.equal((server.address() as AddressInfo).address, '127.0.0.1')
+  } finally {
+    server.close()
+  }
+})
+
 test('startHttp serves, survives a throw and refuses non-GET', async () => {
   const warns: object[] = []
   let boom = false

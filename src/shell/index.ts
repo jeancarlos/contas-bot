@@ -64,8 +64,10 @@ if (port > 0) {
       connected: () => ticks.connected(),
       log,
       hosts: env('HTTP_HOSTS').split(','),
+      token: env('HTTP_TOKEN') || undefined,
     },
     port,
+    env('HTTP_BIND') || undefined,
   ).then(
     () => log.info({ port }, 'http server listening'),
     err => log.error({ err }, 'http server failed to start, continuing without it'),

@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { isIP } from 'node:net'
 import { listMsg } from '../core/decide.ts'
@@ -15,6 +16,7 @@ export type HttpDeps = {
   connected(): boolean
   log: { warn(o: object, m?: string): void }
   hosts?: string[]
+  token?: string
 }
 type Reply = { status: number; type: string; body: string }
 
@@ -199,9 +201,20 @@ function hostOk(d: HttpDeps, host: string | undefined): boolean {
   return !name.includes('.') || isIP(name) !== 0 || (d.hosts ?? []).some(h => hostName(h) === name)
 }
 
-function route(d: HttpDeps, method: string | undefined, raw: string | undefined, host: string | undefined): Reply {
+const digest = (v: string) => createHash('sha256').update(v).digest()
+const tokenOk = (token: string, auth: string | undefined) =>
+  timingSafeEqual(digest(`Bearer ${token}`), digest(auth ?? ''))
+
+function route(
+  d: HttpDeps,
+  method: string | undefined,
+  raw: string | undefined,
+  host: string | undefined,
+  auth: string | undefined,
+): Reply {
   if (!hostOk(d, host)) return text(421, 'text/plain; charset=utf-8', 'misdirected request\n')
   if (method !== 'GET') return text(405, 'text/plain; charset=utf-8', 'method not allowed\n')
+  if (d.token && !tokenOk(d.token, auth)) return text(401, 'text/plain; charset=utf-8', 'unauthorized\n')
   let url: URL
   try {
     url = new URL(raw ?? '/', 'http://localhost')
@@ -216,15 +229,15 @@ function route(d: HttpDeps, method: string | undefined, raw: string | undefined,
   }
 }
 
-export function startHttp(d: HttpDeps, port: number): Promise<Server> {
+export function startHttp(d: HttpDeps, port: number, bind = '0.0.0.0'): Promise<Server> {
   const server = createServer((req, res) => {
-    const r = route(d, req.method, req.url, req.headers.host)
+    const r = route(d, req.method, req.url, req.headers.host, req.headers.authorization)
     res.writeHead(r.status, { ...HEADERS, 'content-type': r.type })
     res.end(r.body)
   })
   return new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(port, '0.0.0.0', () => {
+    server.listen(port, bind, () => {
       server.off('error', reject)
       server.on('error', err => d.log.warn({ err }, 'http server error'))
       resolve(server)

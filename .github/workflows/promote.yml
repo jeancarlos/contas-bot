@@ -1,0 +1,33 @@
+name: promote
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [develop]
+permissions: {}
+jobs:
+  promote:
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.repository_owner == 'jeancarlos'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: open the develop to main pull request and let it merge once its checks pass
+        run: |
+          if [ "$(gh api "repos/$GH_REPO/branches/develop" --jq .commit.sha)" != "$SHA" ]; then echo "develop moved on, a newer run will promote"; exit 0; fi
+          if [ "$(gh api "repos/$GH_REPO/compare/main...$SHA" --jq .ahead_by)" -eq 0 ]; then echo "main is up to date"; exit 0; fi
+          n=$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')
+          if [ -z "$n" ]; then
+            gh pr create --base main --head develop --title "release: develop to main" --body "Opened by promote after ci passed on $SHA."
+            n=$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')
+          fi
+          gh pr merge "$n" --auto --merge --match-head-commit "$SHA"

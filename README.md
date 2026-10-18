@@ -6,7 +6,7 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jeancarlos/contas-bot/badge)](https://scorecard.dev/viewer/?uri=github.com/jeancarlos/contas-bot)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/jeancarlos/contas-bot/badges/coverage.json)](https://github.com/jeancarlos/contas-bot/actions/workflows/quality.yml)
 [![release](https://img.shields.io/github/v/release/jeancarlos/contas-bot)](https://github.com/jeancarlos/contas-bot/releases/latest)
-[![license](https://img.shields.io/github/license/jeancarlos/contas-bot)](LICENSE)
+[![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![Node 22+](https://img.shields.io/badge/node-22%2B-blue)
 
 **Your household bills, handled in the WhatsApp group you already use.**

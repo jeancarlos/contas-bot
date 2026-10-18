@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -31,3 +32,9 @@ jobs:
             n=$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')
           fi
           gh pr merge "$n" --auto --merge --match-head-commit "$SHA"
+          for _ in $(seq 60); do
+            [ "$(gh pr view "$n" --json state --jq .state)" = MERGED ] && break
+            sleep 30
+          done
+          if [ "$(gh pr view "$n" --json state --jq .state)" != MERGED ]; then echo "PR #$n is not merged yet"; exit 0; fi
+          for w in quality security codeql scorecard pages; do gh workflow run "$w.yml" --ref main; done

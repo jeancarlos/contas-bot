@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildChangelog, MAINTENANCE, releaseNotes, UPGRADE } from '../scripts/changelog.ts'
+import { buildChangelog, changelogMarkdown, MAINTENANCE, releaseNotes, UPGRADE } from '../scripts/changelog.ts'
 
 const scratch = mkdtempSync(join(tmpdir(), 'cl-'))
 const empty = join(scratch, 'gitconfig')
@@ -133,4 +133,15 @@ test('a changelog note on a commit supplies or overrides its translations', () =
       ],
     },
   ])
+})
+
+test('the markdown changelog lists every release newest first, and says when one changed nothing for users', () => {
+  const md = changelogMarkdown([
+    { version: '2.0.0', entries: [{ en: 'new thing' }] },
+    { version: '1.9.9', entries: [] },
+  ])
+  assert.match(md, /^# Changelog\n/)
+  assert.ok(md.indexOf('## 2.0.0') < md.indexOf('## 1.9.9'))
+  assert.match(md, /## 2\.0\.0\n\n- new thing\n/)
+  assert.ok(md.includes(`## 1.9.9\n\n${MAINTENANCE}\n`))
 })

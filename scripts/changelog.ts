@@ -54,7 +54,16 @@ export function releaseNotes(r: Release): string {
   return `${body}\n\n${UPGRADE}`
 }
 
+export function changelogMarkdown(releases: Release[]): string {
+  const sections = releases.map(r => `## ${r.version}\n\n${r.entries.length ? r.entries.map(e => `- ${e.en}`).join('\n') : MAINTENANCE}`)
+  return `# Changelog\n\nWhat changed in each release of contas-bot, newest first. Generated from the release commit trailers by \`npm run changelog\`.\n\n${sections.join('\n\n')}\n`
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv[2] === '--md') {
+    writeFileSync(process.argv[3] ?? 'CHANGELOG.md', changelogMarkdown(buildChangelog('.')))
+    process.exit(0)
+  }
   const [outJson, notesFile, version] = process.argv.slice(2)
   if (!outJson || !notesFile || !version) {
     process.stderr.write('usage: changelog.ts <outJson> <notesFile> <version>\n')

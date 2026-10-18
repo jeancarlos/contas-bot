@@ -13,6 +13,10 @@ Bug reports and feature requests go to https://github.com/jeancarlos/contas-bot/
 
 Biome decides formatting and lint (`npm run lint`). Code is TypeScript run by Node 22.18 or newer with no build step. The project is GPL-3.0-or-later; by contributing you agree your changes are released under it.
 
+## Developer Certificate of Origin
+
+Every commit from a contributor other than the maintainer carries a `Signed-off-by: Your Name <you@example.org>` line, added with `git commit -s`. It means you assert the Developer Certificate of Origin 1.1 (https://developercertificate.org/): you wrote the change or have the right to submit it under GPL-3.0-or-later. The `dco` job in CI checks it on every pull request (`scripts/dco.ts`); the maintainer's own commits and bot commits are exempt.
+
 ## What makes a contribution acceptable
 
 A change is acceptable when it keeps the project's scope (see GOVERNANCE.md), passes `npm run check` and `npm run coverage`, comes with a test, follows the style Biome enforces, keeps every source file's SPDX header, and does not move a trust boundary without updating docs/ASSURANCE.md. A bug fix adds a regression test that fails without the fix. Source files must be written in English, and issues and pull requests are accepted in English or Portuguese.

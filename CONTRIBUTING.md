@@ -29,6 +29,10 @@ Every change, from anyone, goes through a pull request into `develop`, and no ch
 
 Issues labelled `good first issue` are small and self-contained: https://github.com/jeancarlos/contas-bot/labels/good%20first%20issue.
 
+## Releases
+
+Before tagging a release, run `npm run changelog` and commit the regenerated `CHANGELOG.md`: it lists the user-facing changes of every release, built from the same commit trailers as the release notes.
+
 ## Bug reports and requests
 
 Bug reports and enhancement requests get a first response within 14 days. A report with the bot's version (`contas-bot status`) and the relevant log lines is fastest to fix. Fixed bugs close with a link to the change that fixed them.

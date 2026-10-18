@@ -13,7 +13,8 @@ import { connectWa } from '../../src/adapters/wa.ts'
 const G = 'grupo@g.us'
 const tick = () => new Promise(r => setImmediate(r))
 const until = async (done: () => boolean | Promise<boolean>) => {
-  for (let i = 0; i < 500 && !(await done()); i++) await tick()
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline && !(await done())) await tick()
 }
 
 class FakeSocket {

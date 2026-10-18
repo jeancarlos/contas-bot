@@ -9,7 +9,8 @@ import { parseTrailers } from './changelog-lint.ts'
 
 const LOGGED = /^(feat|fix)(\(.+\))?!?:\s*(.*)$/
 const SEMVER = /^v(\d+)\.(\d+)\.(\d+)$/
-const MAINTENANCE = 'Maintenance release.'
+export const MAINTENANCE = 'No user-visible changes in this release: internal, dependency and security maintenance.'
+export const UPGRADE = 'Upgrade: run `contas-bot update`. Your settings, history and WhatsApp session are kept.'
 
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')))
 const git = (cwd: string, ...args: string[]) =>
@@ -47,8 +48,10 @@ export function buildChangelog(repoDir: string): Release[] {
 }
 
 export function releaseNotes(r: Release): string {
-  if (!r.entries.length) return MAINTENANCE
-  return r.entries.map(e => `- ${e.en}${e['pt-BR'] ? `\n  ${e['pt-BR']}` : ''}`).join('\n')
+  const body = r.entries.length
+    ? r.entries.map(e => `- ${e.en}${e['pt-BR'] ? `\n  ${e['pt-BR']}` : ''}`).join('\n')
+    : MAINTENANCE
+  return `${body}\n\n${UPGRADE}`
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -61,5 +64,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const rel = all.find(r => r.version === version)
   for (const f of [outJson, notesFile]) mkdirSync(dirname(resolve(f)), { recursive: true })
   writeFileSync(outJson, JSON.stringify(all, null, 2))
-  writeFileSync(notesFile, rel ? releaseNotes(rel) : MAINTENANCE)
+  writeFileSync(notesFile, releaseNotes(rel ?? { version, entries: [] }))
 }

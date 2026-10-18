@@ -30,3 +30,11 @@ test('promote dispatches every workflow that only runs on a push to main, since 
 test('ci-local drops the git hook environment so a linked worktree is not rewritten by the tests', () => {
   assert.match(read('scripts/ci-local.sh'), /\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE\n/)
 })
+
+test('no workflow runs on a pull request into main, since the promote bot opens those and every run it triggers fails at startup', () => {
+  for (const f of workflows) {
+    const src = read(`.github/workflows/${f}`)
+    if (!/\n {2}pull_request:|\non:\n {2}pull_request:/.test(src)) continue
+    assert.match(src, /pull_request:\n {4}branches: \[develop\]/, `${f} must limit pull_request to develop`)
+  }
+})

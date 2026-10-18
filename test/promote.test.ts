@@ -38,3 +38,10 @@ test('no workflow runs on a pull request into main, since the promote bot opens 
     assert.match(src, /pull_request:\n {4}branches: \[develop\]/, `${f} must limit pull_request to develop`)
   }
 })
+
+test('promote merges the release pull request directly when it is already clean, since auto-merge refuses a clean one', () => {
+  assert.match(
+    read('.github/workflows/promote.yml'),
+    /gh pr merge "\$n" --auto --merge --match-head-commit "\$SHA" \|\| gh pr merge "\$n" --merge --match-head-commit "\$SHA"/,
+  )
+})

@@ -426,19 +426,28 @@ const sentId = (sent: WAMessage | undefined) => {
   return id
 }
 
-export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }> {
+type ConnectDeps = {
+  makeSocket: typeof makeWASocket
+  version: typeof waVersionOnce
+  auth: typeof useMultiFileAuthState
+}
+
+export async function connectWa(
+  cfg: Cfg,
+  deps: ConnectDeps = { makeSocket: makeWASocket, version: waVersionOnce, auth: useMultiFileAuthState },
+): Promise<{ forGroup(jid: string): Wa }> {
   let pairingCodeAt = 0
   let idle = false
   let reconnects = 0
   let announced = ''
   const recent: Recent = new Map()
   const msgs: Messages = new Map()
-  const { state, saveCreds } = await useMultiFileAuthState(cfg.authDir)
+  const { state, saveCreds } = await deps.auth(cfg.authDir)
   const on = gate(cfg.groups, cfg)
   const sockLog = cfg.log.child({ mod: 'baileys' }, { level: 'warn' })
 
   const resolveVersion = async () => {
-    const wa = await waVersionOnce()
+    const wa = await deps.version()
     const v = wa.version.join('.')
     if (v + wa.live !== announced) {
       announced = v + wa.live
@@ -501,7 +510,7 @@ export async function connectWa(cfg: Cfg): Promise<{ forGroup(jid: string): Wa }
   }
 
   function start(version: WAVersion) {
-    const s = makeWASocket({
+    const s = deps.makeSocket({
       auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, sockLog) },
       logger: sockLog,
       version,

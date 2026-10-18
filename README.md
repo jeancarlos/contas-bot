@@ -6,7 +6,7 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jeancarlos/contas-bot/badge)](https://scorecard.dev/viewer/?uri=github.com/jeancarlos/contas-bot)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/jeancarlos/contas-bot/badges/coverage.json)](https://github.com/jeancarlos/contas-bot/actions/workflows/quality.yml)
 [![release](https://img.shields.io/github/v/release/jeancarlos/contas-bot)](https://github.com/jeancarlos/contas-bot/releases/latest)
-[![license](https://img.shields.io/github/license/jeancarlos/contas-bot)](LICENSE)
+[![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![Node 22+](https://img.shields.io/badge/node-22%2B-blue)
 
 **Your household bills, handled in the WhatsApp group you already use.**
@@ -65,6 +65,20 @@ Bot:   ✅
 | `/lista` | repost and repin the list |
 | `/conta` | list the bills; `/conta adiciona <name>`, `remove`, `pausa`, `continua`, `renomeia <name> = <new>` |
 | `/ajuda` | every command, with examples |
+
+### One example per command
+
+| You send | The bot replies |
+|---|---|
+| `/pago luz` | updates the list with ✅ luz and the new total, asking for the amount if the receipt gave none |
+| `/pago cartão nu 6.237,60 09/2026` | marks the bill paid with that amount in September 2026 |
+| `/pago avulsa presente 120` | adds a one-off `presente` of R$ 120,00 to this month's list |
+| `/despago luz` | puts luz back to ⬜ and drops its amount from the total |
+| `/lista` | posts the month's list again and pins it |
+| `/conta` | shows the bills (⏸️ marks paused ones) and the `/conta` subcommands |
+| `/conta adiciona internet` | adds `internet` to the bills |
+| `/conta renomeia luz = energia` | renames luz to energia, keeping its history |
+| `/ajuda` | lists every command with an example, in your language |
 
 Bill names ignore accents and case, and a unique prefix is enough (`/pago cond`). Everything that isn't a slash command is left alone, except a direct answer to a question the bot just asked you.
 

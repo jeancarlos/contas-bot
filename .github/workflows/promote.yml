@@ -31,7 +31,7 @@ jobs:
             gh pr create --base main --head develop --title "release: develop to main" --body "Opened by promote after ci passed on $SHA."
             n=$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')
           fi
-          gh pr merge "$n" --auto --merge --match-head-commit "$SHA"
+          gh pr merge "$n" --auto --merge --match-head-commit "$SHA" || gh pr merge "$n" --merge --match-head-commit "$SHA"
           for _ in $(seq 60); do
             [ "$(gh pr view "$n" --json state --jq .state)" = MERGED ] && break
             sleep 30

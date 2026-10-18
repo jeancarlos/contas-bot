@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildChangelog, releaseNotes } from '../scripts/changelog.ts'
+import { buildChangelog, MAINTENANCE, releaseNotes, UPGRADE } from '../scripts/changelog.ts'
 
 const scratch = mkdtempSync(join(tmpdir(), 'cl-'))
 const empty = join(scratch, 'gitconfig')
@@ -60,9 +60,9 @@ test('builds releases newest first from feat/fix commits', () => {
   ])
   const [first, second] = got
   assert.ok(first && second)
-  assert.equal(releaseNotes(second), '- side\n  feat: side pt\n- b\n  fix: b pt')
-  assert.equal(releaseNotes(first), '- old style')
-  assert.equal(releaseNotes({ version: '9', entries: [] }), 'Maintenance release.')
+  assert.equal(releaseNotes(second), `- side\n  feat: side pt\n- b\n  fix: b pt\n\n${UPGRADE}`)
+  assert.equal(releaseNotes(first), `- old style\n\n${UPGRADE}`)
+  assert.equal(releaseNotes({ version: '9', entries: [] }), `${MAINTENANCE}\n\n${UPGRADE}`)
 })
 
 test('no tags gives an empty list', () => {
@@ -111,9 +111,9 @@ test('CLI ignores a polluted GIT_DIR and writes only versions up to the requeste
     JSON.parse(readFileSync(out, 'utf8')).map((r: { version: string }) => r.version),
     ['1.1.0', '1.0.0'],
   )
-  assert.equal(readFileSync(notes, 'utf8'), '- two')
+  assert.equal(readFileSync(notes, 'utf8'), `- two\n\n${UPGRADE}`)
   assert.equal(run('1.2.0').status, 0)
-  assert.equal(readFileSync(notes, 'utf8'), 'Maintenance release.')
+  assert.equal(readFileSync(notes, 'utf8'), `${MAINTENANCE}\n\n${UPGRADE}`)
 })
 
 test('a changelog note on a commit supplies or overrides its translations', () => {

@@ -14,7 +14,7 @@ Answers for <https://www.bestpractices.dev> (passing level). Project URL: <https
 | maintained | Met | commits every week, see the commit history |
 | repo_public, repo_track, repo_interim, repo_distributed | Met | public git repository on GitHub |
 | version_unique, version_semver, version_tags | Met | tags vX.Y.Z (semantic versioning), one per release |
-| release_notes | Met | GitHub release notes built from CHANGELOG.json by `scripts/changelog.ts` at each tag |
+| release_notes | Met | https://github.com/jeancarlos/contas-bot/releases: each release lists the user-facing changes in English and Portuguese, or says there are none, and ends with the upgrade impact (`contas-bot update`, settings and history kept); built from CHANGELOG.json by scripts/changelog.ts, never from the git log |
 | release_notes_vulns | N/A | no publicly known vulnerability fixed in a release so far; SECURITY.md promises the CVE in the notes when one exists |
 | report_process, report_tracker, report_responses, enhancement_responses, report_archive | Met | GitHub issues, CONTRIBUTING.md "Bug reports and requests" (first response within 14 days) |
 | vulnerability_report_process, vulnerability_report_private, vulnerability_report_response | Met | SECURITY.md, GitHub private vulnerability reporting, 7 day acknowledgement |
@@ -28,5 +28,6 @@ Answers for <https://www.bestpractices.dev> (passing level). Project URL: <https
 | vulnerabilities_fixed_60_days, vulnerabilities_critical_fixed | Met | none known open; OSV scanner and Trivy in security.yml, Dependabot |
 | no_leaked_credentials | Met | gitleaks in security.yml, secrets only in `.env` and `auth/`, both ignored by git |
 | static_analysis, static_analysis_fixed, static_analysis_often | Met | CodeQL on push to main and develop and weekly (codeql.yml), Biome, tsc |
+| static_analysis_common_vulnerabilities | Met | CodeQL runs the `security-extended` query suite for JavaScript/TypeScript and for GitHub Actions workflows (codeql.yml), which covers injection, path traversal, unsafe deserialization and similar |
 | dynamic_analysis, dynamic_analysis_enable_assertions | Met | .github/workflows/dynamic.yml runs the fuzz and property tests (fast-check) on every `v*` tag and weekly; assertions are on in `node --test` |
 | dynamic_analysis_unsafe, dynamic_analysis_fixed | N/A | memory-safe language |

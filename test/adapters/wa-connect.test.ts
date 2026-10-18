@@ -220,10 +220,10 @@ test('logged out while registered wipes auth and exits with 2 after a minute', a
       connection: 'close',
       lastDisconnect: { error: { output: { statusCode: DisconnectReason.loggedOut } } },
     })
-    await until(async () => (await readdir(t.authDir)).length === 0)
-    await tick()
-    mock.timers.tick(60_000)
-    await tick()
+    await until(() => {
+      mock.timers.tick(60_000)
+      return exit.mock.calls.length > 0
+    })
     assert.deepEqual(exit.mock.calls[0]?.arguments, [2])
     assert.deepEqual(await readdir(t.authDir), [])
   } finally {

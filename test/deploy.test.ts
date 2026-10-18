@@ -136,7 +136,7 @@ test('the publish step passes each gh argument as one word, for a release and a 
 
 test('dependabot auto-merge runs on pull_request, pins its action and never merges a major', () => {
   const wf = read('.github/workflows/dependabot-automerge.yml')
-  assert.match(wf, /^on: pull_request$/m)
+  assert.match(wf, /^on:\n {2}pull_request:\n {4}branches: \[develop\]$/m)
   assert.doesNotMatch(wf, /pull_request_target/)
   assert.match(wf, /if: github\.actor == 'dependabot\[bot\]'/)
   for (const u of wf.match(/uses: .*/g) ?? [])

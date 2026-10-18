@@ -5,34 +5,26 @@ import { access, appendFile, chmod, copyFile, mkdir, readFile, rename, rm, write
 import { join } from 'node:path'
 import type { Lang } from './core/types.ts'
 import {
-  AI_PRESETS,
   allowEmpty,
-  envSafe,
   LANGS,
   answersFromDotenv,
   answersFromEnv,
   buildEnv,
   composeFile,
-  defaultCurrency,
   detectMode,
   imageTag,
-  keyFor,
   mergeAnswers,
   savedIds,
   missingAnswers,
-  normalizePhone,
   parseEnv,
   probeAi,
-  resolveAi,
-  validCurrency,
-  validGroup,
-  validUrl,
   withDefaults,
   type Answers,
   type Mode,
   type Pairing,
 } from './setup/core.ts'
 import { SETUP_TEXT, type SetupText } from './setup/i18n.ts'
+import { ask, check as askCheck, describe, type Ui } from './setup/ask.ts'
 import { pair, qrHtml, renderQrSvg } from './setup/pair.ts'
 
 const DIR = process.env.CONTAS_BOT_SETUP_DIR ?? '/setup'
@@ -44,166 +36,16 @@ const interactive = Boolean(process.stdin.isTTY)
 let tx: SetupText = SETUP_TEXT['pt-BR']
 const read = (f: string) => readFile(join(DIR, f), 'utf8').catch(() => null)
 
-function check<T>(v: T): Exclude<T, symbol> {
-  if (p.isCancel(v)) {
-    p.cancel(tx.cancelled)
-    process.exit(130)
-  }
-  return v as Exclude<T, symbol>
+const ui: Ui = { text: tx, io: {}, exit: code => process.exit(code), probe: probeAi }
+const check = <T>(v: T) => {
+  ui.text = tx
+  return askCheck(ui, v)
 }
 
 async function writeRuntime() {
   await writeFile(join(DIR, 'docker-compose.yml'), composeFile(IMAGE))
   await copyFile(CLI, join(DIR, 'contas-bot'))
   await chmod(join(DIR, 'contas-bot'), 0o755)
-}
-
-function describe(a: {
-  lang?: string
-  currency?: string
-  pairing?: string
-  phone?: string
-  ai?: Answers['ai']
-  model?: string
-  hasKey: boolean
-  group?: string
-  tz?: string
-}): string {
-  const pairing =
-    a.pairing === 'code'
-      ? `${tx.pairingCode}${a.phone ? `: +${a.phone}` : ''}`
-      : a.pairing === 'qr'
-        ? tx.pairingQr
-        : '—'
-  return [
-    `${a.lang ?? '—'} · ${a.currency ?? '—'} · ${pairing}`,
-    a.ai === 'none' ? tx.aiNone : `${a.ai ?? '—'} · ${a.model || '—'} · ${a.hasKey ? '••••' : '—'}`,
-    a.group || '—',
-    a.tz ?? '—',
-  ].join('\n')
-}
-
-async function askBasics(a: Partial<Answers>) {
-  a.lang = check(
-    await p.select<Lang>({
-      message: 'Idioma · Language',
-      initialValue: a.lang,
-      options: [
-        { value: 'pt-BR', label: 'Português (Brasil)' },
-        { value: 'en', label: 'English' },
-        { value: 'es', label: 'Español' },
-      ],
-    }),
-  )
-  tx = SETUP_TEXT[a.lang]
-  a.currency = check(
-    await p.text({
-      message: tx.currency,
-      initialValue: a.currency ?? defaultCurrency(a.lang),
-      validate: v => (validCurrency(v ?? '') ? undefined : tx.currencyInvalid),
-    }),
-  )
-    .trim()
-    .toUpperCase()
-  a.pairing = check(
-    await p.select<Pairing>({
-      message: tx.pairing,
-      initialValue: a.pairing,
-      options: [
-        { value: 'qr', label: tx.pairingQr },
-        { value: 'code', label: tx.pairingCode },
-      ],
-    }),
-  )
-  if (a.pairing === 'code') {
-    a.phone =
-      normalizePhone(
-        check(
-          await p.text({
-            message: tx.phone,
-            initialValue: a.phone,
-            validate: v => (normalizePhone(v ?? '') ? undefined : tx.phoneInvalid),
-          }),
-        ),
-      ) ?? ''
-  }
-}
-
-async function askEndpoint(a: Partial<Answers>) {
-  a.llmUrl = check(
-    await p.text({
-      message: tx.aiUrl,
-      initialValue: a.llmUrl,
-      validate: v => (!validUrl(v ?? '') ? tx.aiUrlInvalid : envSafe(v ?? '') ? undefined : tx.noQuotes),
-    }),
-  ).trim()
-  a.visionModel = check(
-    await p.text({
-      message: tx.aiModel,
-      initialValue: a.visionModel,
-      validate: v => (!v?.trim() ? tx.required : envSafe(v) ? undefined : tx.noQuotes),
-    }),
-  ).trim()
-}
-
-async function askKey(ai: Exclude<Answers['ai'], 'none'>, kept: string | undefined): Promise<string> {
-  const preset = ai === 'custom' ? '' : AI_PRESETS[ai].keyUrl
-  const typed = check(
-    await p.password({
-      message: kept ? `${tx.aiKey(preset)} (${tx.keyKept})` : tx.aiKey(preset),
-      validate: v => (preset && !kept && !v?.trim() ? tx.required : envSafe(v ?? '') ? undefined : tx.noQuotes),
-    }),
-  ).trim()
-  return typed || kept || ''
-}
-
-async function askAi(a: Partial<Answers>, source?: Partial<Answers>) {
-  a.ai = check(
-    await p.select<Answers['ai']>({
-      message: tx.ai,
-      initialValue: a.ai,
-      options: [
-        { value: 'gemini', label: tx.aiGemini, hint: tx.aiGeminiHint },
-        { value: 'openai', label: tx.aiOpenai },
-        { value: 'custom', label: tx.aiCustom, hint: tx.aiCustomHint },
-        { value: 'none', label: tx.aiNone, hint: tx.aiNoneHint },
-      ],
-    }),
-  )
-  const explicit = a.llmKey || undefined
-  a.llmKey = undefined
-  while (a.ai !== 'none') {
-    if (a.ai === 'custom') await askEndpoint(a)
-    a.llmKey = await askKey(a.ai, explicit ?? keyFor({ ai: a.ai, llmUrl: a.llmUrl }, source))
-    const s = p.spinner()
-    s.start(tx.aiChecking)
-    const ok = await probeAi(
-      resolveAi({ ai: a.ai, llmUrl: a.llmUrl ?? '', llmKey: a.llmKey, visionModel: a.visionModel ?? '' }),
-    )
-    s.stop(ok ? tx.aiOk : tx.aiFailed)
-    if (ok || !check(await p.confirm({ message: tx.aiRetry }))) break
-  }
-}
-
-async function ask(pre: Partial<Answers>, source?: Partial<Answers>): Promise<Answers> {
-  const a: Partial<Answers> = { ...pre }
-  await askBasics(a)
-  await askAi(a, source)
-  a.group = check(
-    await p.text({
-      message: tx.group,
-      initialValue: a.group,
-      validate: v => (!validGroup(v ?? '') ? tx.groupInvalid : envSafe(v ?? '') ? undefined : tx.noQuotes),
-    }),
-  ).trim()
-  const full = withDefaults(a) as Answers
-  const shown = resolveAi(full)
-  p.note(describe({ ...full, model: shown.model, hasKey: Boolean(shown.key) }), tx.summary)
-  if (!check(await p.confirm({ message: tx.confirm }))) {
-    p.cancel(tx.cancelled)
-    process.exit(130)
-  }
-  return full
 }
 
 const exists = (f: string) =>
@@ -218,7 +60,8 @@ async function install(
 ): Promise<Answers> {
   let a: Answers
   if (interactive) {
-    a = await ask(pre, o.source)
+    ui.text = tx
+    a = await ask(ui, pre, o.source)
   } else {
     const filled = withDefaults(pre)
     const missing = missingAnswers(filled)
@@ -267,7 +110,10 @@ async function consentEmpty(mode: Mode, saved: Record<string, string>, rewrites:
   await appendFile(join(DIR, '.env'), `${text === '' || text.endsWith('\n') ? '' : '\n'}ALLOW_EMPTY_STATE=1\n`)
 }
 async function reviewExisting(saved: Record<string, string>, d: Partial<Answers>): Promise<boolean> {
-  p.note(describe({ ...d, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }), tx.existingTitle)
+  p.note(
+    describe(tx, { ...d, model: saved.LLM_VISION_MODEL ?? '', hasKey: Boolean(saved.LLM_API_KEY) }),
+    tx.existingTitle,
+  )
   return (
     check(
       await p.select<'keep' | 'review'>({

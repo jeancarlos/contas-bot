@@ -84,7 +84,7 @@ Bill names ignore accents and case, and a unique prefix is enough (`/pago cond`)
 
 ## How it's built
 
-One small Node 22 process speaking WhatsApp through [Baileys](https://github.com/WhiskeySockets/Baileys). TypeScript runs directly on Node, state lives in SQLite (`node:sqlite`, one transaction per change), and the whole thing ships as one Docker container.
+One small Node 22 process speaking WhatsApp through [Baileys](https://github.com/WhiskeySockets/Baileys). TypeScript runs directly on Node, state lives in SQLite (`node:sqlite`, one transaction per change), and the whole thing ships as one Docker container. The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```
 src/
